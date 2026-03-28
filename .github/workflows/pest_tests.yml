@@ -60,7 +60,7 @@ jobs:
             --force \
             --admin-name="Example" \
             --admin-email="admin@example.com" \
-            --admin-password="admin123"
+            --admin-password="Admin123456"
 
       - name: Running Pest Test
         run: vendor/bin/pest --colors=always

@@ -458,3 +458,16 @@ document.addEventListener('livewire:init', function () {
 | decoration-slice | box-decoration-slice |
 | decoration-clone | box-decoration-clone |
 </laravel-boost-guidelines>
+
+=== git conventions ===
+
+# Git Conventions
+
+Format: `type(scope): description`
+
+- **Types:** `feat`, `fix`, `chore`, `docs`, `ci`, `refactor`, `test`, `style`
+- **Primary scope for this app:** `erp`
+- PRs target `develop` branch; `main` is production
+
+> Full workflow, examples, and branch strategy: see the monorepo root [AGENTS.md](../../../AGENTS.md) and [Contributing Guide](../../../docs/guides/contributing.md)
+</laravel-boost-guidelines>

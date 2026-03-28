@@ -60,7 +60,7 @@ class TestBootstrapHelper
             '--force'          => true,
             '--admin-name'     => 'Test Admin',
             '--admin-email'    => 'admin@example.com',
-            '--admin-password' => 'admin123',
+            '--admin-password' => 'Admin123456',
         ]);
 
         static::$isERPInstalled = true;

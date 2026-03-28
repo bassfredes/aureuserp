@@ -239,6 +239,8 @@ class InstallERP extends Command
 
         $adminData['is_default'] = true;
 
+        $existingAdminUser = $userModel::where('email', $adminData['email'])->first();
+
         $adminUser = $userModel::updateOrCreate(['email' => $adminData['email']], $adminData);
 
         $defaultCompany->update(['creator_id' => $adminUser->id]);
@@ -253,7 +255,9 @@ class InstallERP extends Command
 
         $this->syncDefaultSettings($adminUser);
 
-        $this->info("✅ Admin user '{$adminUser->name}' created and assigned the '{$this->getAdminRoleName()}' role successfully.");
+        $action = $existingAdminUser ? 'updated' : 'created';
+
+        $this->info("✅ Admin user '{$adminUser->name}' {$action} and assigned the '{$this->getAdminRoleName()}' role successfully.");
     }
 
     /**
@@ -332,11 +336,22 @@ class InstallERP extends Command
             return 'The email address must be valid.';
         }
 
-        if ($userModel::where('email', $email)->exists()) {
+        if (
+            $userModel::where('email', $email)->exists()
+            && ! $this->shouldAllowExistingAdminEmail()
+        ) {
             return 'A user with this email address already exists.';
         }
 
         return null;
+    }
+
+    /**
+     * Allow reusing the admin email when the installer is intentionally re-run.
+     */
+    protected function shouldAllowExistingAdminEmail(): bool
+    {
+        return $this->option('force') || $this->isAlreadyInstalled();
     }
 
     /**

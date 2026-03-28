@@ -4,7 +4,7 @@ export async function loginAsAdmin(page:any) {
      */
     const adminCredentials = {
         email: "admin@example.com",
-        password: "admin123",
+        password: "Admin123456",
     };
 
     /**

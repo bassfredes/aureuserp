@@ -244,4 +244,16 @@ protected function isAccessible(User $user, ?string $path = null): bool
 - Always use existing Tailwind conventions; check project patterns before adding new ones.
 - IMPORTANT: Always use `search-docs` tool for version-specific Tailwind CSS documentation and updated code examples. Never rely on training data.
 - IMPORTANT: Activate `tailwindcss-development` every time you're working with a Tailwind CSS or styling-related task.
+
+=== git conventions ===
+
+# Git Conventions
+
+Format: `type(scope): description`
+
+- **Types:** `feat`, `fix`, `chore`, `docs`, `ci`, `refactor`, `test`, `style`
+- **Primary scope for this app:** `erp`
+- PRs target `develop` branch; `main` is production
+
+> Full workflow, examples, and branch strategy: see the monorepo root [AGENTS.md](../../AGENTS.md#git-conventions) and [Contributing Guide](../../docs/guides/contributing.md)
 </laravel-boost-guidelines>
