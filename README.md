@@ -306,7 +306,7 @@ We welcome contributions from the community! Whether you're fixing bugs, adding 
 
 4. **Commit Your Changes**
    ```bash
-   git commit -m "Add: Brief description of your changes"
+   git commit -m "feat(erp): brief description of your changes"
    ```
 
 5. **Push to Your Fork**
@@ -323,7 +323,7 @@ We welcome contributions from the community! Whether you're fixing bugs, adding 
 - Follow Laravel and Filament best practices
 - Maintain code quality with Laravel Pint: `vendor/bin/pint`
 - Write PHPUnit tests for new functionality
-- Use meaningful commit messages
+- Use conventional commit messages in the format `type(scope): description`, typically with scope `erp`
 
 ---
 

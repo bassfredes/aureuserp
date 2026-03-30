@@ -253,6 +253,8 @@ Format: `type(scope): description`
 
 - **Types:** `feat`, `fix`, `chore`, `docs`, `ci`, `refactor`, `test`, `style`
 - **Primary scope for this app:** `erp`
+- Use conventional/semantic commit messages for all ERP work. Do not use freeform prefixes such as `Add:`, `Update:`, `Fixes:`, or similar non-conventional formats.
+- Prefer `erp` as the default scope for submodule changes unless a more specific scope is explicitly documented for this repository.
 - PRs target `develop` branch; `main` is production
 
 > Full workflow, examples, and branch strategy: see the monorepo root [AGENTS.md](../../AGENTS.md#git-conventions) and [Contributing Guide](../../docs/guides/contributing.md)

@@ -1,4 +1,7 @@
 <laravel-boost-guidelines>
+Repository override: never add AI attribution trailers or co-author trailers to commit messages unless the user explicitly asks for them. This includes `Co-authored-by:` and any casing or spacing variant.
+Repository override: use conventional/semantic commit messages for ERP changes in the format `type(scope): description`, defaulting to scope `erp` unless this repository documents a narrower scope.
+
 === foundation rules ===
 
 # Laravel Boost Guidelines
