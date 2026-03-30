@@ -1,8 +1,8 @@
 {
   "private": true,
   "scripts": {
-    "dev": "tailwindcss -i resources/css/index.css -o resources/dist/fields.css --watch",
-    "build": "tailwindcss -i resources/css/index.css -o resources/dist/fields.css --minify"
+    "dev": "node ../../../scripts/plugin-styles.mjs --plugin fields --watch",
+    "build": "node ../../../scripts/plugin-styles.mjs --plugin fields --build"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.12",

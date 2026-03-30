@@ -1,8 +1,8 @@
 {
   "private": true,
   "scripts": {
-    "dev:styles": "tailwindcss -i resources/css/index.css -o resources/dist/plugin.css --watch",
-    "build:styles": "tailwindcss -i resources/css/index.css -o resources/dist/plugin.css --minify",
+    "dev:styles": "node ../../../scripts/plugin-styles.mjs --plugin plugin-manager --watch",
+    "build:styles": "node ../../../scripts/plugin-styles.mjs --plugin plugin-manager --build",
     "dev": "npm-run-all --parallel dev:*",
     "build": "npm-run-all build:*"
   },

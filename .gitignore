@@ -4,6 +4,21 @@
 /public/build
 /public/hot
 /public/storage
+/public/css/accounting/
+/public/css/bezhansalleh/
+/public/css/blogs/
+/public/css/chatter/
+/public/css/fields/
+/public/css/filament/
+/public/css/full-calendar/
+/public/css/guava/
+/public/css/malzariey/
+/public/css/plugins/
+/public/css/support/
+/public/css/table-views/
+/public/css/website/
+/public/fonts/filament/filament/inter/index.css
+/resources/css/*.css
 /storage/*.key
 /storage/pail
 /vendor
@@ -27,3 +42,5 @@ boost.json
 opencode.json
 /playwright-report
 /test-results
+/plugins/webkul/*/resources/css/*.css
+/plugins/webkul/*/resources/dist/*.css

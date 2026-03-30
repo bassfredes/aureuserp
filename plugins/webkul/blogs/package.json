@@ -1,8 +1,8 @@
 {
   "private": true,
   "scripts": {
-    "dev": "tailwindcss -i resources/css/index.css -o resources/dist/blogs.css --watch",
-    "build": "tailwindcss -i resources/css/index.css -o resources/dist/blogs.css --minify"
+    "dev": "node ../../../scripts/plugin-styles.mjs --plugin blogs --watch",
+    "build": "node ../../../scripts/plugin-styles.mjs --plugin blogs --build"
   },
   "devDependencies": {
     "@awcodes/filament-plugin-purge": "^1.1.1",

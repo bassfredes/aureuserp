@@ -6,6 +6,27 @@ permissions:
   contents: read
 
 jobs:
+  frontend_assets:
+    runs-on: ubuntu-latest
+
+    name: Frontend Assets Build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set Up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Node.js Dependencies
+        run: npm ci
+
+      - name: Build SCSS and Vite assets
+        run: npm run build
+
   pest_tests:
     runs-on: ${{ matrix.operating-systems }}
 
