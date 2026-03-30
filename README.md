@@ -313,6 +313,7 @@ We welcome contributions from the community! Whether you're fixing bugs, adding 
    ```bash
    git push origin feature/your-feature-name
    ```
+   > For AI agents working in this repository: never run `git push` automatically. Only push when the user explicitly asks for that push.
 
 6. **Submit a Pull Request**
    - Provide a clear description of the changes

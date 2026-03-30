@@ -256,6 +256,8 @@ Format: `type(scope): description`
 - Use conventional/semantic commit messages for all ERP work. Do not use freeform prefixes such as `Add:`, `Update:`, `Fixes:`, or similar non-conventional formats.
 - Prefer `erp` as the default scope for submodule changes unless a more specific scope is explicitly documented for this repository.
 - PRs target `develop` branch; `main` is production
+- Creating a commit does not imply permission to push it.
+- Never run `git push`, `git push origin`, or any force-push variant for ERP work unless the user explicitly requests that push in the current conversation.
 
 > Full workflow, examples, and branch strategy: see the monorepo root [AGENTS.md](../../AGENTS.md#git-conventions) and [Contributing Guide](../../docs/guides/contributing.md)
 </laravel-boost-guidelines>
