@@ -263,7 +263,7 @@
 * #856 [fixed] - fixed namespace issue in ci/cd.
 * #853 [fixed] - filament version upgrade 4.1.
 * #835 [fixed] - Add “Open Product” action in product repeater items.
-* #828 [fixed] - Update APP_NAME from AureusERP to YourERP.
+* #828 [fixed] - Update APP_NAME from AureusERP to IntelligentERP.
 * #822 [fixed] - Reorderable Columns.
 * #812 [fixed] - fixed unique name issue.
 * #813 [fixed] - Improve Page Navigation Layout for Clustered and Record Views.
