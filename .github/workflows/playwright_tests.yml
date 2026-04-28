@@ -58,26 +58,24 @@ jobs:
           ini-values: error_reporting=E_ALL
           tools: composer:v2
 
-      - name: Cache Node modules
-        uses: actions/cache@v4
+      - name: Set Up pnpm
+        uses: pnpm/action-setup@v4
         with:
-          path: tests/e2e-pw/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('tests/e2e-pw/package-lock.json') }}
-          restore-keys: ${{ runner.os }}-node-
+          version: 9.0.0
+          run_install: false
 
       - name: Set Up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install Node.js Dependencies
-        run: npm install
-        working-directory: tests/e2e-pw
+        run: pnpm install --frozen-lockfile
 
       - name: Install Playwright Browsers
-        run: |
-          sudo apt-get update --allow-releaseinfo-change
-          npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
         working-directory: tests/e2e-pw
 
       - name: Setting Environment mysql
@@ -132,7 +130,7 @@ jobs:
         env:
           BASE_URL: "http://127.0.0.1:8000"
         run: |
-          npx playwright test --reporter=list --config=playwright.config.ts --shard=${{ matrix.shard-index }}/${{ matrix.shard-total }}
+          pnpm exec playwright test --reporter=list --config=playwright.config.ts --shard=${{ matrix.shard-index }}/${{ matrix.shard-total }}
         working-directory: tests/e2e-pw
 
       - name: Upload Test Results
