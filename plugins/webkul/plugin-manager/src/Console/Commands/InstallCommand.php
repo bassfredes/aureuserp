@@ -43,7 +43,7 @@ class InstallCommand extends Command
 
     public function __construct(Package $package)
     {
-        $this->signature = $package->shortName().':install';
+        $this->signature = $package->shortName().':install {--as-dependency : Internal flag for dependency installs}';
 
         $this->description = 'Install '.$package->name;
 
@@ -54,6 +54,12 @@ class InstallCommand extends Command
 
     public function handle()
     {
+        if ($this->option('as-dependency') && $this->package->isInstalled()) {
+            $this->info("⏭️ Skipping <comment>{$this->package->shortName()}</comment> because it is already installed.");
+
+            return self::SUCCESS;
+        }
+
         if ($this->startWith) {
             ($this->startWith)($this);
         }
@@ -75,7 +81,7 @@ class InstallCommand extends Command
 
                     $this->newLine();
 
-                    $this->call($dependency.':install');
+                    $this->call($dependency.':install', ['--as-dependency' => true]);
                 }
 
                 $this->newLine();
@@ -104,7 +110,7 @@ class InstallCommand extends Command
 
                 $this->newLine();
 
-                $this->call($dependency.':install');
+                $this->call($dependency.':install', ['--as-dependency' => true]);
             }
 
             $this->newLine();
