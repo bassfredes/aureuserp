@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  Built with Laravel 11 • Powered by FilamentPHP 5 • PHP 8.3+
+  Built with Laravel 11 • Powered by FilamentPHP 5 • PHP 8.4+
 </p>
 
 ---
@@ -83,7 +83,7 @@ Whether you're managing accounting, inventory, HR, CRM, or projects, Aureus ERP 
 Ensure your development environment meets the following requirements:
 
 ### Server Requirements
--   **PHP**: 8.3 or higher
+-   **PHP**: 8.4 or higher
 -   **Database**: MySQL 8.0+ or SQLite 3.8.3+
 -   **Web Server**: Apache 2.4+ or Nginx 1.18+
 
