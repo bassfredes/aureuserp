@@ -30,7 +30,13 @@ class CompanyScope implements Scope
             ->unique()
             ->filter();
 
+        // An authenticated user with no company association sees nothing by
+        // default (fail closed) — the only sanctioned way to see across
+        // companies is the explicit, audited HasCompanyScope::forAllCompanies(),
+        // not an implicit exception baked into this scope.
         if ($companyIds->isEmpty()) {
+            $builder->whereRaw('1 = 0');
+
             return;
         }
 

@@ -61,6 +61,20 @@ it('does not filter orders when there is no authenticated user', function () {
     expect(Order::query()->count())->toBeGreaterThanOrEqual(1);
 });
 
+it('hides all orders from an authenticated user without company access', function () {
+    $company = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => null,
+    ]));
+
+    Order::factory()->create(['company_id' => $company->id]);
+
+    test()->actingAs($user);
+
+    expect(Order::query()->count())->toBe(0);
+});
+
 it('lets a super_admin bypass company isolation via forAllCompanies', function () {
     $companyA = Company::factory()->create();
     $companyB = Company::factory()->create();
