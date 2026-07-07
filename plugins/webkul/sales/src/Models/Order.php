@@ -29,10 +29,11 @@ use Webkul\Support\Models\Currency;
 use Webkul\Support\Models\UtmCampaign;
 use Webkul\Support\Models\UTMMedium;
 use Webkul\Support\Models\UTMSource;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class Order extends Model
 {
-    use HasChatter, HasCustomFields, HasFactory, HasLogActivity, HasPermissionScope, SoftDeletes;
+    use HasChatter, HasCompanyScope, HasCustomFields, HasFactory, HasLogActivity, HasPermissionScope, SoftDeletes;
 
     protected $table = 'sales_orders';
 

@@ -30,10 +30,11 @@ use Webkul\Support\Models\Currency;
 use Webkul\Support\Models\UtmCampaign;
 use Webkul\Support\Models\UTMMedium;
 use Webkul\Support\Models\UTMSource;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class Move extends Model implements Sortable
 {
-    use HasChatter, HasCustomFields, HasFactory, HasLogActivity, HasPermissionScope, SortableTrait;
+    use HasChatter, HasCompanyScope, HasCustomFields, HasFactory, HasLogActivity, HasPermissionScope, SortableTrait;
 
     protected $table = 'accounts_account_moves';
 
