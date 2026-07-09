@@ -33,7 +33,8 @@ class EditPayment extends EditRecord
     {
         return [
             ChatterAction::make()
-                ->resource(static::$resource),
+                ->resource(static::$resource)
+                ->activityPlans($this->getRecord()->activityPlans()),
             BaseActions\ConfirmAction::make(),
             BaseActions\ResetToDraftAction::make(),
             BaseActions\MarkAsSendAdnUnsentAction::make(),

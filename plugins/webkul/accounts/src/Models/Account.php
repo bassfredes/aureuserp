@@ -24,6 +24,7 @@ class Account extends Model
     protected $fillable = [
         'currency_id',
         'creator_id',
+        'parent_id',
         'account_type',
         'name',
         'code',
@@ -48,6 +49,36 @@ class Account extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'parent_id');
+    }
+
+    public function children(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_id');
+    }
+
+    public function descendants(): HasMany
+    {
+        return $this->children()->with('descendants');
+    }
+
+    public function getDescendantIds(): array
+    {
+        $ids = [];
+
+        foreach ($this->children as $child) {
+            $ids = [
+                ...$ids,
+                $child->id,
+                ...$child->getDescendantIds(),
+            ];
+        }
+
+        return $ids;
     }
 
     public function taxes(): BelongsToMany

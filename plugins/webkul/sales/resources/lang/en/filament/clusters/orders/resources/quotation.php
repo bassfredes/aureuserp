@@ -37,23 +37,24 @@ return [
                         'add-product' => 'Add Product',
 
                         'columns'     => [
-                            'product'             => 'Product',
-                            'product-variants'    => 'Product Variants',
-                            'product-simple'      => 'Product Simple',
-                            'quantity'            => 'Quantity',
-                            'uom'                 => 'UOM',
-                            'lead-time'           => 'Lead Time',
-                            'qty-delivered'       => 'Delivered',
-                            'qty-invoiced'        => 'Invoiced',
-                            'packaging-qty'       => 'Packaging Quantity',
-                            'packaging'           => 'Packaging',
-                            'unit-price'          => 'Unit Price',
-                            'cost'                => 'Cost',
-                            'margin'              => 'Margin',
-                            'taxes'               => 'Taxes',
-                            'amount'              => 'Amount',
-                            'margin-percentage'   => 'Margin (%)',
-                            'discount-percentage' => 'Discount (%)',
+                            'product'                    => 'Product',
+                            'product-variants'           => 'Product Variants',
+                            'product-simple'             => 'Product Simple',
+                            'quantity'                   => 'Quantity',
+                            'insufficient-stock-tooltip' => 'Insufficient stock to fulfill this demand.',
+                            'uom'                        => 'UOM',
+                            'lead-time'                  => 'Lead Time',
+                            'qty-delivered'              => 'Delivered',
+                            'qty-invoiced'               => 'Invoiced',
+                            'packaging-qty'              => 'Packaging Quantity',
+                            'packaging'                  => 'Packaging',
+                            'unit-price'                 => 'Unit Price',
+                            'cost'                       => 'Cost',
+                            'margin'                     => 'Margin',
+                            'taxes'                      => 'Taxes',
+                            'amount'                     => 'Amount',
+                            'margin-percentage'          => 'Margin (%)',
+                            'discount-percentage'        => 'Discount (%)',
                         ],
 
                         'fields'      => [
@@ -87,6 +88,12 @@ return [
                             'error' => [
                                 'title' => 'Cannot Delete Product',
                                 'body'  => 'Products cannot be deleted from a confirmed sales order.',
+                            ],
+                        ],
+
+                        'actions' => [
+                            'open-product' => [
+                                'tooltip' => 'Open product',
                             ],
                         ],
                     ],
@@ -159,6 +166,7 @@ return [
                     'shipping' => [
                         'title'  => 'Shipping',
                         'fields' => [
+                            'warehouse'       => 'Warehouse',
                             'commitment-date' => 'Delivery Date',
                         ],
                     ],
@@ -194,6 +202,7 @@ return [
         'columns' => [
             'number'             => 'Number',
             'status'             => 'Status',
+            'delivery-status'    => 'Delivery Status',
             'invoice-status'     => 'Invoice Status',
             'creation-date'      => 'Creation Date',
             'commitment-date'    => 'Commitment Date',
@@ -205,6 +214,12 @@ return [
             'amount-tax'         => 'Amount Tax',
             'amount-total'       => 'Amount Total',
             'customer-reference' => 'Customer Reference',
+        ],
+
+        'summarizers' => [
+            'total'        => 'Total',
+            'taxes'        => 'Taxes',
+            'total-amount' => 'Total Amount',
         ],
 
         'filters' => [
@@ -317,7 +332,9 @@ return [
                             'product-variants'    => 'Product Variants',
                             'product-simple'      => 'Product Simple',
                             'quantity'            => 'Quantity',
-                            'uom'                 => 'Unit Of Measure',
+                            'qty-delivered'       => 'Delivered',
+                            'qty-invoiced'        => 'Invoiced',
+                            'uom'                 => 'UOM',
                             'lead-time'           => 'Lead Time',
                             'packaging-qty'       => 'Packaging Quantity',
                             'packaging'           => 'Packaging',

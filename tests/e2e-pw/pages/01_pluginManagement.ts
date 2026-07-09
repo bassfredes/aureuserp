@@ -87,24 +87,4 @@ export class PluginManagementPage {
         await this.erpLocators.pluginConfirmButton.click();
         await expect(this.erpLocators.pluginSuccessMessage).toBeVisible();
     }
-
-    // /**
-    //  * Install Accounting Plugin
-    //  */
-    // async AccountingInstall() {
-    //     await this.erpLocators.pluginSearchInput.fill('Accounting');
-    //     await this.page.waitForTimeout(2000);
-    //     await this.erpLocators.pluginthreeDot.click();
-    //     if (await this.erpLocators.pluginUninstallButton.isVisible()) {
-    //         console.log('Accounting Plugin is already installed.');
-    //         return;
-    //     }else {
-    //     await this.erpLocators.pluginInstallButton.click();
-    //     await this.page.waitForTimeout(3000); // Wait for 3 seconds to allow installation to complete
-    //     await this.erpLocators.pluginConfirmButton.click();
-    //     console.log(`Installing Plugin: Accounting`);
-    //     await expect(this.erpLocators.pluginSuccessMessage).toBeVisible();
-    //     }
-    // }
-
 }

@@ -2,6 +2,7 @@
 
 namespace Webkul\Account\Filament\Resources\InvoiceResource\Actions;
 
+use Closure;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
@@ -15,6 +16,8 @@ use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\HtmlString;
+use Throwable;
+use Webkul\Account\Enums\JournalType;
 use Webkul\Account\Enums\MoveState;
 use Webkul\Account\Enums\PaymentState;
 use Webkul\Account\Enums\PaymentType;
@@ -26,6 +29,8 @@ use Webkul\Accounting\Models\Journal;
 
 class PayAction extends Action
 {
+    protected bool|Closure $hasDatabaseTransactions = true;
+
     public static function getDefaultName(): ?string
     {
         return 'customers.invoice.pay';
@@ -127,10 +132,10 @@ class PayAction extends Action
                                 ->relationship(
                                     'partnerBank',
                                     'account_number',
-                                     modifyQueryUsing: function (Builder $query, Get $get) {
+                                    modifyQueryUsing: function (Builder $query, Get $get) {
                                         $companyId = $get('company_id') ?? filament()->auth()->user()->default_company_id;
 
-                                        $bankAccountIds = \Webkul\Account\Models\Journal::where('type', \Webkul\Account\Enums\JournalType::BANK)
+                                        $bankAccountIds = \Webkul\Account\Models\Journal::where('type', JournalType::BANK)
                                             ->where('company_id', $companyId)
                                             ->pluck('bank_account_id')
                                             ->filter();
@@ -293,22 +298,31 @@ class PayAction extends Action
                     ->columns(2);
             })
             ->action(function (Move $record, $data): void {
-                $lineIds = $record->paymentTermLines
-                    ->filter(fn ($line) => ! $line->reconciled)
-                    ->pluck('id')
-                    ->toArray();
+                try {
+                    $lineIds = $record->paymentTermLines
+                        ->filter(fn ($line) => ! $line->reconciled)
+                        ->pluck('id')
+                        ->toArray();
 
-                $paymentRegister = PaymentRegister::create($data);
+                    $paymentRegister = PaymentRegister::create($data);
 
-                $paymentRegister->lines()->sync($lineIds);
+                    $paymentRegister->lines()->sync($lineIds);
 
-                $paymentRegister->refresh();
+                    $paymentRegister->refresh();
 
-                $paymentRegister->computeFromLines();
+                    $paymentRegister->computeFromLines();
 
-                $paymentRegister->save();
+                    $paymentRegister->save();
 
-                AccountFacade::createPayments($paymentRegister);
+                    AccountFacade::createPayments($paymentRegister);
+                } catch (Throwable $e) {
+                    Notification::make()
+                        ->danger()
+                        ->body($e->getMessage())
+                        ->send();
+
+                    $this->halt(shouldRollBackDatabaseTransaction: true);
+                }
             })
             ->hidden(function (Move $record) {
                 return $record->state != MoveState::POSTED

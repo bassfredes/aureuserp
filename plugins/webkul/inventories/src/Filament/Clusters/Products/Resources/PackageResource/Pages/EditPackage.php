@@ -40,7 +40,7 @@ class EditPackage extends EditRecord
                     ->label(__('inventories::filament/clusters/products/resources/package/pages/edit-package.header-actions.print.actions.without-content.label'))
                     ->color('gray')
                     ->action(function (Package $record) {
-                        $pdf = PDF::loadView('inventories::filament.clusters.products.packages.actions.print-without-content', [
+                        $pdf = Pdf::loadView('inventories::filament.clusters.products.packages.actions.print-without-content', [
                             'records' => collect([$record]),
                         ]);
 
@@ -54,7 +54,7 @@ class EditPackage extends EditRecord
                     ->label(__('inventories::filament/clusters/products/resources/package/pages/edit-package.header-actions.print.actions.with-content.label'))
                     ->color('gray')
                     ->action(function (Package $record) {
-                        $pdf = PDF::loadView('inventories::filament.clusters.products.packages.actions.print-with-content', [
+                        $pdf = Pdf::loadView('inventories::filament.clusters.products.packages.actions.print-with-content', [
                             'records' => collect([$record]),
                         ]);
 

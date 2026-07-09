@@ -70,11 +70,13 @@ use Webkul\Account\Filament\Resources\InvoiceResource\Pages\ViewInvoice;
 use Webkul\Account\Livewire\InvoiceSummary;
 use Webkul\Account\Models\CashRounding;
 use Webkul\Account\Models\Invoice;
+use Webkul\Account\Models\Journal;
 use Webkul\Account\Models\MoveLine;
 use Webkul\Account\Models\Partner;
 use Webkul\Account\Models\Product;
 use Webkul\Account\Models\Tax;
 use Webkul\Account\Settings\CustomerInvoiceSettings;
+use Webkul\Chatter\Filament\Actions\ActivityTableAction;
 use Webkul\Field\Filament\Forms\Components\ProgressStepper as FormProgressStepper;
 use Webkul\Field\Filament\Infolists\Components\ProgressStepper as InfolistProgressStepper;
 use Webkul\Product\Settings\ProductSettings;
@@ -318,7 +320,7 @@ class InvoiceResource extends Resource
                                                 modifyQueryUsing: function (Builder $query, Get $get) {
                                                     $companyId = $get('company_id') ?? filament()->auth()->user()->default_company_id;
 
-                                                    $bankAccountIds = \Webkul\Account\Models\Journal::where('type', \Webkul\Account\Enums\JournalType::BANK)
+                                                    $bankAccountIds = Journal::where('type', JournalType::BANK)
                                                         ->where('company_id', $companyId)
                                                         ->pluck('bank_account_id')
                                                         ->filter();
@@ -702,6 +704,7 @@ class InvoiceResource extends Resource
                     ]),
             ])
             ->recordActions([
+                ActivityTableAction::make(),
                 ActionGroup::make([
                     ViewAction::make(),
                     EditAction::make(),
@@ -1108,7 +1111,7 @@ class InvoiceResource extends Resource
                 TableColumn::make('uom_id')
                     ->label(__('accounts::filament/resources/invoice.form.tabs.invoice-lines.repeater.products.columns.unit'))
                     ->resizable()
-                    ->visible(fn () => resolve(ProductSettings::class)->enable_uom)
+                    ->visible(fn () => settings(ProductSettings::class)->enable_uom)
                     ->toggleable(),
                 TableColumn::make('price_unit')
                     ->label(__('accounts::filament/resources/invoice.form.tabs.invoice-lines.repeater.products.columns.unit-price'))

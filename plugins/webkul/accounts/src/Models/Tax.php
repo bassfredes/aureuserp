@@ -4,12 +4,12 @@ namespace Webkul\Account\Models;
 
 use Exception;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Webkul\Account\Database\Factories\TaxFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
 use Spatie\EloquentSortable\Sortable;
 use Spatie\EloquentSortable\SortableTrait;
+use Webkul\Account\Database\Factories\TaxFactory;
 use Webkul\Account\Enums\AmountType;
 use Webkul\Account\Enums\DocumentType;
 use Webkul\Account\Enums\TaxIncludeOverride;

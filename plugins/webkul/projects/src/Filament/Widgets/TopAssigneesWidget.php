@@ -25,7 +25,7 @@ class TopAssigneesWidget extends BaseWidget
         return 'widget_project_top_assignees_widget';
     }
 
-    public function getHeading(): string|Htmlable|null
+    protected function getTableHeading(): string|Htmlable|null
     {
         return __('projects::filament/widgets/top-assignees.heading.title');
     }

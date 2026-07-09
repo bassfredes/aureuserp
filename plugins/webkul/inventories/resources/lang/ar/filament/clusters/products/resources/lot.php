@@ -6,6 +6,11 @@ return [
         'group' => 'المخزون',
     ],
 
+    'global-search' => [
+        'ref'     => 'المرجع',
+        'product' => 'المنتج',
+    ],
+
     'form' => [
         'sections' => [
             'general' => [

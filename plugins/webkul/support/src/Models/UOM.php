@@ -86,6 +86,22 @@ class UOM extends Model
         return $amount;
     }
 
+    public function adjustUomQuantities($qty, $productUom)
+    {
+        $procurementUom = $this;
+
+        // TODO: Save this config
+        if (true) {
+            $computedQty = $this->computeQuantity($qty, $productUom, roundingMethod: 'HALF-UP');
+
+            $procurementUom = $productUom;
+        } else {
+            $computedQty = $this->computeQuantity($qty, $procurementUom, roundingMethod: 'HALF-UP');
+        }
+
+        return [$computedQty, $procurementUom];
+    }
+
     /**
      * Custom float rounding implementation
      *

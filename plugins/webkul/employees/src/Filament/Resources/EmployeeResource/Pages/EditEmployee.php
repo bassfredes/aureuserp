@@ -44,7 +44,7 @@ class EditEmployee extends EditRecord
 
     private function getActivityPlans(): mixed
     {
-        return ActivityPlan::where('plugin', 'employees')->pluck('name', 'id');
+        return ActivityPlan::employees()->pluck('name', 'id');
     }
 
     protected function mutateFormDataBeforeFill(array $data): array

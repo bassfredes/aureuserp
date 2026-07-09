@@ -23,15 +23,12 @@ use Filament\Tables\Filters\QueryBuilder\Constraints\RelationshipConstraint\Oper
 use Filament\Tables\Grouping\Group;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\Auth;
 use Webkul\Inventory\Enums\LocationType;
 use Webkul\Inventory\Enums\ProductTracking;
 use Webkul\Inventory\Filament\Clusters\Operations;
 use Webkul\Inventory\Filament\Clusters\Operations\Resources\QuantityResource\Pages\ManageQuantities;
 use Webkul\Inventory\Filament\Clusters\Products\Resources\LotResource;
 use Webkul\Inventory\Filament\Clusters\Products\Resources\PackageResource;
-use Webkul\Inventory\Filament\Clusters\Products\Resources\ProductResource;
-use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\Product;
 use Webkul\Inventory\Models\ProductQuantity;
 use Webkul\Inventory\Models\Warehouse;
@@ -195,7 +192,7 @@ class QuantityResource extends Resource
                     ->sortable()
                     ->placeholder('—')
                     ->toggleable(isToggledHiddenByDefault: false)
-                    ->visible(fn (ProductSettings $settings) => $settings->enable_uom),
+                    ->visible(static::getProductSettings()->enable_uom),
                 TextInputColumn::make('counted_quantity')
                     ->label(__('inventories::filament/clusters/operations/resources/quantity.table.columns.counted'))
                     ->sortable()
@@ -254,9 +251,9 @@ class QuantityResource extends Resource
                 ])->filter(function ($group) {
                     return match ($group->getId()) {
                         'location.full_name', 'storageCategory.name' => static::getWarehouseSettings()->enable_locations,
-                        'lot.name'     => static::getTraceabilitySettings()->enable_lots_serial_numbers,
-                        'package.name' => static::getOperationSettings()->enable_packages,
-                        default        => true
+                        'lot.name'                                   => static::getTraceabilitySettings()->enable_lots_serial_numbers,
+                        'package.name'                               => static::getOperationSettings()->enable_packages,
+                        default                                      => true
                     };
                 })->all()
             )
@@ -414,15 +411,11 @@ class QuantityResource extends Resource
 
                         $data['location_id'] = $data['location_id'] ?? Warehouse::first()->lot_stock_location_id;
 
-                        $data['creator_id'] = Auth::id();
-
                         $data['company_id'] = $product->company_id;
 
                         $data['inventory_quantity_set'] = true;
 
                         $data['inventory_diff_quantity'] = $data['counted_quantity'];
-
-                        $data['incoming_at'] = now();
 
                         $data['scheduled_at'] = now()->setDay(static::getOperationSettings()->annual_inventory_day)->setMonth(static::getOperationSettings()->annual_inventory_month);
 
@@ -464,46 +457,13 @@ class QuantityResource extends Resource
                             ->body(__('inventories::filament/clusters/operations/resources/quantity.table.actions.apply.notification.body')),
                     )
                     ->action(function (ProductQuantity $record) {
-                        $adjustmentLocation = Location::where('type', LocationType::INVENTORY)
-                            ->where('is_scrap', false)
-                            ->first();
-
                         $countedQuantity = $record->counted_quantity;
 
-                        $diffQuantity = $record->inventory_diff_quantity;
-
                         $record->update([
-                            'quantity'                => $countedQuantity,
-                            'counted_quantity'        => 0,
-                            'inventory_diff_quantity' => 0,
-                            'inventory_quantity_set'  => false,
+                            'quantity'               => $countedQuantity,
+                            'counted_quantity'       => 0,
+                            'inventory_quantity_set' => false,
                         ]);
-
-                        ProductQuantity::updateOrCreate(
-                            [
-                                'location_id' => $adjustmentLocation->id,
-                                'product_id'  => $record->product_id,
-                                'lot_id'      => $record->lot_id,
-                            ], [
-                                'quantity'               => -$record->product->on_hand_quantity,
-                                'company_id'             => $record->company_id,
-                                'creator_id'             => Auth::id(),
-                                'incoming_at'            => now(),
-                                'inventory_quantity_set' => false,
-                            ]
-                        );
-
-                        if ($diffQuantity < 0) {
-                            $sourceLocationId = $record->location_id;
-
-                            $destinationLocationId = $adjustmentLocation->id;
-                        } else {
-                            $sourceLocationId = $adjustmentLocation->id;
-
-                            $destinationLocationId = $record->location_id;
-                        }
-
-                        ProductResource::createMove($record, abs($diffQuantity), $sourceLocationId, $destinationLocationId);
                     }),
                 Action::make('clear')
                     ->label(__('inventories::filament/clusters/operations/resources/quantity.table.actions.clear.label'))
@@ -537,22 +497,22 @@ class QuantityResource extends Resource
 
     public static function getOperationSettings(): OperationSettings
     {
-        return once(fn () => app(OperationSettings::class));
+        return settings(OperationSettings::class);
     }
 
     public static function getProductSettings(): ProductSettings
     {
-        return once(fn () => app(ProductSettings::class));
+        return settings(ProductSettings::class);
     }
 
     public static function getTraceabilitySettings(): TraceabilitySettings
     {
-        return once(fn () => app(TraceabilitySettings::class));
+        return settings(TraceabilitySettings::class);
     }
 
     public static function getWarehouseSettings(): WarehouseSettings
     {
-        return once(fn () => app(WarehouseSettings::class));
+        return settings(WarehouseSettings::class);
     }
 
     public static function getPages(): array

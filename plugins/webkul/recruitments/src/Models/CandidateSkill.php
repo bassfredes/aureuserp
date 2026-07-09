@@ -5,11 +5,11 @@ namespace Webkul\Recruitment\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Auth;
 use Webkul\Employee\Models\Skill;
 use Webkul\Employee\Models\SkillLevel;
 use Webkul\Employee\Models\SkillType;
 use Webkul\Security\Models\User;
-use Illuminate\Support\Facades\Auth;
 
 class CandidateSkill extends Model
 {

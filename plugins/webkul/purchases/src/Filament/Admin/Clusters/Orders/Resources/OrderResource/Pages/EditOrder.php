@@ -22,6 +22,8 @@ class EditOrder extends EditRecord
 
     protected static string $resource = OrderResource::class;
 
+    protected ?bool $hasDatabaseTransactions = true;
+
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('edit', ['record' => $this->getRecord()]);
@@ -55,7 +57,8 @@ class EditOrder extends EditRecord
         return [
             ChatterAction::make()
                 ->record(Order::find($this->getRecord()->id))
-                ->resource(self::$resource),
+                ->resource(self::$resource)
+                ->activityPlans($this->getRecord()->activityPlans()),
             OrderActions\SendEmailAction::make(),
             OrderActions\SendPOEmailAction::make(),
             OrderActions\PrintRFQAction::make(),
@@ -104,7 +107,16 @@ class EditOrder extends EditRecord
 
     protected function afterSave(): void
     {
-        PurchaseOrder::computePurchaseOrder($this->getRecord());
+        try {
+            PurchaseOrder::computePurchaseOrder($this->getRecord());
+        } catch (\Exception $e) {
+            Notification::make()
+                ->danger()
+                ->body($e->getMessage())
+                ->send();
+
+            $this->halt(shouldRollbackDatabaseTransaction: true);
+        }
     }
 
     public function updateForm(): void

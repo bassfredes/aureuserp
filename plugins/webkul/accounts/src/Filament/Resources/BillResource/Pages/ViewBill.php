@@ -34,7 +34,8 @@ class ViewBill extends ViewRecord
     {
         return [
             ChatterAction::make()
-                ->resource($this->getResource()),
+                ->resource($this->getResource())
+                ->activityPlans($this->getRecord()->activityPlans()),
             BaseActions\PreviewAction::make()
                 ->setTemplate('accounts::bill/actions/preview.index'),
             BaseActions\PayAction::make(),

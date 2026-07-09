@@ -57,7 +57,7 @@ class TaxResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'name';
 
-    protected static ?\Filament\Pages\Enums\SubNavigationPosition $subNavigationPosition = SubNavigationPosition::Start;
+    protected static ?SubNavigationPosition $subNavigationPosition = SubNavigationPosition::Start;
 
     public static function form(Schema $schema): Schema
     {

@@ -1,3 +1,44 @@
+# 🚀 CHANGELOG — v1.4.0
+
+### 🧩 Features
+
+* Added Manufacturing module with Bill of Materials (BOM), Manufacturing Orders, Work Orders, Work Centers, and Operations sub-navigation
+* Added Sharding and Reporting support
+* #1175 Multi-language support with user preferences and session-based locale switching
+* #1160 Calendar management functionality refinements
+* #1198 Enhanced Package Type form with new fields for barcode, dimensions, and weight
+* #1178 Added parent-child relationship support for accounts
+* #1179 Added grouping for Chart of Accounts
+* #1194 Enhanced Activity Plans integration across multiple resources
+* Added support for Partial Return in inventory operations
+
+### ✨ Improvements
+
+* #1203 Upgraded framework and dependencies to Laravel 13
+* #1155 Added Playwright tests for Purchases plugin
+* #1150 Added translations consistency check command and CI workflow
+* #1149 Removed unused Arabic translation setup script
+* #1159 Refactored column manager component for improved readability and maintainability
+* #1164 Enhanced location model to update full name and parent path on creation and saving
+* #1200 Simplified top bar item button styling
+* #1176 Refactored message pinning logic and updated SVG icons in chatter
+* #1195 Updated chatter panel styles for improved header visibility in dark mode
+* #1177 Updated activity types URL and adjusted resource slug and cluster
+* #1174 Removed duplicate/unused Auth facade imports
+* Removed `phpunit` from `composer.json` (now managed via Laravel dev requirements)
+* Applied settings-driven values in place of hardcoded ones
+* Refactored `freeReservation` to use `update` instead of `decrement` for quantity adjustment
+
+### 🐛 Fixes
+
+* #1167 [fixed] - Issue #1167 resolved
+* #1188 [fixed] - Issue #1188 resolved
+* #1191 [fixed] - Issue #1191 resolved
+* #1192 [fixed] - Issue #1192 resolved
+* [fixed] - Sub-location issue in inventory
+* [fixed] - Sale order to inventory operation linking issue
+* [fixed] - Quantity availability and print package issues
+
 # 🚀 CHANGELOG — v1.3.1
 
 ### ✨ Improvements
@@ -13,8 +54,8 @@
 
 ### 🧩 Features
 
-* Added REST API support  
-* Generated API documentation  
+* Added REST API support
+* Generated API documentation
 
 ### ✨ Improvements
 
@@ -51,28 +92,28 @@
 * #1043 [fixed] - Blanket Order Functionality Not Working as Expected
 * #1045 [fixed] - Purchase Order Approval Minimum Amount Not Triggering Approval Flow
 * #1051 [fixed] - Register Payment Wizard Error After Paying Invoice
-* #1053 [fixed] - 500 Server Error When Adding Bank Account to Journal 
+* #1053 [fixed] - 500 Server Error When Adding Bank Account to Journal
 * #1055 [fixed] - Inactive Currencies Visible in Company/Branch Creation
 * #1057 [fixed] - Logged-in User Can Cause Deadlock When Changing Own Resource Permissions
 * #1058 [fixed] - Email Validation Conflict Between Contacts and Users
 * #1072 [fixed] - 500 Error When Force Deleting Used Company from Archived Tab
 * #1077 [fixed] - System Allows Creating Multiple Companies with Same Name (Name Should Be Unique)
 * #1079 [fixed] - Validation error when editing product attribute and adding new value
-* #1085 [fixed] - filament build artifacts neither gitignored nor committed 
-* #1086 [fixed] - Security: Missing Authorization on Multiple REST API Controllers 
-* #1094 [fixed] - Partner Not Saved in Journal Entry After Creation 
-* #1099 [fixed] - Bug: Invoice and Bill Datagrid Showing Incorrect Data 
-* #1101 [fixed] - Bug: Prevent Force Deleting a Product That Is Already in Use 
-* #1105 [fixed] - Bug: Quotation Attachment Not Visible in Email or Chatter 
-* #1110 [fixed] - Bug: Exception when removing product lines from RFQ with selected Purchase Agreement 
-* #1111 [fixed] - Bug: Deliveries not updating after quantity change in confirmed Sales Order 
-* #1114 [fixed] - Installation Failed Plugins 
-* #1116 [fixed] - Bug: Error when adding columns from Column Manager in Deliveries 
-* #1118 [fixed] - Bug: 500 Server Error When Sorting Roles Column in User List 
-* #1122 [fixed] - Bug: Product dropdown in repeaters shows variants of archived parent products  
-* #1123 [fixed] - Bug: Unit price updates incorrectly when changing quantity in RFQ created from Purchase Agreement  
-* #1130 [fixed] - Variant cost not updated when regenerating variants after product cost change 
-* #1131 [fixed] - Bug: Manage Stock Move Lines Vanish When Adding Multiple Entries 
+* #1085 [fixed] - filament build artifacts neither gitignored nor committed
+* #1086 [fixed] - Security: Missing Authorization on Multiple REST API Controllers
+* #1094 [fixed] - Partner Not Saved in Journal Entry After Creation
+* #1099 [fixed] - Bug: Invoice and Bill Datagrid Showing Incorrect Data
+* #1101 [fixed] - Bug: Prevent Force Deleting a Product That Is Already in Use
+* #1105 [fixed] - Bug: Quotation Attachment Not Visible in Email or Chatter
+* #1110 [fixed] - Bug: Exception when removing product lines from RFQ with selected Purchase Agreement
+* #1111 [fixed] - Bug: Deliveries not updating after quantity change in confirmed Sales Order
+* #1114 [fixed] - Installation Failed Plugins
+* #1116 [fixed] - Bug: Error when adding columns from Column Manager in Deliveries
+* #1118 [fixed] - Bug: 500 Server Error When Sorting Roles Column in User List
+* #1122 [fixed] - Bug: Product dropdown in repeaters shows variants of archived parent products
+* #1123 [fixed] - Bug: Unit price updates incorrectly when changing quantity in RFQ created from Purchase Agreement
+* #1130 [fixed] - Variant cost not updated when regenerating variants after product cost change
+* #1131 [fixed] - Bug: Manage Stock Move Lines Vanish When Adding Multiple Entries
 
 # 🚀 CHANGELOG — v1.3.0-BETA3
 

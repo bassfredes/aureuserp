@@ -1,6 +1,11 @@
 <?php
 
 return [
+    'global-search' => [
+        'reference' => 'المرجع',
+        'barcode'   => 'الباركود',
+    ],
+
     'form' => [
         'sections' => [
             'general' => [
@@ -51,8 +56,9 @@ return [
                 'title' => 'التسعير',
 
                 'fields' => [
-                    'price' => 'السعر',
-                    'cost'  => 'التكلفة',
+                    'price'           => 'السعر',
+                    'cost'            => 'التكلفة',
+                    'uom-placeholder' => 'وحدة القياس',
                 ],
             ],
 

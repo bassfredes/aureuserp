@@ -16,10 +16,30 @@ const targets = {
         preamble: ['@import "tailwindcss";'],
         tailwind: false,
     },
+    accounts: {
+        input: 'plugins/webkul/accounts/resources/scss/index.scss',
+        intermediate: 'plugins/webkul/accounts/resources/css/index.css',
+        output: 'plugins/webkul/accounts/resources/dist/accounts.css',
+        preamble: [
+            '@import "tailwindcss";',
+            '@variant dark (&:where(.dark, .dark *));',
+            "@source '../../resources/views';",
+        ],
+    },
     accounting: {
         input: 'plugins/webkul/accounting/resources/scss/index.scss',
         intermediate: 'plugins/webkul/accounting/resources/css/index.css',
         output: 'plugins/webkul/accounting/resources/dist/accounting.css',
+        preamble: [
+            '@import "tailwindcss";',
+            '@variant dark (&:where(.dark, .dark *));',
+            "@source '../../resources/views';",
+        ],
+    },
+    barcode: {
+        input: 'plugins/webkul/barcode/resources/scss/index.scss',
+        intermediate: 'plugins/webkul/barcode/resources/css/index.css',
+        output: 'plugins/webkul/barcode/resources/dist/barcode.css',
         preamble: [
             '@import "tailwindcss";',
             '@variant dark (&:where(.dark, .dark *));',
@@ -61,6 +81,16 @@ const targets = {
         input: 'plugins/webkul/full-calendar/resources/scss/app.scss',
         intermediate: 'plugins/webkul/full-calendar/resources/css/app.css',
         output: 'plugins/webkul/full-calendar/resources/dist/app.css',
+        preamble: [
+            '@import "tailwindcss";',
+            '@variant dark (&:where(.dark, .dark *));',
+            "@source '../../resources/views';",
+        ],
+    },
+    manufacturing: {
+        input: 'plugins/webkul/manufacturing/resources/scss/index.scss',
+        intermediate: 'plugins/webkul/manufacturing/resources/css/index.css',
+        output: 'plugins/webkul/manufacturing/resources/dist/manufacturing.css',
         preamble: [
             '@import "tailwindcss";',
             '@variant dark (&:where(.dark, .dark *));',

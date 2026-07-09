@@ -1,6 +1,10 @@
 name: Playwright Tests
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  merge_group:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -10,20 +14,17 @@ env:
 
 jobs:
   aureus_playwright_test:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        php-versions: ["8.3"]
+        php-versions: [8.4]
         node-version: ["22.13.1"]
-        shard-index: [1]
-        shard-total: [1]
-        # shard-index: [1, 2, 3, 4, 5, 6]
-        # shard-total: [6]
+        shard_index: [1, 2, 3, 4]
+        shard_total: [4]
 
-    name: Playwright Tests | Shard ${{ matrix.shard-index }} Of ${{ matrix.shard-total }}
+    name: Shard ${{ matrix.shard_index }} of ${{ matrix.shard_total }}
 
     services:
       mysql:
@@ -70,6 +71,13 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
+
+      - name: Cache Playwright Browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-playwright-
 
       - name: Install Node.js Dependencies
         run: pnpm install --frozen-lockfile
@@ -130,15 +138,68 @@ jobs:
         env:
           BASE_URL: "http://127.0.0.1:8000"
         run: |
-          pnpm exec playwright test --reporter=list --config=playwright.config.ts --shard=${{ matrix.shard-index }}/${{ matrix.shard-total }}
+          pnpm exec playwright test --reporter=list --config=playwright.config.ts --shard=${{ matrix.shard_index }}/${{ matrix.shard_total }}
         working-directory: tests/e2e-pw
 
-      - name: Upload Test Results
+      - name: Upload Blob Report
         uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ !cancelled() }}
         with:
-          name: test-results-${{ matrix.shard-index }}-${{ github.run_id }}-${{ github.run_number }}
+          name: blob-report-${{ matrix.shard_index }}
+          path: tests/e2e-pw/blob-report
+          retention-days: 1
+
+      - name: Upload Failure Artifacts
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-failures-${{ matrix.shard_index }}-${{ github.run_id }}-${{ github.run_number }}
           path: |
             tests/e2e-pw/test-results
             storage/logs/laravel.log
+          retention-days: 1
+
+  merge_playwright_reports:
+    if: ${{ always() && !cancelled() }}
+    needs:
+      - aureus_playwright_test
+    runs-on: ubuntu-latest
+    name: report
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set Up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.1"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Set Up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+          run_install: false
+
+      - name: Install Node.js Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download Blob Reports
+        uses: actions/download-artifact@v4
+        with:
+          path: tests/e2e-pw/all-blob-reports
+          pattern: blob-report-*
+          merge-multiple: true
+
+      - name: Merge Playwright Reports
+        run: pnpm exec playwright merge-reports --reporter html ./all-blob-reports
+        working-directory: tests/e2e-pw
+
+      - name: Upload HTML Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}-${{ github.run_number }}
+          path: tests/e2e-pw/playwright-report
           retention-days: 1

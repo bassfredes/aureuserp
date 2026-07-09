@@ -5,7 +5,6 @@ return [
 
     'navigation' => [
         'title' => 'العملات',
-        'group' => 'الإعدادات',
     ],
 
     'form' => [
@@ -43,6 +42,7 @@ return [
             'rates' => [
                 'title'       => 'أسعار الصرف',
                 'description' => 'إدارة أسعار الصرف التاريخية للعملة بالنسبة للعملة الأساسية (الدولار الأمريكي).',
+
                 'fields' => [
                     'name'              => 'التاريخ',
                     'unit-per-currency' => 'الوحدة لكل :currency',

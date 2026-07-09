@@ -30,8 +30,8 @@ class EditTask extends EditRecord
     {
         return [
             ChatterAction::make()
-                ->setResource(static::$resource)
-                ->setActivityPlans($this->getActivityPlans()),
+                ->resource(static::$resource)
+                ->activityPlans($this->getActivityPlans()),
             DeleteAction::make()
                 ->successNotification(
                     Notification::make()
@@ -44,6 +44,6 @@ class EditTask extends EditRecord
 
     private function getActivityPlans(): mixed
     {
-        return ActivityPlan::where('plugin', 'projects')->pluck('name', 'id');
+        return ActivityPlan::projects()->pluck('name', 'id');
     }
 }

@@ -42,7 +42,8 @@ class EditTimeOff extends EditRecord
     {
         return [
             ChatterAction::make()
-                ->resource(static::$resource),
+                ->resource(static::$resource)
+                ->activityPlans($this->getRecord()->activityPlans()),
             ViewAction::make(),
             DeleteAction::make()
                 ->successNotification(

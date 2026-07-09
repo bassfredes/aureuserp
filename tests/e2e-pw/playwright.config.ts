@@ -12,6 +12,18 @@ export const ADMIN_AUTH_STATE_PATH = `${STATE_DIR_PATH}/admin-auth.json`;
 
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
+const reporters = process.env.CI
+    ? [["list"], ["blob", { outputDir: "./blob-report" }]]
+    : [
+          ["list"],
+          [
+              "html",
+              {
+                  outputFolder: "./playwright-report",
+              },
+          ],
+      ];
+
 export default defineConfig({
     testDir: "./tests",
 
@@ -20,7 +32,7 @@ export default defineConfig({
 
     outputDir: "./test-results",
 
-    fullyParallel: false,
+    fullyParallel: !!process.env.CI,
     workers: 1,
 
     forbidOnly: !!process.env.CI,
@@ -28,18 +40,10 @@ export default defineConfig({
 
     reportSlowTests: null,
 
-    reporter: [
-        ["list"],
-        [
-            "html",
-            {
-                outputFolder: "./playwright-report",
-            },
-        ],
-    ],
+    reporter: reporters,
 
     use: {
-        baseURL: `http://127.0.0.1:8000`, //process.env.APP_URL,
+        baseURL: process.env.BASE_URL ?? "http://127.0.0.1:8000",
         screenshot: { mode: "only-on-failure", fullPage: true },
         video: "retain-on-failure",
         trace: "retain-on-failure",

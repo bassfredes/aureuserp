@@ -9,8 +9,8 @@ use Knuckles\Scribe\Attributes\Authenticated;
 use Knuckles\Scribe\Attributes\BodyParam;
 use Knuckles\Scribe\Attributes\Endpoint;
 use Knuckles\Scribe\Attributes\Group;
-use Knuckles\Scribe\Attributes\Subgroup;
 use Knuckles\Scribe\Attributes\Response;
+use Knuckles\Scribe\Attributes\Subgroup;
 use Knuckles\Scribe\Attributes\Unauthenticated;
 use Webkul\Security\Models\User;
 

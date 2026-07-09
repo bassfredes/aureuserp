@@ -5,11 +5,9 @@ return [
 
     'navigation' => [
         'title' => 'الموظفون',
-        'group' => 'الموظفون',
     ],
 
     'global-search' => [
-        'name'       => 'اسم الموظف',
         'department' => 'القسم',
         'work-email' => 'البريد الإلكتروني للعمل',
         'work-phone' => 'هاتف العمل',

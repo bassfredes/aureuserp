@@ -68,28 +68,23 @@ class AccrualPlanResource extends Resource
                         Group::make()
                             ->schema([
                                 TextInput::make('name')
-                                    ->label(__('Name'))
                                     ->label(__('time-off::filament/clusters/configurations/resources/accrual-plan.form.fields.name'))
                                     ->required(),
                                 Toggle::make('is_based_on_worked_time')
                                     ->inline(false)
-                                    ->label(__('Is Based On Worked Time'))
                                     ->label(__('time-off::filament/clusters/configurations/resources/accrual-plan.form.fields.is-based-on-worked-time')),
                                 Radio::make('accrued_gain_time')
-                                    ->label(__('Accrued Gain Time'))
                                     ->label(__('time-off::filament/clusters/configurations/resources/accrual-plan.form.fields.accrued-gain-time'))
                                     ->options(AccruedGainTime::class)
                                     ->default(AccruedGainTime::END->value)
                                     ->required(),
                                 Radio::make('carryover_date')
-                                    ->label(__('Carry-Over Time'))
                                     ->label(__('time-off::filament/clusters/configurations/resources/accrual-plan.form.fields.carry-over-time'))
                                     ->options(CarryoverDate::class)
                                     ->default(CarryoverDate::OTHER->value)
                                     ->live()
                                     ->required(),
                                 Fieldset::make()
-                                    ->label('Carry-Over Date')
                                     ->label(__('time-off::filament/clusters/configurations/resources/accrual-plan.form.fields.carry-over-date'))
                                     ->live()
                                     ->visible(function (Get $get) {
@@ -125,7 +120,6 @@ class AccrualPlanResource extends Resource
                                     ])->columns(2),
                                 Toggle::make('is_active')
                                     ->inline(false)
-                                    ->label(__('Status'))
                                     ->label(__('time-off::filament/clusters/configurations/resources/accrual-plan.form.fields.status')),
                             ]),
                     ])->columns(2)->columnSpanFull(),
@@ -173,7 +167,7 @@ class AccrualPlanResource extends Resource
                     ->schema([
                         Group::make()
                             ->schema([
-                                Section::make(__('Basic Information'))
+                                Section::make(__('time-off::filament/clusters/configurations/resources/accrual-plan.infolist.sections.basic-information'))
                                     ->schema([
                                         TextEntry::make('name')
                                             ->icon('heroicon-o-user')
@@ -193,12 +187,10 @@ class AccrualPlanResource extends Resource
                                         TextEntry::make('carryover_day')
                                             ->icon('heroicon-o-calendar')
                                             ->placeholder('—')
-                                            ->label(__('Carryover Day'))
                                             ->label(__('time-off::filament/clusters/configurations/resources/accrual-plan.infolist.entries.carry-over-day')),
                                         TextEntry::make('carryover_month')
                                             ->icon('heroicon-o-calendar')
                                             ->placeholder('—')
-                                            ->label(__('Carryover Month'))
                                             ->label(__('time-off::filament/clusters/configurations/resources/accrual-plan.infolist.entries.carry-over-month')),
                                     ]),
                             ])

@@ -4,12 +4,17 @@ namespace Webkul\Sale;
 
 use Filament\Panel;
 use Illuminate\Foundation\AliasLoader;
+use Illuminate\Support\Facades\Event;
 use Livewire\Livewire;
+use Webkul\Account\Events\MovePaid;
+use Webkul\Inventory\Events\OperationDone;
 use Webkul\PluginManager\Console\Commands\InstallCommand;
 use Webkul\PluginManager\Console\Commands\UninstallCommand;
 use Webkul\PluginManager\Package;
 use Webkul\PluginManager\PackageServiceProvider;
 use Webkul\Sale\Facades\SaleOrder as SaleOrderFacade;
+use Webkul\Sale\Listeners\ComputeSaleOrderListener;
+use Webkul\Sale\Listeners\SendSMSNotificationListener;
 use Webkul\Sale\Livewire\QuotationSummary;
 
 class SaleServiceProvider extends PackageServiceProvider
@@ -46,7 +51,9 @@ class SaleServiceProvider extends PackageServiceProvider
                 '2025_04_09_101755_add_inventories_columns_to_sales_orders_table_from_sales',
                 '2025_04_09_101814_add_inventories_columns_to_sales_order_lines_table_from_sales',
                 '2026_03_11_095519_alter_sales_order_lines_table',
-                '2026_03_11_103613_alter_sales_order_template_products_table'
+                '2026_03_11_103613_alter_sales_order_template_products_table',
+                '2026_04_08_043411_add_procurement_group_id_column_in_sales_orders_table_from_sales',
+                '2026_04_08_043511_add_sale_order_id_column_in_inventories_procurement_groups_table_from_sales',
             ])
             ->runsMigrations()
             ->hasSettings([
@@ -74,6 +81,10 @@ class SaleServiceProvider extends PackageServiceProvider
     public function packageBooted(): void
     {
         Livewire::component('quotation-summary', QuotationSummary::class);
+
+        Event::listen(OperationDone::class, ComputeSaleOrderListener::class);
+
+        Event::listen(MovePaid::class, SendSMSNotificationListener::class);
     }
 
     public function packageRegistered(): void

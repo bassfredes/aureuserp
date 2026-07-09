@@ -20,6 +20,8 @@ class EditInternal extends EditRecord
 
     protected static string $resource = InternalResource::class;
 
+    protected ?bool $hasDatabaseTransactions = true;
+
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('edit', ['record' => $this->getRecord()]);
@@ -37,7 +39,8 @@ class EditInternal extends EditRecord
     {
         return [
             ChatterAction::make()
-                ->resource(static::$resource),
+                ->resource(static::$resource)
+                ->activityPlans($this->getRecord()->activityPlans()),
             OperationActions\TodoAction::make(),
             OperationActions\CheckAvailabilityAction::make(),
             OperationActions\ValidateAction::make(),
@@ -76,6 +79,7 @@ class EditInternal extends EditRecord
                         ->title(__('inventories::filament/clusters/operations/resources/internal/pages/edit-internal.header-actions.delete.notification.success.title'))
                         ->body(__('inventories::filament/clusters/operations/resources/internal/pages/edit-internal.header-actions.delete.notification.success.body')),
                 ),
+            OperationActions\NextTransferAction::make(),
         ];
     }
 

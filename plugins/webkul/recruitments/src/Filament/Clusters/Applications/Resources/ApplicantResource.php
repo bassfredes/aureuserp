@@ -45,6 +45,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
+use Webkul\Chatter\Filament\Actions\ActivityTableAction;
 use Webkul\Field\Filament\Forms\Components\ProgressStepper as FormProgressStepper;
 use Webkul\Field\Filament\Infolists\Components\ProgressStepper as InfolistProgressStepper;
 use Webkul\Recruitment\Enums\ApplicationStatus;
@@ -661,6 +662,7 @@ class ApplicantResource extends Resource
             ->filtersFormColumns(2)
             ->filtersLayout(FiltersLayout::Dropdown)
             ->recordActions([
+                ActivityTableAction::make(),
                 ActionGroup::make([
                     ViewAction::make(),
                     EditAction::make(),
@@ -822,12 +824,12 @@ class ApplicantResource extends Resource
                                             ->formatStateUsing(fn ($state) => $state['label'])
                                             ->color(fn ($state) => Color::generateV3Palette($state['color']))
                                             ->listWithLineBreaks()
-                                            ->label('Tags'),
+                                            ->label(__('recruitments::filament/clusters/applications/resources/applicant.infolist.sections.general-information.entries.tags')),
                                         TextEntry::make('interviewer.name')
                                             ->icon('heroicon-o-user')
                                             ->placeholder('—')
                                             ->badge()
-                                            ->label('Interviewers'),
+                                            ->label(__('recruitments::filament/clusters/applications/resources/applicant.infolist.sections.general-information.entries.interviewer')),
                                     ])
                                     ->columns(2),
                                 Section::make()

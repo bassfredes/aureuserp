@@ -20,6 +20,8 @@ class EditQuotation extends EditRecord
 
     protected static string $resource = QuotationResource::class;
 
+    protected ?bool $hasDatabaseTransactions = true;
+
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('edit', ['record' => $this->getRecord()]);
@@ -37,6 +39,7 @@ class EditQuotation extends EditRecord
     {
         return [
             ChatterAction::make()
+                ->activityPlans($this->getRecord()->activityPlans())
                 ->resource($this->getResource()),
             BaseActions\BackToQuotationAction::make(),
             BaseActions\CancelQuotationAction::make(),
@@ -58,6 +61,15 @@ class EditQuotation extends EditRecord
 
     protected function afterSave(): void
     {
-        SaleOrder::computeSaleOrder($this->getRecord());
+        try {
+            SaleOrder::computeSaleOrder($this->getRecord());
+        } catch (\Exception $e) {
+            Notification::make()
+                ->danger()
+                ->body($e->getMessage())
+                ->send();
+
+            $this->halt(shouldRollbackDatabaseTransaction: true);
+        }
     }
 }

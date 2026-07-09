@@ -75,6 +75,7 @@ use Webkul\Account\Models\Partner;
 use Webkul\Account\Models\Product;
 use Webkul\Account\Models\Tax;
 use Webkul\Account\Settings\CustomerInvoiceSettings;
+use Webkul\Chatter\Filament\Actions\ActivityTableAction;
 use Webkul\Field\Filament\Forms\Components\ProgressStepper as FormProgressStepper;
 use Webkul\Field\Filament\Infolists\Components\ProgressStepper as InfolistProgressStepper;
 use Webkul\Product\Settings\ProductSettings;
@@ -665,6 +666,7 @@ class BillResource extends Resource
                     ]),
             ])
             ->recordActions([
+                ActivityTableAction::make(),
                 ActionGroup::make([
                     ViewAction::make(),
                     EditAction::make(),
@@ -1053,7 +1055,7 @@ class BillResource extends Resource
                     ->label(__('accounts::filament/resources/bill.form.tabs.invoice-lines.repeater.products.columns.unit'))
                     ->resizable()
                     ->markAsRequired()
-                    ->visible(fn () => resolve(ProductSettings::class)->enable_uom)
+                    ->visible(fn () => settings(ProductSettings::class)->enable_uom)
                     ->toggleable(),
                 TableColumn::make('price_unit')
                     ->label(__('accounts::filament/resources/bill.form.tabs.invoice-lines.repeater.products.columns.unit-price'))

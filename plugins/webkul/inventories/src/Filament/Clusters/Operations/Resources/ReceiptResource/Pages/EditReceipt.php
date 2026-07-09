@@ -19,6 +19,8 @@ class EditReceipt extends EditRecord
 {
     use HasRecordNavigationTabs, HasRepeaterColumnManager;
 
+    protected ?bool $hasDatabaseTransactions = true;
+
     protected static string $resource = ReceiptResource::class;
 
     protected function getRedirectUrl(): string
@@ -38,7 +40,8 @@ class EditReceipt extends EditRecord
     {
         return [
             ChatterAction::make()
-                ->resource(static::$resource),
+                ->resource(static::$resource)
+                ->activityPlans($this->getRecord()->activityPlans()),
             OperationActions\TodoAction::make(),
             OperationActions\ValidateAction::make(),
             OperationActions\CancelAction::make(),
@@ -76,6 +79,7 @@ class EditReceipt extends EditRecord
                         ->title(__('inventories::filament/clusters/operations/resources/receipt/pages/edit-receipt.header-actions.delete.notification.success.title'))
                         ->body(__('inventories::filament/clusters/operations/resources/receipt/pages/edit-receipt.header-actions.delete.notification.success.body')),
                 ),
+            OperationActions\NextTransferAction::make(),
         ];
     }
 

@@ -82,6 +82,9 @@ jobs:
           echo "=== Final .env configuration ==="
           cat .env
 
+      - name: Generating Application Key
+        run: php artisan key:generate
+
       - name: Running AureusERP Installer
         run: |
           php artisan erp:install \

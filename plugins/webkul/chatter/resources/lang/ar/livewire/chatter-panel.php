@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'heading' => 'المحادثات',
+
     'placeholders' => [
         'no-record-found' => 'لم يتم العثور على سجل.',
         'loading'         => 'جاري تحميل المحادثات...',
@@ -51,6 +53,11 @@ return [
 
     'mark-as-done' => [
         'title' => 'تعيين كمكتمل',
+        'actions' => [
+            'done' => [
+                'label' => 'تم',
+            ],
+        ],
         'form'  => [
             'fields' => [
                 'feedback' => 'الملاحظات',

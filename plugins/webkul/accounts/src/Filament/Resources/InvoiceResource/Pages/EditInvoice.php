@@ -48,7 +48,8 @@ class EditInvoice extends EditRecord
     {
         return [
             ChatterAction::make()
-                ->resource($this->getResource()),
+                ->resource($this->getResource())
+                ->activityPlans($this->getRecord()->activityPlans()),
             BaseActions\PrintAndSendAction::make(),
             BaseActions\PreviewAction::make()
                 ->setTemplate('accounts::invoice/actions/preview.index'),

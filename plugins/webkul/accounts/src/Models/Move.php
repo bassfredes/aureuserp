@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Spatie\EloquentSortable\Sortable;
 use Spatie\EloquentSortable\SortableTrait;
@@ -22,7 +23,6 @@ use Webkul\Chatter\Traits\HasLogActivity;
 use Webkul\Field\Traits\HasCustomFields;
 use Webkul\Partner\Models\BankAccount;
 use Webkul\Partner\Models\Partner;
-use Illuminate\Support\Facades\Auth;
 use Webkul\Security\Models\User;
 use Webkul\Security\Traits\HasPermissionScope;
 use Webkul\Support\Models\Company;
@@ -35,6 +35,8 @@ use Webkul\Support\Traits\HasCompanyScope;
 class Move extends Model implements Sortable
 {
     use HasChatter, HasCompanyScope, HasCustomFields, HasFactory, HasLogActivity, HasPermissionScope, SortableTrait;
+
+    public const ACTIVITY_PLAN_PLUGIN = 'accounts';
 
     protected $table = 'accounts_account_moves';
 
@@ -1063,6 +1065,7 @@ class Move extends Model implements Sortable
 
         return $partialValuesList;
     }
+
     /**
      * Create a new factory instance for the model.
      */

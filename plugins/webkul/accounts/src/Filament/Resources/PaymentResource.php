@@ -43,6 +43,7 @@ use Webkul\Account\Models\Journal;
 use Webkul\Account\Models\Partner;
 use Webkul\Account\Models\Payment;
 use Webkul\Account\Models\PaymentMethodLine;
+use Webkul\Chatter\Filament\Actions\ActivityTableAction;
 use Webkul\Field\Filament\Forms\Components\ProgressStepper as FormProgressStepper;
 use Webkul\Field\Filament\Infolists\Components\ProgressStepper as InfolistProgressStepper;
 
@@ -449,6 +450,7 @@ class PaymentResource extends Resource
                     ]),
             ])
             ->recordActions([
+                ActivityTableAction::make(),
                 ViewAction::make(),
                 EditAction::make(),
                 DeleteAction::make()

@@ -6,11 +6,21 @@ use Filament\Panel;
 use Illuminate\Foundation\AliasLoader;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Webkul\Inventory\Enums\ProductTracking;
 use Webkul\Inventory\Facades\Inventory as InventoryFacade;
+use Webkul\Inventory\Filament\Clusters\Products\Resources\ProductResource\Actions\UpdateQuantityAction;
+use Webkul\Inventory\Filament\Clusters\Products\Resources\ProductResource\Schemas\InventoryProductSchema;
+use Webkul\Inventory\Models\Move;
+use Webkul\Inventory\Models\MoveLine;
+use Webkul\Inventory\Models\ProductQuantity;
+use Webkul\Inventory\Models\Route;
 use Webkul\PluginManager\Console\Commands\InstallCommand;
 use Webkul\PluginManager\Console\Commands\UninstallCommand;
 use Webkul\PluginManager\Package;
 use Webkul\PluginManager\PackageServiceProvider;
+use Webkul\Product\Filament\Resources\ProductResource\Support\ProductSchemaRegistry;
+use Webkul\Product\Models\Product;
+use Webkul\Security\Models\User;
 
 class InventoryServiceProvider extends PackageServiceProvider
 {
@@ -65,7 +75,21 @@ class InventoryServiceProvider extends PackageServiceProvider
                 '2025_04_09_101755_add_inventories_columns_to_sales_orders_table_from_inventories',
                 '2025_04_09_101814_add_inventories_columns_to_sales_order_lines_table_from_inventories',
                 '2025_08_13_120000_alter_description_column_in_inventories_locations_table',
-                '2026_03_17_055610_fix_corrupted_location_parent_paths'
+                '2026_03_17_055610_fix_corrupted_location_parent_paths',
+                '2026_04_08_042911_create_procurement_groups_table',
+                '2026_04_08_043248_add_procurement_group_id_inventories_operations_table',
+                '2026_04_08_043311_add_procurement_group_id_inventories_moves_table',
+                '2026_04_08_043411_add_procurement_group_id_column_in_sales_orders_table_from_inventories',
+                '2026_04_08_043511_add_sale_order_id_column_in_inventories_procurement_groups_table_from_inventories',
+                '2026_04_09_113843_add_procurement_group_id_column_in_inventories_rules_table',
+                '2026_04_10_094203_add_price_unit_column_in_inventories_moves_table',
+                '2026_04_16_074549_create_inventories_route_moves_table',
+                '2026_04_22_115707_create_purchases_order_line_moves_table_from_inventories',
+                '2026_04_23_043411_add_procurement_group_id_column_in_purchases_orders_table_from_inventories',
+                '2026_04_23_043412_add_procurement_group_id_column_in_purchases_order_lines_table_from_inventories',
+                '2026_05_14_092628_inventories_create_putaway_rules_table',
+                '2026_05_15_103923_create_inventories_putaway_rule_package_types_table',
+                '2026_06_22_104603_add_additional_column_in_inventories_moves_table',
             ])
             ->runsMigrations()
             ->hasSettings([
@@ -114,7 +138,70 @@ class InventoryServiceProvider extends PackageServiceProvider
 
     public function packageBooted(): void
     {
-        //
+        $this->contributeProductSchema();
+    }
+
+    protected function contributeProductSchema(): void
+    {
+        if (! Package::isPluginInstalled(static::$name)) {
+            return;
+        }
+
+        ProductSchemaRegistry::form('left.inventory', fn () => InventoryProductSchema::formSection());
+
+        ProductSchemaRegistry::infolist('left.inventory', fn () => InventoryProductSchema::infolistSection());
+
+        ProductSchemaRegistry::actions('header', fn () => UpdateQuantityAction::make());
+
+        ProductSchemaRegistry::eagerLoad(['routes', 'responsible']);
+
+        Product::contributeFillable([
+            'sale_delay',
+            'tracking',
+            'description_picking',
+            'description_pickingout',
+            'description_pickingin',
+            'is_storable',
+            'expiration_time',
+            'use_time',
+            'removal_time',
+            'alert_time',
+            'use_expiration_date',
+            'responsible_id',
+        ]);
+
+        Product::contributeCasts([
+            'tracking'            => ProductTracking::class,
+            'use_expiration_date' => 'boolean',
+            'is_storable'         => 'boolean',
+        ]);
+
+        Product::resolveRelationUsing('routes', fn (Product $product) => $product->belongsToMany(
+            Route::class,
+            'inventories_product_routes',
+            'product_id',
+            'route_id',
+        ));
+
+        Product::resolveRelationUsing('responsible', fn (Product $product) => $product->belongsTo(
+            User::class,
+            'responsible_id',
+        ));
+
+        Product::resolveRelationUsing('moveLines', fn (Product $product) => $product->is_configurable
+            ? $product->hasMany(MoveLine::class)->orWhereIn('product_id', $product->variants()->pluck('id'))
+            : $product->hasMany(MoveLine::class)
+        );
+
+        Product::resolveRelationUsing('moves', fn (Product $product) => $product->is_configurable
+            ? $product->hasMany(Move::class)->orWhereIn('product_id', $product->variants()->pluck('id'))
+            : $product->hasMany(Move::class)
+        );
+
+        Product::resolveRelationUsing('quantities', fn (Product $product) => $product->is_configurable
+            ? $product->hasMany(ProductQuantity::class)->orWhereIn('product_id', $product->variants()->pluck('id'))
+            : $product->hasMany(ProductQuantity::class)
+        );
     }
 
     public function packageRegistered(): void

@@ -25,7 +25,7 @@ class TopProjectsWidget extends BaseWidget
         return 'widget_project_top_projects_widget';
     }
 
-    public function getHeading(): string|Htmlable|null
+    protected function getTableHeading(): string|Htmlable|null
     {
         return __('projects::filament/widgets/top-projects.heading.title');
     }

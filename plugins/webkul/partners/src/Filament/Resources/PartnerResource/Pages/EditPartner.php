@@ -39,6 +39,7 @@ class EditPartner extends EditRecord
     {
         return [
             ChatterAction::make()
+                ->activityPlans($this->getRecord()->activityPlans())
                 ->resource(static::$resource),
             ViewAction::make(),
             DeleteAction::make()

@@ -32,7 +32,7 @@ class SupportServiceProvider extends PackageServiceProvider
             ->isCore()
             ->hasViews()
             ->hasTranslations()
-            ->hasRoutes(['api'])
+            ->hasRoutes(['api', 'web'])
             ->hasMigrations([
                 '2024_11_05_105102_create_plugins_table',
                 '2024_11_05_105112_create_plugin_dependencies_table',
@@ -62,14 +62,20 @@ class SupportServiceProvider extends PackageServiceProvider
                 '2025_10_10_080114_create_currency_rates_table',
                 '2025_11_14_102615_alter_currency_rates_table',
                 '2026_03_18_000001_alter_unit_of_measures_factor_precision',
+                '2026_04_02_000001_create_calendars_table',
+                '2026_04_29_065935_add_resource_columns_in_calendar_leaves_table',
+                '2026_05_01_065935_add_resource_columns_in_calendar_attendances_table',
             ])
-            ->runsMigrations();
+            ->runsMigrations()
+            ->hasSettings([
+                '2026_06_12_000001_create_brand_settings',
+            ])
+            ->runsSettings()
+            ->hasSeeder('Webkul\\Support\\Database\\Seeders\\DatabaseSeeder');
     }
 
     public function packageBooted(): void
     {
-        include __DIR__.'/helpers.php';
-
         Livewire::component('accept-invitation', AcceptInvitation::class);
 
         Gate::policy(Role::class, RolePolicy::class);
@@ -85,16 +91,18 @@ class SupportServiceProvider extends PackageServiceProvider
 
         $this->registerFilamentDefaults();
 
-        $this->registerLanguageSwitch();
-
         $this->registerRtlSupport();
     }
 
     public function packageRegistered(): void
     {
+        $this->app->scoped(SettingsRegistry::class);
+
         Panel::configureUsing(function (Panel $panel): void {
             $panel->plugin(SupportPlugin::make());
         });
+
+        $this->registerLanguageSwitch();
 
         $this->registerHooks();
 
