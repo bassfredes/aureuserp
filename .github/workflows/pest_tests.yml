@@ -91,6 +91,25 @@ jobs:
           app_key="base64:$(php -r 'echo base64_encode(random_bytes(32));')"
           sed -i "s|^APP_KEY=.*|APP_KEY=${app_key}|" .env
 
+      - name: Set Up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+          run_install: false
+
+      - name: Set Up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install Node.js Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SCSS and Vite assets
+        run: pnpm run build
+
       - name: Running Composer Install
         id: composer-install
         shell: bash
