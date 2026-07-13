@@ -1,6 +1,15 @@
 name: Pest Tests
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -8,6 +17,7 @@ permissions:
 jobs:
   frontend_assets:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     name: Frontend Assets Build
 
@@ -34,13 +44,22 @@ jobs:
       - name: Build SCSS and Vite assets
         run: pnpm run build
 
+      - name: Upload built plugin assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-dist-assets
+          path: plugins/webkul/*/resources/dist
+          retention-days: 1
+
   pest_tests:
+    needs: frontend_assets
     runs-on: ${{ matrix.operating-systems }}
+    timeout-minutes: 45
 
     strategy:
       matrix:
         operating-systems: [ubuntu-latest]
-        php-versions: ['8.3']
+        php-versions: ['8.4']
 
     name: PHP ${{ matrix.php-versions }} test on ${{ matrix.operating-systems }}
 
@@ -66,10 +85,8 @@ jobs:
           ini-values: error_reporting=E_ALL
           tools: composer:v2
 
-      - name: Running Composer Install
-        run: composer install
-
       - name: Setting Environment
+        shell: bash
         run: |
           cp .env.example .env
           sed -i "s|^\(APP_ENV=\s*\).*$|\1testing|" .env
@@ -79,11 +96,39 @@ jobs:
           sed -i "s|^#\?\s*DB_DATABASE=.*|DB_DATABASE=aureuserp|" .env
           sed -i "s|^#\?\s*DB_USERNAME=.*|DB_USERNAME=root|" .env
           sed -i "s|^#\?\s*DB_PASSWORD=.*|DB_PASSWORD=root|" .env
-          echo "=== Final .env configuration ==="
-          cat .env
+          app_key="base64:$(php -r 'echo base64_encode(random_bytes(32));')"
+          sed -i "s|^APP_KEY=.*|APP_KEY=${app_key}|" .env
 
-      - name: Generating Application Key
-        run: php artisan key:generate
+      - name: Download built plugin assets
+        uses: actions/download-artifact@v4
+        with:
+          name: plugin-dist-assets
+          path: plugins/webkul
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: ${{ runner.os }}-php-8.4-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-php-8.4-composer-
+
+      - name: Running Composer Install
+        id: composer-install
+        shell: bash
+        run: |
+          set +e
+          composer install --no-interaction --prefer-dist --no-progress --no-ansi > composer-install.log 2>&1
+          status=$?
+          cat composer-install.log
+          exit "$status"
+
+      - name: Upload Composer diagnostic
+        if: failure() && steps.composer-install.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: composer-install-pest-${{ github.run_id }}
+          path: composer-install.log
+          retention-days: 1
 
       - name: Running AureusERP Installer
         run: |

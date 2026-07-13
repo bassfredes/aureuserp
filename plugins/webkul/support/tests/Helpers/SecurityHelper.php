@@ -6,6 +6,7 @@ use Spatie\Permission\PermissionRegistrar;
 use Webkul\Security\Enums\PermissionType;
 use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\Company;
 
 class SecurityHelper
 {
@@ -57,7 +58,34 @@ class SecurityHelper
 
     private static function createUser(): User
     {
-        return User::withoutEvents(fn (): User => User::factory()->create());
+        $user = User::withoutEvents(fn (): User => User::factory()->create());
+
+        static::grantExistingCompanies($user);
+
+        return $user;
+    }
+
+    /**
+     * Complements TestCase's Company::created listener, which only covers
+     * fixtures created *after* authenticating. Many tests build their data
+     * (Order, Move, Company, ...) before calling into SecurityHelper, so the
+     * acting user also needs access to whatever companies already exist at
+     * authentication time, or HasCompanyScope correctly — but unintentionally
+     * from the test's point of view — hides them.
+     */
+    private static function grantExistingCompanies(User $user): void
+    {
+        $companyIds = Company::query()->pluck('id');
+
+        if ($companyIds->isEmpty()) {
+            return;
+        }
+
+        $user->allowedCompanies()->syncWithoutDetaching($companyIds);
+
+        if (! $user->default_company_id) {
+            $user->forceFill(['default_company_id' => $companyIds->first()])->saveQuietly();
+        }
     }
 
     private static function ensurePermissionsExist(array $permissionNames): void

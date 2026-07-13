@@ -27,6 +27,7 @@ class ChatterServiceProvider extends PackageServiceProvider
                 '2024_12_23_062355_create_chatter_messages_table',
                 '2024_12_23_080148_create_chatter_attachments_table',
                 '2025_03_12_072356_add_column_is_read_to_chatter_messages_table',
+                '2026_07_13_000000_make_causer_nullable_in_chatter_messages_table',
             ])
             ->runsMigrations();
     }
