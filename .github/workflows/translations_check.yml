@@ -30,7 +30,22 @@ jobs:
           restore-keys: ${{ runner.os }}-composer-
 
       - name: Install Composer dependencies
-        run: composer install --no-interaction --prefer-dist
+        id: composer-install
+        shell: bash
+        run: |
+          set +e
+          composer install --no-interaction --prefer-dist --no-progress --no-ansi > composer-install.log 2>&1
+          status=$?
+          cat composer-install.log
+          exit "$status"
+
+      - name: Upload Composer diagnostic
+        if: failure() && steps.composer-install.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: composer-install-translations-${{ github.run_id }}
+          path: composer-install.log
+          retention-days: 1
 
       - name: Setting Environment
         run: |
