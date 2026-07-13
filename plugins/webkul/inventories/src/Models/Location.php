@@ -2,6 +2,7 @@
 
 namespace Webkul\Inventory\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -18,10 +19,20 @@ use Webkul\Inventory\Enums\OperationType as OperationTypeEnum;
 use Webkul\Product\Enums\ProductRemoval;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
+use Webkul\Support\Traits\HasCompanyScope;
 
-class Location extends Model
+/**
+ * company_id IS NULL rows (Vendors, Customers, Physical/Virtual/Partner
+ * roots, Inter Company Transit — seeded ids 1-6) are system-managed shared
+ * references, not incomplete records: see ADR 0007 (company_or_shared).
+ * IncludesSharedCompanyRows makes CompanyScope include them alongside the
+ * user's own companies instead of hiding them; the write guards in boot()
+ * below stop normal users from creating, editing, or deleting them.
+ */
+class Location extends Model implements IncludesSharedCompanyRows
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, HasCompanyScope;
 
     protected $table = 'inventories_locations';
 
@@ -117,11 +128,40 @@ class Location extends Model
             ->get();
     }
 
+    /**
+     * Shared (company_id IS NULL) Location rows are system-managed
+     * references (ADR 0007). Business flows never need to create or mutate
+     * one directly: Warehouse and every other creator always sets a real
+     * company_id. Blocks any authenticated non-super_admin from creating a
+     * new shared row or mutating/deleting/restoring an existing one; no
+     * authenticated user (console, queue, seeders, installer) is a system
+     * context and stays unrestricted, matching CompanyScope's own rule for
+     * unauthenticated access.
+     */
+    protected static function guardSharedRowMutation(bool $isNullCompany): void
+    {
+        if (! $isNullCompany) {
+            return;
+        }
+
+        if (! Auth::check()) {
+            return;
+        }
+
+        if (static::actingUserIsSuperAdmin()) {
+            return;
+        }
+
+        throw new AuthorizationException('Shared Location records (company_id is null) can only be created or modified by a super_admin or a system process.');
+    }
+
     protected static function boot()
     {
         parent::boot();
 
         static::creating(function ($category) {
+            static::guardSharedRowMutation($category->company_id === null);
+
             $category->creator_id ??= Auth::id();
 
             if ($category->parent_id) {
@@ -161,6 +201,8 @@ class Location extends Model
         });
 
         static::updating(function (Location $location) {
+            static::guardSharedRowMutation($location->getOriginal('company_id') === null);
+
             if ($location->isDirty('is_replenish') && $location->is_replenish) {
                 $exists = static::query()
                     ->where('id', '!=', $location->id)
@@ -184,7 +226,7 @@ class Location extends Model
             }
 
             if ($location->isDirty('company_id')) {
-                throw new \Exception("Changing the company of this record is forbidden at this point, you should rather archive it and create a new one.");
+                throw new AuthorizationException("Changing the company of this record is forbidden at this point, you should rather archive it and create a new one.");
             }
 
             if (
@@ -215,6 +257,8 @@ class Location extends Model
         });
 
         static::deleting(function (Location $location) {
+            static::guardSharedRowMutation($location->company_id === null);
+
             $warehouse = Warehouse::where(function ($q) use ($location) {
                     $q->where('lot_stock_location_id', $location->id)
                         ->orWhere('view_location_id', $location->id);
@@ -256,11 +300,17 @@ class Location extends Model
         });
 
         static::forceDeleting(function (Location $location) {
+            static::guardSharedRowMutation($location->company_id === null);
+
             Location::withTrashed()
                 ->whereRaw('parent_path LIKE ?', [$location->parent_path . '%'])
                 ->where('id', '!=', $location->id)
                 ->get()
                 ->each(fn ($childLocation) => $childLocation->forceDelete());
+        });
+
+        static::restoring(function (Location $location) {
+            static::guardSharedRowMutation($location->company_id === null);
         });
 
         static::restored(function (Location $location) {

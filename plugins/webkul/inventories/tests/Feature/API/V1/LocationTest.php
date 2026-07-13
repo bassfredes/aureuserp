@@ -3,7 +3,9 @@
 use Webkul\Inventory\Enums\LocationType;
 use Webkul\Inventory\Models\Location;
 use Webkul\Security\Enums\PermissionType;
+use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\Company;
 
 require_once __DIR__.'/../../../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -33,6 +35,33 @@ function actingAsInventoryLocationApiUser(array $permissions = []): User
     $user->forceFill([
         'resource_permission' => PermissionType::GLOBAL,
     ])->saveQuietly();
+
+    return $user;
+}
+
+/**
+ * Unlike actingAsInventoryLocationApiUser(), does not go through
+ * SecurityHelper — that helper grants the acting user access to every
+ * company that already exists at authentication time
+ * (SecurityHelper::grantExistingCompanies), which would silently defeat a
+ * cross-company test where the whole point is that the user must NOT reach
+ * a company created earlier in the test.
+ */
+function actingAsScopedInventoryUser(Company $company, array $permissions): User
+{
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $company->id,
+    ]));
+
+    $user->forceFill([
+        'resource_permission' => PermissionType::GLOBAL,
+    ])->saveQuietly();
+
+    $user->givePermissionTo(collect($permissions)->map(
+        fn (string $name) => Permission::findOrCreate($name, 'web')
+    ));
+
+    test()->actingAs($user);
 
     return $user;
 }
@@ -258,9 +287,9 @@ it('rejects an invalid location type', function () {
 });
 
 it('creates a location with a parent', function () {
-    actingAsInventoryLocationApiUser(['create_inventory_location']);
+    $user = actingAsInventoryLocationApiUser(['create_inventory_location']);
 
-    $parent = Location::factory()->create();
+    $parent = Location::factory()->create(['company_id' => $user->default_company_id]);
     $payload = inventoryLocationPayload(['parent_id' => $parent->id]);
 
     $this->postJson(inventoryLocationRoute('store'), $payload)
@@ -384,4 +413,124 @@ it('returns 404 when force-deleting a non-existent location', function () {
 
     $this->deleteJson(inventoryLocationRoute('force-destroy', 999999))
         ->assertNotFound();
+});
+
+// ── Company boundary (ADR 0007) ─────────────────────────────────────────────
+//
+// These bypass actingAsInventoryLocationApiUser/SecurityHelper on purpose:
+// that helper grants the acting user access to every company that already
+// exists at authentication time (see SecurityHelper::grantExistingCompanies),
+// which would silently defeat a cross-company test. Company B is created
+// first, the acting user authenticated after with access to A only — same
+// pattern as CompanyIsolationTest.
+
+it('forbids creating a location for a company the user cannot access', function () {
+    $companyB = Company::factory()->create();
+    $companyA = Company::factory()->create();
+
+    actingAsScopedInventoryUser($companyA, ['create_inventory_location']);
+
+    $this->postJson(inventoryLocationRoute('store'), inventoryLocationPayload([
+        'company_id' => $companyB->id,
+    ]))->assertForbidden();
+
+    $this->assertDatabaseMissing('inventories_locations', [
+        'name'       => 'Test Location',
+        'company_id' => $companyB->id,
+    ]);
+});
+
+it('forbids creating a location under a parent that belongs to another company', function () {
+    $companyB = Company::factory()->create();
+    $foreignParent = Location::factory()->create(['company_id' => $companyB->id]);
+    $companyA = Company::factory()->create();
+
+    actingAsScopedInventoryUser($companyA, ['create_inventory_location']);
+
+    $this->postJson(inventoryLocationRoute('store'), inventoryLocationPayload([
+        'parent_id' => $foreignParent->id,
+    ]))->assertForbidden();
+
+    $this->assertDatabaseMissing('inventories_locations', [
+        'name'      => 'Test Location',
+        'parent_id' => $foreignParent->id,
+    ]);
+});
+
+it('forbids updating a location to a parent that belongs to another company', function () {
+    $companyB = Company::factory()->create();
+    $foreignParent = Location::factory()->create(['company_id' => $companyB->id]);
+    $companyA = Company::factory()->create();
+
+    actingAsScopedInventoryUser($companyA, ['update_inventory_location']);
+
+    $location = Location::factory()->create(['company_id' => $companyA->id]);
+
+    $this->putJson(inventoryLocationRoute('update', $location), [
+        'name'      => $location->name,
+        'type'      => $location->type->value,
+        'parent_id' => $foreignParent->id,
+    ])->assertForbidden();
+
+    $this->assertDatabaseMissing('inventories_locations', [
+        'id'        => $location->id,
+        'parent_id' => $foreignParent->id,
+    ]);
+});
+
+it('forbids creating a location for company A under a parent of company B even when the user is authorized in both', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $foreignParent = Location::factory()->create(['company_id' => $companyB->id]);
+
+    $user = actingAsScopedInventoryUser($companyA, ['create_inventory_location']);
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+
+    $this->postJson(inventoryLocationRoute('store'), inventoryLocationPayload([
+        'company_id' => $companyA->id,
+        'parent_id'  => $foreignParent->id,
+    ]))->assertForbidden();
+
+    $this->assertDatabaseMissing('inventories_locations', [
+        'name'      => 'Test Location',
+        'parent_id' => $foreignParent->id,
+    ]);
+});
+
+it('forbids updating a location of company A to a parent of company B even when the user is authorized in both', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $foreignParent = Location::factory()->create(['company_id' => $companyB->id]);
+
+    $user = actingAsScopedInventoryUser($companyA, ['update_inventory_location']);
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+
+    $location = Location::factory()->create(['company_id' => $companyA->id]);
+
+    $this->putJson(inventoryLocationRoute('update', $location), [
+        'name'      => $location->name,
+        'type'      => $location->type->value,
+        'parent_id' => $foreignParent->id,
+    ])->assertForbidden();
+
+    $this->assertDatabaseMissing('inventories_locations', [
+        'id'        => $location->id,
+        'parent_id' => $foreignParent->id,
+    ]);
+});
+
+it('returns 403, not 500, when a regular user tries to mutate a shared location', function () {
+    $company = Company::factory()->create();
+
+    actingAsScopedInventoryUser($company, ['update_inventory_location', 'delete_inventory_location']);
+
+    $vendors = Location::where('type', LocationType::SUPPLIER)->first();
+
+    $this->putJson(inventoryLocationRoute('update', $vendors), [
+        'name' => 'Hacked',
+        'type' => $vendors->type->value,
+    ])->assertForbidden();
+
+    $this->deleteJson(inventoryLocationRoute('destroy', $vendors))
+        ->assertForbidden();
 });

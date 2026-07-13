@@ -28,13 +28,7 @@ trait HasCompanyScope
     {
         $user = Auth::user();
 
-        // Role::getNameAttribute() forces ucfirst() on the stored name, so
-        // hasRole('super_admin') would miss it via exact string match — compare
-        // case-insensitively instead of relying on Spatie's raw comparison.
-        $isSuperAdmin = (bool) $user?->roles->pluck('name')
-            ->contains(fn ($name) => strtolower($name) === 'super_admin');
-
-        abort_unless($isSuperAdmin, 403);
+        abort_unless(static::actingUserIsSuperAdmin(), 403);
 
         Log::channel(config('logging.default'))->warning('cross-company query bypass', [
             'model'   => static::class,
@@ -42,5 +36,24 @@ trait HasCompanyScope
         ]);
 
         return static::withoutGlobalScope(CompanyScope::class);
+    }
+
+    /**
+     * Shared authorization check reused by forAllCompanies() and by models
+     * implementing IncludesSharedCompanyRows to guard writes to their
+     * company_id IS NULL rows (see ADR 0007). No authenticated user (console,
+     * queue, seeders, installer) is a system context, not a super_admin —
+     * callers that also want to allow system context must check Auth::check()
+     * separately.
+     */
+    public static function actingUserIsSuperAdmin(): bool
+    {
+        $user = Auth::user();
+
+        // Role::getNameAttribute() forces ucfirst() on the stored name, so
+        // hasRole('super_admin') would miss it via exact string match — compare
+        // case-insensitively instead of relying on Spatie's raw comparison.
+        return (bool) $user?->roles->pluck('name')
+            ->contains(fn ($name) => strtolower($name) === 'super_admin');
     }
 }
