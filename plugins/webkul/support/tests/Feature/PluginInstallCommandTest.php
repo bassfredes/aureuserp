@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Artisan;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Webkul\PluginManager\Models\Plugin;
 
 require_once __DIR__.'/../Helpers/TestBootstrapHelper.php';
@@ -16,13 +17,19 @@ it('skips reinstalling installed dependencies during nested plugin installs', fu
 
     expect((bool) $products?->is_installed)->toBeTrue();
 
-    Artisan::call('inventories:install', ['--no-interaction' => true]);
+    // Artisan::output() reflects only the most recent Artisan::call()
+    // process-wide. InstallCommand::handle() ends by calling
+    // Package::refreshPluginCaches(), which itself calls
+    // Artisan::call('optimize:clear') — clobbering Artisan::output() before
+    // this test can read it. Pass our own buffer so we read exactly what
+    // this command wrote, independent of that internal call.
+    $output = new BufferedOutput;
+    Artisan::call('inventories:install', ['--no-interaction' => true], $output);
 
-    $output = Artisan::output();
     $inventories = Plugin::query()->where('name', 'inventories')->firstOrFail();
 
-    expect($output)
+    expect($output->fetch())
         ->not->toContain('🎉 Package products has been installed!')
-        ->and($output)->toContain('🎉 Package inventories has been installed!')
+        ->toContain('🎉 Package inventories has been installed!')
         ->and($inventories->dependencies()->where('name', 'products')->exists())->toBeTrue();
 });
