@@ -1,6 +1,15 @@
 name: Pest Tests
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -8,6 +17,7 @@ permissions:
 jobs:
   frontend_assets:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     name: Frontend Assets Build
 
@@ -36,6 +46,7 @@ jobs:
 
   pest_tests:
     runs-on: ${{ matrix.operating-systems }}
+    timeout-minutes: 45
 
     strategy:
       matrix:
