@@ -54,10 +54,36 @@ class SupportPlugin implements Plugin
                         const activeSidebarItem = document.querySelector('nav .fi-sidebar-item-active');
 
                         const sidebarWrapper = document.querySelector('nav.fi-sidebar-nav');
-    
+
                         sidebarWrapper.scrollTo(0, activeSidebarItem.offsetTop - 250);
                     }, 0);
                 });
+            </script>
+        "));
+
+        // RichEditor's floating node toolbars (table, paragraph, ...) are
+        // TipTap BubbleMenu instances shown/hidden imperatively via JS, not
+        // Alpine x-show. Livewire's wire:navigate morph can carry a stale
+        // "shown" toolbar element across a page transition (matching
+        // x-ref="floatingToolbar::<node>" on the new page), leaving it
+        // positioned over unrelated content and intercepting clicks
+        // (bassfredes/Intelligent-Integration-Suite#144). Force every
+        // floating toolbar hidden and inert on both sides of a navigation;
+        // TipTap re-shows it correctly once the user actually focuses a
+        // matching node again.
+        FilamentView::registerRenderHook(
+            name: 'panels::scripts.before',
+            hook: fn () => new HtmlString(html: "
+            <script>
+                function resetRichEditorFloatingToolbars() {
+                    document.querySelectorAll('.fi-fo-rich-editor-floating-toolbar').forEach(function(toolbar) {
+                        toolbar.classList.add('invisible');
+                        toolbar.style.pointerEvents = 'none';
+                    });
+                }
+
+                document.addEventListener('livewire:navigating', resetRichEditorFloatingToolbars);
+                document.addEventListener('livewire:navigated', resetRichEditorFloatingToolbars);
             </script>
         "));
     }
