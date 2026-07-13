@@ -12,13 +12,18 @@ require dirname(__DIR__).'/vendor/autoload.php';
 $app = require dirname(__DIR__).'/bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
-$options = getopt('', ['plugins::', 'format::', 'fail-on-missing']);
+$options = getopt('', ['plugins:', 'format:', 'fail-on-missing']);
 $pluginNames = array_values(array_filter(
     array_map('trim', explode(',', (string) ($options['plugins'] ?? 'inventories,purchases,products'))),
     static fn (string $plugin): bool => $plugin !== '',
 ));
 $format = (string) ($options['format'] ?? 'table');
 $failOnMissing = array_key_exists('fail-on-missing', $options);
+
+if ($pluginNames === []) {
+    fwrite(STDERR, "At least one plugin is required.\n");
+    exit(2);
+}
 
 if (! in_array($format, ['table', 'json'], true)) {
     fwrite(STDERR, "Unsupported --format. Use table or json.\n");
@@ -109,6 +114,7 @@ function classesDeclaredInFile(string $path): array
  * @return list<array{
  *     plugin: string,
  *     class: string,
+ *     file: string,
  *     table: string|null,
  *     has_company_id: bool|null,
  *     uses_company_scope: bool|null,
@@ -138,6 +144,17 @@ function inspectPlugin(string $pluginName): array
         foreach (classesDeclaredInFile($file->getPathname()) as $className) {
             try {
                 if (! class_exists($className)) {
+                    $rows[] = [
+                        'plugin'             => $pluginName,
+                        'class'              => $className,
+                        'file'               => $file->getPathname(),
+                        'table'              => null,
+                        'has_company_id'     => null,
+                        'uses_company_scope' => null,
+                        'status'             => 'inspection_error',
+                        'error'              => 'Class is not autoloadable.',
+                    ];
+
                     continue;
                 }
 
@@ -150,12 +167,30 @@ function inspectPlugin(string $pluginName): array
                 /** @var Model $model */
                 $model = $reflection->newInstance();
                 $table = $model->getTable();
-                $hasCompanyId = $model->getConnection()->getSchemaBuilder()->hasColumn($table, 'company_id');
+                $schema = $model->getConnection()->getSchemaBuilder();
+
+                if (! $schema->hasTable($table)) {
+                    $rows[] = [
+                        'plugin'             => $pluginName,
+                        'class'              => $className,
+                        'file'               => $file->getPathname(),
+                        'table'              => $table,
+                        'has_company_id'     => null,
+                        'uses_company_scope' => null,
+                        'status'             => 'table_missing',
+                        'error'              => 'Model table is not present in the migrated schema.',
+                    ];
+
+                    continue;
+                }
+
+                $hasCompanyId = $schema->hasColumn($table, 'company_id');
                 $usesCompanyScope = in_array(HasCompanyScope::class, class_uses_recursive($className), true);
 
                 $rows[] = [
                     'plugin'             => $pluginName,
                     'class'              => $className,
+                    'file'               => $file->getPathname(),
                     'table'              => $table,
                     'has_company_id'     => $hasCompanyId,
                     'uses_company_scope' => $usesCompanyScope,
@@ -168,6 +203,7 @@ function inspectPlugin(string $pluginName): array
                 $rows[] = [
                     'plugin'             => $pluginName,
                     'class'              => $className,
+                    'file'               => $file->getPathname(),
                     'table'              => null,
                     'has_company_id'     => null,
                     'uses_company_scope' => null,
@@ -248,22 +284,27 @@ $missingCount = count(array_filter(
     $rows,
     static fn (array $row): bool => $row['status'] === 'missing_scope',
 ));
-$errorCount = count(array_filter(
+$inspectionErrorCount = count(array_filter(
     $rows,
     static fn (array $row): bool => $row['status'] === 'inspection_error',
+));
+$tableMissingCount = count(array_filter(
+    $rows,
+    static fn (array $row): bool => $row['status'] === 'table_missing',
 ));
 
 fwrite(
     STDERR,
     sprintf(
-        "Inspected %d model(s): %d missing CompanyScope, %d inspection error(s).\n",
+        "Inspected %d model(s): %d missing CompanyScope, %d missing table(s), %d inspection error(s).\n",
         count($rows),
         $missingCount,
-        $errorCount,
+        $tableMissingCount,
+        $inspectionErrorCount,
     ),
 );
 
-if ($errorCount > 0) {
+if ($tableMissingCount > 0 || $inspectionErrorCount > 0) {
     exit(2);
 }
 
