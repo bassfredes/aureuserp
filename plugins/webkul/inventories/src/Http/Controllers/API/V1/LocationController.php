@@ -95,7 +95,7 @@ class LocationController extends Controller
         $data['company_id'] ??= $user?->default_company_id;
 
         $this->assertCompanyIdAllowed($data['company_id'], $user);
-        $this->assertParentLocationAccessible($data['parent_id'] ?? null);
+        $this->assertParentLocationAccessible($data['parent_id'] ?? null, $data['company_id']);
 
         $location = Location::create($data);
 
@@ -129,15 +129,27 @@ class LocationController extends Controller
      * is scoped: it resolves to null both for a genuinely missing id and for
      * one that belongs to another company, which is exactly the boundary we
      * want to enforce (don't leak which case it is).
+     *
+     * Visibility alone is not enough: a user with access to both A and B can
+     * see parents in either, but a child location must still nest under a
+     * parent of its OWN company (or a shared/global parent, company_id
+     * null) — otherwise a location of A could be filed under a parent of B
+     * despite both being individually within the user's scope.
      */
-    protected function assertParentLocationAccessible(?int $parentId): void
+    protected function assertParentLocationAccessible(?int $parentId, ?int $childCompanyId): void
     {
         if ($parentId === null) {
             return;
         }
 
-        if (! Location::find($parentId)) {
+        $parent = Location::find($parentId);
+
+        if (! $parent) {
             throw new AuthorizationException('The parent location does not exist or is not accessible to your company.');
+        }
+
+        if ($parent->company_id !== null && $parent->company_id !== $childCompanyId) {
+            throw new AuthorizationException('The parent location belongs to a different company.');
         }
     }
 
@@ -172,7 +184,10 @@ class LocationController extends Controller
 
         $data = $request->validated();
 
-        $this->assertParentLocationAccessible($data['parent_id'] ?? null);
+        $this->assertParentLocationAccessible(
+            $data['parent_id'] ?? null,
+            $data['company_id'] ?? $location->company_id
+        );
 
         $location->update($data);
 

@@ -287,9 +287,9 @@ it('rejects an invalid location type', function () {
 });
 
 it('creates a location with a parent', function () {
-    actingAsInventoryLocationApiUser(['create_inventory_location']);
+    $user = actingAsInventoryLocationApiUser(['create_inventory_location']);
 
-    $parent = Location::factory()->create();
+    $parent = Location::factory()->create(['company_id' => $user->default_company_id]);
     $payload = inventoryLocationPayload(['parent_id' => $parent->id]);
 
     $this->postJson(inventoryLocationRoute('store'), $payload)
@@ -463,6 +463,47 @@ it('forbids updating a location to a parent that belongs to another company', fu
     $companyA = Company::factory()->create();
 
     actingAsScopedInventoryUser($companyA, ['update_inventory_location']);
+
+    $location = Location::factory()->create(['company_id' => $companyA->id]);
+
+    $this->putJson(inventoryLocationRoute('update', $location), [
+        'name'      => $location->name,
+        'type'      => $location->type->value,
+        'parent_id' => $foreignParent->id,
+    ])->assertForbidden();
+
+    $this->assertDatabaseMissing('inventories_locations', [
+        'id'        => $location->id,
+        'parent_id' => $foreignParent->id,
+    ]);
+});
+
+it('forbids creating a location for company A under a parent of company B even when the user is authorized in both', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $foreignParent = Location::factory()->create(['company_id' => $companyB->id]);
+
+    $user = actingAsScopedInventoryUser($companyA, ['create_inventory_location']);
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+
+    $this->postJson(inventoryLocationRoute('store'), inventoryLocationPayload([
+        'company_id' => $companyA->id,
+        'parent_id'  => $foreignParent->id,
+    ]))->assertForbidden();
+
+    $this->assertDatabaseMissing('inventories_locations', [
+        'name'      => 'Test Location',
+        'parent_id' => $foreignParent->id,
+    ]);
+});
+
+it('forbids updating a location of company A to a parent of company B even when the user is authorized in both', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $foreignParent = Location::factory()->create(['company_id' => $companyB->id]);
+
+    $user = actingAsScopedInventoryUser($companyA, ['update_inventory_location']);
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
 
     $location = Location::factory()->create(['company_id' => $companyA->id]);
 
