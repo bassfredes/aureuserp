@@ -2,9 +2,14 @@ name: Playwright Tests
 
 on:
   push:
+    branches: [main]
   pull_request:
   merge_group:
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -15,6 +20,7 @@ env:
 jobs:
   aureus_playwright_test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     strategy:
       fail-fast: false
@@ -164,6 +170,7 @@ jobs:
     needs:
       - aureus_playwright_test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     name: report
 
     steps:
