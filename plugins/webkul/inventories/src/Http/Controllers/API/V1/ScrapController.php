@@ -99,7 +99,7 @@ class ScrapController extends Controller
         $data = $request->validated();
 
         $this->assertCompanyIdAllowed($data['company_id'] ?? null, Auth::user(), 'scrap');
-        $this->assertScrapRelationsAccessible($data);
+        $this->assertScrapRelationsAccessible($data, $data['company_id'] ?? Auth::user()?->default_company_id);
 
         $data = $this->prepareScrapPayload($data);
 
@@ -149,8 +149,8 @@ class ScrapController extends Controller
 
         $rawData = $request->validated();
 
-        $this->assertCompanyIdImmutable($rawData['company_id'] ?? null, $scrap, 'scrap');
-        $this->assertScrapRelationsAccessible($rawData);
+        $this->assertCompanyIdImmutable($rawData, $scrap, 'scrap');
+        $this->assertScrapRelationsAccessible($rawData, $rawData['company_id'] ?? $scrap->company_id);
 
         $data = $this->prepareScrapPayload($rawData, $scrap);
 
@@ -218,12 +218,12 @@ class ScrapController extends Controller
         });
     }
 
-    protected function assertScrapRelationsAccessible(array $data): void
+    protected function assertScrapRelationsAccessible(array $data, ?int $effectiveCompanyId): void
     {
-        $this->assertRelatedRecordAccessible($data['lot_id'] ?? null, Lot::class, 'lot');
-        $this->assertRelatedRecordAccessible($data['package_id'] ?? null, Package::class, 'package');
-        $this->assertRelatedRecordAccessible($data['source_location_id'] ?? null, Location::class, 'source location');
-        $this->assertRelatedRecordAccessible($data['destination_location_id'] ?? null, Location::class, 'destination location');
+        $this->assertRelatedRecordAccessible($data['lot_id'] ?? null, Lot::class, 'lot', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['package_id'] ?? null, Package::class, 'package', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['source_location_id'] ?? null, Location::class, 'source location', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['destination_location_id'] ?? null, Location::class, 'destination location', $effectiveCompanyId);
     }
 
     protected function prepareScrapPayload(array $data, ?Scrap $existing = null): array

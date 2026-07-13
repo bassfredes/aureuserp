@@ -270,21 +270,23 @@ class OperationController extends Controller
         $operationType = $this->resolveOperationTypeModel($data['operation_type_id'] ?? $existingOperation?->operation_type_id);
         $isCreating = $existingOperation === null;
 
+        $effectiveCompanyId = $data['company_id'] ?? $existingOperation?->company_id ?? $this->resolveCompanyId($operationType);
+
         if ($isCreating) {
             $this->assertCompanyIdAllowed($data['company_id'] ?? null, Auth::user(), 'operation');
         } else {
-            $this->assertCompanyIdImmutable($data['company_id'] ?? null, $existingOperation, 'operation');
+            $this->assertCompanyIdImmutable($data, $existingOperation, 'operation');
         }
 
-        $this->assertRelatedRecordAccessible($data['source_location_id'] ?? null, Location::class, 'source location');
-        $this->assertRelatedRecordAccessible($data['destination_location_id'] ?? null, Location::class, 'destination location');
+        $this->assertRelatedRecordAccessible($data['source_location_id'] ?? null, Location::class, 'source location', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['destination_location_id'] ?? null, Location::class, 'destination location', $effectiveCompanyId);
 
         $preparedData = [
             ...$data,
             'operation_type_id'       => $operationType->id,
             'source_location_id'      => $data['source_location_id'] ?? $existingOperation?->source_location_id ?? $operationType->source_location_id,
             'destination_location_id' => $data['destination_location_id'] ?? $existingOperation?->destination_location_id ?? $operationType->destination_location_id,
-            'company_id'              => $data['company_id'] ?? $existingOperation?->company_id ?? $this->resolveCompanyId($operationType),
+            'company_id'              => $effectiveCompanyId,
             'user_id'                 => $data['user_id'] ?? $existingOperation?->user_id ?? Auth::id(),
             'state'                   => $data['state'] ?? $existingOperation?->state ?? OperationState::DRAFT,
         ];
@@ -366,7 +368,7 @@ class OperationController extends Controller
 
     protected function prepareMoveData(Operation $operation, array $moveData, bool $isUpdate = false): array
     {
-        $this->assertRelatedRecordAccessible($moveData['final_location_id'] ?? null, Location::class, 'final location');
+        $this->assertRelatedRecordAccessible($moveData['final_location_id'] ?? null, Location::class, 'final location', $operation->company_id);
 
         $product = Product::query()->findOrFail($moveData['product_id']);
         $uom = isset($moveData['uom_id'])

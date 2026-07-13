@@ -103,13 +103,23 @@ class QuantityController extends Controller
 
         $raw = $request->validated();
 
-        $this->assertCompanyIdAllowed($raw['company_id'] ?? null, Auth::user(), 'quantity');
-        $this->assertRelatedRecordAccessible($raw['location_id'] ?? null, Location::class, 'location');
-        $this->assertRelatedRecordAccessible($raw['storage_category_id'] ?? null, StorageCategory::class, 'storage category');
-        $this->assertRelatedRecordAccessible($raw['lot_id'] ?? null, Lot::class, 'lot');
-        $this->assertRelatedRecordAccessible($raw['package_id'] ?? null, Package::class, 'package');
+        // company_id can come from three places, in the same order
+        // preparePayload() below resolves it: an explicit submission, or a
+        // fallback to the (unscoped) product's own company_id. Product
+        // isn't part of this rollout (see ADR 0007), so its company_id is
+        // effectively client-influenced via product_id — the value that
+        // actually ends up on the row must be validated, not just what was
+        // literally submitted in the company_id field.
+        $product = Product::query()->findOrFail($raw['product_id']);
+        $effectiveCompanyId = $raw['company_id'] ?? $product->company_id;
 
-        $data = $this->preparePayload($raw);
+        $this->assertCompanyIdAllowed($effectiveCompanyId, Auth::user(), 'quantity');
+        $this->assertRelatedRecordAccessible($raw['location_id'] ?? null, Location::class, 'location', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($raw['storage_category_id'] ?? null, StorageCategory::class, 'storage category', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($raw['lot_id'] ?? null, Lot::class, 'lot', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($raw['package_id'] ?? null, Package::class, 'package', $effectiveCompanyId);
+
+        $data = $this->preparePayload($raw, $product);
 
         $existingQuantity = ProductQuantity::query()
             ->where('location_id', $data['location_id'])
@@ -259,9 +269,9 @@ class QuantityController extends Controller
         ]);
     }
 
-    protected function preparePayload(array $data): array
+    protected function preparePayload(array $data, ?Product $product = null): array
     {
-        $product = Product::query()->findOrFail($data['product_id']);
+        $product ??= Product::query()->findOrFail($data['product_id']);
 
         $data['location_id'] = $data['location_id'] ?? Warehouse::query()->first()?->lot_stock_location_id;
         $data['creator_id'] = Auth::id();

@@ -88,7 +88,7 @@ class RuleController extends Controller
         $data['company_id'] ??= $user?->default_company_id;
 
         $this->assertCompanyIdAllowed($data['company_id'], $user, 'rule');
-        $this->assertRuleRelationsAccessible($data);
+        $this->assertRuleRelationsAccessible($data, $data['company_id']);
 
         $rule = Rule::create($data);
 
@@ -129,8 +129,8 @@ class RuleController extends Controller
 
         $data = $request->validated();
 
-        $this->assertCompanyIdImmutable($data['company_id'] ?? null, $rule, 'rule');
-        $this->assertRuleRelationsAccessible($data);
+        $this->assertCompanyIdImmutable($data, $rule, 'rule');
+        $this->assertRuleRelationsAccessible($data, $data['company_id'] ?? $rule->company_id);
 
         $rule->update($data);
 
@@ -138,12 +138,12 @@ class RuleController extends Controller
             ->additional(['message' => 'Rule updated successfully.']);
     }
 
-    protected function assertRuleRelationsAccessible(array $data): void
+    protected function assertRuleRelationsAccessible(array $data, ?int $effectiveCompanyId): void
     {
-        $this->assertRelatedRecordAccessible($data['operation_type_id'] ?? null, OperationType::class, 'operation type');
-        $this->assertRelatedRecordAccessible($data['source_location_id'] ?? null, Location::class, 'source location');
-        $this->assertRelatedRecordAccessible($data['destination_location_id'] ?? null, Location::class, 'destination location');
-        $this->assertRelatedRecordAccessible($data['route_id'] ?? null, Route::class, 'route');
+        $this->assertRelatedRecordAccessible($data['operation_type_id'] ?? null, OperationType::class, 'operation type', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['source_location_id'] ?? null, Location::class, 'source location', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['destination_location_id'] ?? null, Location::class, 'destination location', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['route_id'] ?? null, Route::class, 'route', $effectiveCompanyId);
     }
 
     #[Endpoint('Delete rule', 'Soft delete a rule')]

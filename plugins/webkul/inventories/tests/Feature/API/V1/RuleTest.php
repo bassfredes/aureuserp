@@ -6,6 +6,7 @@ use Webkul\Inventory\Models\OperationType;
 use Webkul\Inventory\Models\Route;
 use Webkul\Inventory\Models\Rule;
 use Webkul\Security\Enums\PermissionType;
+use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 
@@ -242,9 +243,21 @@ it('excludes soft-deleted rules from default listing', function () {
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 it('creates a rule', function () {
-    actingAsInventoryRuleApiUser(['create_inventory_rule']);
+    $user = actingAsInventoryRuleApiUser(['create_inventory_rule']);
 
-    $payload = inventoryRulePayload();
+    $company = Company::find($user->default_company_id) ?? Company::factory()->create();
+    $source = Location::factory()->create(['company_id' => $company->id]);
+    $destination = Location::factory()->create(['company_id' => $company->id]);
+    $route = Route::factory()->create(['company_id' => $company->id]);
+    $opType = OperationType::factory()->create(['company_id' => $company->id]);
+
+    $payload = inventoryRulePayload([
+        'operation_type_id'       => $opType->id,
+        'source_location_id'      => $source->id,
+        'destination_location_id' => $destination->id,
+        'route_id'                => $route->id,
+        'company_id'              => $company->id,
+    ]);
 
     $this->postJson(inventoryRuleRoute('store'), $payload)
         ->assertCreated()
@@ -388,4 +401,37 @@ it('returns 404 when force-deleting a non-existent rule', function () {
 
     $this->deleteJson(inventoryRuleRoute('force-destroy', 999999))
         ->assertNotFound();
+});
+
+// ── Company-scope write-path guard ──────────────────────────────────────────────
+// Bypass actingAsInventoryRuleApiUser/SecurityHelper on purpose — same pattern
+// as LocationTest.php/RouteTest.php/WarehouseTest.php. Visibility isn't
+// enough: an operation_type_id of company B must be rejected even when the
+// acting user is separately authorized in both A and B.
+
+it('forbids creating a rule for company A referencing an operation type of company B, even when authorized in both', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $operationTypeB = OperationType::factory()->create(['company_id' => $companyB->id]);
+
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $companyA->id,
+    ]));
+    $user->forceFill(['resource_permission' => PermissionType::GLOBAL])->saveQuietly();
+    $user->givePermissionTo(Permission::findOrCreate('create_inventory_rule', 'web'));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $payload = inventoryRulePayload([
+        'operation_type_id' => $operationTypeB->id,
+        'company_id'        => $companyA->id,
+    ]);
+
+    $this->postJson(inventoryRuleRoute('store'), $payload)
+        ->assertForbidden();
+
+    $this->assertDatabaseMissing('inventories_rules', [
+        'name'              => $payload['name'],
+        'operation_type_id' => $operationTypeB->id,
+    ]);
 });

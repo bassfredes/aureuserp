@@ -304,16 +304,21 @@ it('computes a package\'s company from the true cross-company state of its quant
 
     $package = Package::factory()->create(['company_id' => $companyA->id]);
 
+    $locationA = Location::factory()->create(['company_id' => $companyA->id]);
+    $locationB = Location::factory()->create(['company_id' => $companyB->id]);
+
     ProductQuantity::factory()->create([
-        'package_id' => $package->id,
-        'company_id' => $companyA->id,
-        'quantity'   => 5,
+        'package_id'  => $package->id,
+        'company_id'  => $companyA->id,
+        'location_id' => $locationA->id,
+        'quantity'    => 5,
     ]);
 
     $quantityB = ProductQuantity::factory()->create([
-        'package_id' => $package->id,
-        'company_id' => $companyB->id,
-        'quantity'   => 3,
+        'package_id'  => $package->id,
+        'company_id'  => $companyB->id,
+        'location_id' => $locationB->id,
+        'quantity'    => 3,
     ]);
 
     test()->actingAs($userA);
@@ -322,10 +327,15 @@ it('computes a package\'s company from the true cross-company state of its quant
     // it would wrongly conclude every quantity agrees on A and reassign the
     // package to A even though B's quantity is real. It must leave
     // company_id unchanged instead, since the true state (seen through an
-    // unscoped query) is a genuine cross-company conflict.
+    // unscoped query) is a genuine cross-company conflict. location_id must
+    // also stay consistent with the preserved company (A's own location),
+    // never taken from an arbitrary quantity that could point at B.
     $quantityB->computePackageLocationCompany();
 
-    expect($package->fresh()->company_id)->toBe($companyA->id);
+    $package->refresh();
+
+    expect($package->company_id)->toBe($companyA->id)
+        ->and($package->location_id)->toBe($locationA->id);
 });
 
 // ── Warehouse: creation cascade stays scoped end-to-end ─────────────────────────

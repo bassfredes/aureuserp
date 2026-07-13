@@ -42,32 +42,52 @@ trait ValidatesCompanyScope
      * value would otherwise be an "allowed" company: this blocks
      * re-parenting a record into a different company outright, not just
      * into an unauthorized one.
+     *
+     * Takes the whole validated $data array and checks array_key_exists,
+     * not $data['company_id'] ?? null — that idiom can't distinguish "the
+     * client didn't send this field" (skip the check, nothing to guard)
+     * from "the client explicitly sent company_id: null" (a real attempt
+     * to change it, which must be rejected exactly like any other value
+     * change, including on strict_company models with no null state).
      */
-    protected function assertCompanyIdImmutable(?int $submittedCompanyId, Model $model, string $label = 'record'): void
+    protected function assertCompanyIdImmutable(array $data, Model $model, string $label = 'record', string $key = 'company_id'): void
     {
-        if ($submittedCompanyId === null) {
+        if (! array_key_exists($key, $data)) {
             return;
         }
 
-        if ($submittedCompanyId !== $model->company_id) {
+        if ($data[$key] !== $model->{$key}) {
             throw new AuthorizationException("Changing the company of this {$label} is forbidden at this point, you should rather archive it and create a new one.");
         }
     }
 
     /**
      * A related tenant-scoped id must resolve through the scoped model
-     * lookup, not FormRequest's exists:table,id. Model::find() returns
+     * lookup, not FormRequest's exists:table,id (Model::find() returns
      * null both for a genuinely missing id and for one belonging to
-     * another company — don't leak which case it is.
+     * another company — don't leak which case it is), AND must belong to
+     * the SAME effective company as the record referencing it — visible
+     * is not the same as belonging. A user authorized in both A and B can
+     * see rows from either, but a record of A must not reference a
+     * related record of B just because both are individually within
+     * scope. company_id IS NULL on the related record is the one
+     * exception: an explicit shared/global reference (Location, Route —
+     * see ADR 0007), not a company mismatch.
      */
-    protected function assertRelatedRecordAccessible(?int $id, string $modelClass, string $label): void
+    protected function assertRelatedRecordAccessible(?int $id, string $modelClass, string $label, ?int $effectiveCompanyId): void
     {
         if ($id === null) {
             return;
         }
 
-        if (! $modelClass::find($id)) {
+        $related = $modelClass::find($id);
+
+        if (! $related) {
             throw new AuthorizationException("The related {$label} does not exist or is not accessible to your company.");
+        }
+
+        if ($related->company_id !== null && $related->company_id !== $effectiveCompanyId) {
+            throw new AuthorizationException("The related {$label} belongs to a different company.");
         }
     }
 }

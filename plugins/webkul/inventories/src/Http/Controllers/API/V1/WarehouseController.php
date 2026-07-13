@@ -76,9 +76,11 @@ class WarehouseController extends Controller
         $supplierWarehouses = $data['supplier_warehouses'] ?? null;
         unset($data['supplier_warehouses']);
 
-        $this->assertCompanyIdAllowed($data['company_id'] ?? null, Auth::user(), 'warehouse');
+        $effectiveCompanyId = $data['company_id'] ?? null;
+
+        $this->assertCompanyIdAllowed($effectiveCompanyId, Auth::user(), 'warehouse');
         foreach ($supplierWarehouses ?? [] as $supplierWarehouseId) {
-            $this->assertRelatedRecordAccessible($supplierWarehouseId, Warehouse::class, 'supplier warehouse');
+            $this->assertRelatedRecordAccessible($supplierWarehouseId, Warehouse::class, 'supplier warehouse', $effectiveCompanyId);
         }
 
         $warehouse = Warehouse::create($data);
@@ -126,9 +128,12 @@ class WarehouseController extends Controller
         $supplierWarehouses = $data['supplier_warehouses'] ?? null;
         unset($data['supplier_warehouses']);
 
-        $this->assertCompanyIdImmutable($data['company_id'] ?? null, $warehouse, 'warehouse');
+        $this->assertCompanyIdImmutable($data, $warehouse, 'warehouse');
+
+        $effectiveCompanyId = $data['company_id'] ?? $warehouse->company_id;
+
         foreach ($supplierWarehouses ?? [] as $supplierWarehouseId) {
-            $this->assertRelatedRecordAccessible($supplierWarehouseId, Warehouse::class, 'supplier warehouse');
+            $this->assertRelatedRecordAccessible($supplierWarehouseId, Warehouse::class, 'supplier warehouse', $effectiveCompanyId);
         }
 
         $warehouse->update($data);

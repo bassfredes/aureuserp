@@ -112,7 +112,7 @@ class StorageCategoryController extends Controller
 
         $data = $request->validated();
 
-        $this->assertCompanyIdImmutable($data['company_id'] ?? null, $storageCategory, 'storage category');
+        $this->assertCompanyIdImmutable($data, $storageCategory, 'storage category');
 
         $storageCategory->update($data);
 

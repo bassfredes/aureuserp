@@ -206,12 +206,23 @@ class ProductQuantity extends Model
             return;
         }
 
-        $package->location_id = $quantities->first()->location_id;
-
         $distinctCompanyIds = $quantities->pluck('company_id')->unique();
 
         if ($distinctCompanyIds->count() === 1) {
+            // No conflict: every positive quantity agrees on one company,
+            // safe to take location_id from any of them.
             $package->company_id = $distinctCompanyIds->first();
+            $package->location_id = $quantities->first()->location_id;
+        } else {
+            // Genuine cross-company conflict: company_id is left untouched
+            // (see class-level note), and location_id must not be taken
+            // from an arbitrary quantity either — that could leave the
+            // package pointing at a location in a company other than its
+            // own preserved company_id. Only a quantity that actually
+            // matches the package's current company is a safe source.
+            $package->location_id = $quantities
+                ->firstWhere('company_id', $package->company_id)
+                ?->location_id;
         }
 
         $package->save();

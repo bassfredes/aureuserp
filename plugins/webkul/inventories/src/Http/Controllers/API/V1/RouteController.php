@@ -86,7 +86,7 @@ class RouteController extends Controller
 
         $this->assertCompanyIdAllowed($data['company_id'], $user, 'route');
         foreach ($warehouses ?? [] as $warehouseId) {
-            $this->assertRelatedRecordAccessible($warehouseId, Warehouse::class, 'warehouse');
+            $this->assertRelatedRecordAccessible($warehouseId, Warehouse::class, 'warehouse', $data['company_id']);
         }
 
         $route = Route::create($data);
@@ -134,9 +134,12 @@ class RouteController extends Controller
         $warehouses = $data['warehouses'] ?? null;
         unset($data['warehouses']);
 
-        $this->assertCompanyIdImmutable($data['company_id'] ?? null, $route, 'route');
+        $this->assertCompanyIdImmutable($data, $route, 'route');
+
+        $effectiveCompanyId = $data['company_id'] ?? $route->company_id;
+
         foreach ($warehouses ?? [] as $warehouseId) {
-            $this->assertRelatedRecordAccessible($warehouseId, Warehouse::class, 'warehouse');
+            $this->assertRelatedRecordAccessible($warehouseId, Warehouse::class, 'warehouse', $effectiveCompanyId);
         }
 
         $route->update($data);

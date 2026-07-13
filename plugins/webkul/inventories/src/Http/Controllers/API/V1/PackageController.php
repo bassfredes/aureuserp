@@ -2,6 +2,7 @@
 
 namespace Webkul\Inventory\Http\Controllers\API\V1;
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Knuckles\Scribe\Attributes\Authenticated;
 use Knuckles\Scribe\Attributes\Endpoint;
@@ -76,7 +77,9 @@ class PackageController extends Controller
 
         $data = $request->validated();
 
-        $this->assertPackageRelationsAccessible($data);
+        // Package's company_id is never client-controllable (PackageRequest
+        // doesn't accept it) — the model defaults it from the acting user.
+        $this->assertPackageRelationsAccessible($data, Auth::user()?->default_company_id);
 
         $package = Package::create($data);
 
@@ -117,7 +120,7 @@ class PackageController extends Controller
 
         $data = $request->validated();
 
-        $this->assertPackageRelationsAccessible($data);
+        $this->assertPackageRelationsAccessible($data, $package->company_id);
 
         $package->update($data);
 
@@ -125,10 +128,10 @@ class PackageController extends Controller
             ->additional(['message' => 'Package updated successfully.']);
     }
 
-    protected function assertPackageRelationsAccessible(array $data): void
+    protected function assertPackageRelationsAccessible(array $data, ?int $effectiveCompanyId): void
     {
-        $this->assertRelatedRecordAccessible($data['package_type_id'] ?? null, PackageType::class, 'package type');
-        $this->assertRelatedRecordAccessible($data['location_id'] ?? null, Location::class, 'location');
+        $this->assertRelatedRecordAccessible($data['package_type_id'] ?? null, PackageType::class, 'package type', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['location_id'] ?? null, Location::class, 'location', $effectiveCompanyId);
     }
 
     #[Endpoint('Delete package', 'Delete a package')]

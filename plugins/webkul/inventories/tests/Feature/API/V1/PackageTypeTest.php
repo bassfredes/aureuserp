@@ -2,7 +2,9 @@
 
 use Webkul\Inventory\Models\PackageType;
 use Webkul\Security\Enums\PermissionType;
+use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\Company;
 
 require_once __DIR__.'/../../../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -231,6 +233,27 @@ it('updates a package type', function () {
     $this->assertDatabaseHas('inventories_package_types', [
         'id'   => $packageType->id,
         'name' => 'Updated Box',
+    ]);
+});
+
+it('forbids explicitly nulling out company_id on update', function () {
+    $company = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $company->id,
+    ]));
+    $user->forceFill(['resource_permission' => PermissionType::GLOBAL])->saveQuietly();
+    $user->givePermissionTo(Permission::findOrCreate('update_inventory_package::type', 'web'));
+    test()->actingAs($user);
+
+    $packageType = PackageType::factory()->withDimensions()->create(['company_id' => $company->id]);
+
+    $this->patchJson(inventoryPackageTypeRoute('update', $packageType), ['company_id' => null])
+        ->assertForbidden();
+
+    $this->assertDatabaseHas('inventories_package_types', [
+        'id'         => $packageType->id,
+        'company_id' => $company->id,
     ]);
 });
 

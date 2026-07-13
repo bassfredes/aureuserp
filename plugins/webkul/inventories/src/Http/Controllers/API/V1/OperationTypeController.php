@@ -79,7 +79,7 @@ class OperationTypeController extends Controller
         $data['company_id'] ??= $user?->default_company_id;
 
         $this->assertCompanyIdAllowed($data['company_id'], $user, 'operation type');
-        $this->assertOperationTypeRelationsAccessible($data);
+        $this->assertOperationTypeRelationsAccessible($data, $data['company_id']);
 
         $operationType = OperationType::create($data);
 
@@ -120,8 +120,8 @@ class OperationTypeController extends Controller
 
         $data = $request->validated();
 
-        $this->assertCompanyIdImmutable($data['company_id'] ?? null, $operationType, 'operation type');
-        $this->assertOperationTypeRelationsAccessible($data);
+        $this->assertCompanyIdImmutable($data, $operationType, 'operation type');
+        $this->assertOperationTypeRelationsAccessible($data, $data['company_id'] ?? $operationType->company_id);
 
         $operationType->update($data);
 
@@ -129,12 +129,12 @@ class OperationTypeController extends Controller
             ->additional(['message' => 'Operation type updated successfully.']);
     }
 
-    protected function assertOperationTypeRelationsAccessible(array $data): void
+    protected function assertOperationTypeRelationsAccessible(array $data, ?int $effectiveCompanyId): void
     {
-        $this->assertRelatedRecordAccessible($data['warehouse_id'] ?? null, Warehouse::class, 'warehouse');
-        $this->assertRelatedRecordAccessible($data['return_operation_type_id'] ?? null, OperationType::class, 'return operation type');
-        $this->assertRelatedRecordAccessible($data['source_location_id'] ?? null, Location::class, 'source location');
-        $this->assertRelatedRecordAccessible($data['destination_location_id'] ?? null, Location::class, 'destination location');
+        $this->assertRelatedRecordAccessible($data['warehouse_id'] ?? null, Warehouse::class, 'warehouse', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['return_operation_type_id'] ?? null, OperationType::class, 'return operation type', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['source_location_id'] ?? null, Location::class, 'source location', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['destination_location_id'] ?? null, Location::class, 'destination location', $effectiveCompanyId);
     }
 
     #[Endpoint('Delete operation type', 'Soft delete an operation type')]

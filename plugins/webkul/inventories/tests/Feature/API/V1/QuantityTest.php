@@ -8,7 +8,9 @@ use Webkul\Inventory\Models\Package;
 use Webkul\Inventory\Models\Product;
 use Webkul\Inventory\Models\ProductQuantity;
 use Webkul\Security\Enums\PermissionType;
+use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\Company;
 
 require_once __DIR__.'/../../../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -138,12 +140,13 @@ it('returns 404 for a non-existent quantity', function () {
 });
 
 it('creates a quantity for a valid variant payload', function () {
-    actingAsInventoryQuantityApiUser(['create_inventory_quantity']);
+    $user = actingAsInventoryQuantityApiUser(['create_inventory_quantity']);
 
     $parentProduct = Product::factory()->create([
         'is_configurable' => true,
         'is_storable'     => true,
         'tracking'        => ProductTracking::LOT,
+        'company_id'      => $user->default_company_id,
     ]);
 
     $variantProduct = Product::factory()->create([
@@ -151,11 +154,12 @@ it('creates a quantity for a valid variant payload', function () {
         'is_configurable' => false,
         'is_storable'     => true,
         'tracking'        => ProductTracking::LOT,
+        'company_id'      => $user->default_company_id,
     ]);
 
-    $location = Location::factory()->create(['type' => LocationType::INTERNAL]);
-    $lot = Lot::factory()->create(['product_id' => $variantProduct->id]);
-    $package = Package::factory()->create(['location_id' => $location->id]);
+    $location = Location::factory()->create(['type' => LocationType::INTERNAL, 'company_id' => $user->default_company_id]);
+    $lot = Lot::factory()->create(['product_id' => $variantProduct->id, 'company_id' => $user->default_company_id]);
+    $package = Package::factory()->create(['location_id' => $location->id, 'company_id' => $user->default_company_id]);
 
     $payload = inventoryQuantityPayload($variantProduct, $location, [
         'lot_id'      => $lot->id,
@@ -264,4 +268,39 @@ it('rejects counted_quantity greater than one for serial tracked products', func
     ]))
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['counted_quantity']);
+});
+
+// ── Company-scope write-path guard ──────────────────────────────────────────────
+// Bypass actingAsInventoryQuantityApiUser/SecurityHelper on purpose — same
+// pattern as LocationTest.php/RouteTest.php/WarehouseTest.php.
+
+it('forbids creating a quantity for a product belonging to another company, even when company_id is omitted', function () {
+    $companyB = Company::factory()->create();
+    $companyA = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $companyA->id,
+    ]));
+    $user->forceFill(['resource_permission' => PermissionType::GLOBAL])->saveQuietly();
+    $user->givePermissionTo(Permission::findOrCreate('create_inventory_quantity', 'web'));
+    test()->actingAs($user);
+
+    // Product isn't part of this rollout (out of scope, see ADR 0007), so
+    // it's visible to any authenticated user regardless of its own
+    // company_id — the request never even mentions companyB explicitly.
+    $productB = Product::factory()->create([
+        'is_configurable' => false,
+        'is_storable'     => true,
+        'tracking'        => ProductTracking::QTY,
+        'company_id'      => $companyB->id,
+    ]);
+
+    $location = Location::factory()->create(['company_id' => $companyA->id, 'type' => LocationType::INTERNAL]);
+
+    $this->postJson(inventoryQuantityRoute('store'), inventoryQuantityPayload($productB, $location))
+        ->assertForbidden();
+
+    $this->assertDatabaseMissing('inventories_product_quantities', [
+        'product_id' => $productB->id,
+    ]);
 });

@@ -111,7 +111,7 @@ class PackageTypeController extends Controller
 
         $data = $request->validated();
 
-        $this->assertCompanyIdImmutable($data['company_id'] ?? null, $packageType, 'package type');
+        $this->assertCompanyIdImmutable($data, $packageType, 'package type');
 
         $packageType->update($data);
 
