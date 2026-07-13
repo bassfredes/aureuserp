@@ -97,6 +97,19 @@ function classesDeclaredInFile(string $path): array
             continue;
         }
 
+        // `Foo::class` also tokenizes T_STRING, T_DOUBLE_COLON, T_CLASS —
+        // indistinguishable from a real declaration by looking at T_CLASS
+        // alone. Skip it, or the loop below picks up whatever identifier
+        // happens to follow (usually the next method name in the file) as a
+        // bogus "declared class".
+        if (
+            $previousIndex >= 0
+            && is_array($tokens[$previousIndex])
+            && $tokens[$previousIndex][0] === T_DOUBLE_COLON
+        ) {
+            continue;
+        }
+
         for ($index++; $index < $tokenCount; $index++) {
             $classToken = $tokens[$index];
 
