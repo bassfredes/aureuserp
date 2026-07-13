@@ -77,6 +77,20 @@ jobs:
           ini-values: error_reporting=E_ALL
           tools: composer:v2
 
+      - name: Setting Environment
+        shell: bash
+        run: |
+          cp .env.example .env
+          sed -i "s|^\(APP_ENV=\s*\).*$|\1testing|" .env
+          sed -i "s|^\(DB_CONNECTION=\s*\).*$|\1mysql|" .env
+          sed -i "s|^#\?\s*DB_HOST=.*|DB_HOST=127.0.0.1|" .env
+          sed -i "s|^#\?\s*DB_PORT=.*|DB_PORT=${{ job.services.mysql.ports[3306] }}|" .env
+          sed -i "s|^#\?\s*DB_DATABASE=.*|DB_DATABASE=aureuserp|" .env
+          sed -i "s|^#\?\s*DB_USERNAME=.*|DB_USERNAME=root|" .env
+          sed -i "s|^#\?\s*DB_PASSWORD=.*|DB_PASSWORD=root|" .env
+          app_key="base64:$(php -r 'echo base64_encode(random_bytes(32));')"
+          sed -i "s|^APP_KEY=.*|APP_KEY=${app_key}|" .env
+
       - name: Running Composer Install
         id: composer-install
         shell: bash
@@ -94,22 +108,6 @@ jobs:
           name: composer-install-pest-${{ github.run_id }}
           path: composer-install.log
           retention-days: 1
-
-      - name: Setting Environment
-        run: |
-          cp .env.example .env
-          sed -i "s|^\(APP_ENV=\s*\).*$|\1testing|" .env
-          sed -i "s|^\(DB_CONNECTION=\s*\).*$|\1mysql|" .env
-          sed -i "s|^#\?\s*DB_HOST=.*|DB_HOST=127.0.0.1|" .env
-          sed -i "s|^#\?\s*DB_PORT=.*|DB_PORT=${{ job.services.mysql.ports[3306] }}|" .env
-          sed -i "s|^#\?\s*DB_DATABASE=.*|DB_DATABASE=aureuserp|" .env
-          sed -i "s|^#\?\s*DB_USERNAME=.*|DB_USERNAME=root|" .env
-          sed -i "s|^#\?\s*DB_PASSWORD=.*|DB_PASSWORD=root|" .env
-          echo "=== Final .env configuration ==="
-          cat .env
-
-      - name: Generating Application Key
-        run: php artisan key:generate
 
       - name: Running AureusERP Installer
         run: |
