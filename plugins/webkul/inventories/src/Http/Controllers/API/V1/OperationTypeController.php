@@ -2,6 +2,7 @@
 
 namespace Webkul\Inventory\Http\Controllers\API\V1;
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Knuckles\Scribe\Attributes\Authenticated;
 use Knuckles\Scribe\Attributes\Endpoint;
@@ -15,13 +16,18 @@ use Spatie\QueryBuilder\AllowedFilter;
 use Spatie\QueryBuilder\QueryBuilder;
 use Webkul\Inventory\Http\Requests\OperationTypeRequest;
 use Webkul\Inventory\Http\Resources\V1\OperationTypeResource;
+use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\OperationType;
+use Webkul\Inventory\Models\Warehouse;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Inventory API Management')]
 #[Subgroup('Operation Types', 'Manage inventory operation type configurations')]
 #[Authenticated]
 class OperationTypeController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'returnOperationType',
         'sourceLocation',
@@ -68,7 +74,14 @@ class OperationTypeController extends Controller
     {
         Gate::authorize('create', OperationType::class);
 
-        $operationType = OperationType::create($request->validated());
+        $data = $request->validated();
+        $user = Auth::user();
+        $data['company_id'] ??= $user?->default_company_id;
+
+        $this->assertCompanyIdAllowed($data['company_id'], $user, 'operation type');
+        $this->assertOperationTypeRelationsAccessible($data);
+
+        $operationType = OperationType::create($data);
 
         return (new OperationTypeResource($operationType->load($this->allowedIncludes)))
             ->additional(['message' => 'Operation type created successfully.'])
@@ -105,10 +118,23 @@ class OperationTypeController extends Controller
 
         Gate::authorize('update', $operationType);
 
-        $operationType->update($request->validated());
+        $data = $request->validated();
+
+        $this->assertCompanyIdImmutable($data['company_id'] ?? null, $operationType, 'operation type');
+        $this->assertOperationTypeRelationsAccessible($data);
+
+        $operationType->update($data);
 
         return (new OperationTypeResource($operationType->load($this->allowedIncludes)))
             ->additional(['message' => 'Operation type updated successfully.']);
+    }
+
+    protected function assertOperationTypeRelationsAccessible(array $data): void
+    {
+        $this->assertRelatedRecordAccessible($data['warehouse_id'] ?? null, Warehouse::class, 'warehouse');
+        $this->assertRelatedRecordAccessible($data['return_operation_type_id'] ?? null, OperationType::class, 'return operation type');
+        $this->assertRelatedRecordAccessible($data['source_location_id'] ?? null, Location::class, 'source location');
+        $this->assertRelatedRecordAccessible($data['destination_location_id'] ?? null, Location::class, 'destination location');
     }
 
     #[Endpoint('Delete operation type', 'Soft delete an operation type')]

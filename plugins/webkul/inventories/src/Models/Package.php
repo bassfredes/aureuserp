@@ -12,20 +12,17 @@ use Webkul\Inventory\Database\Factories\PackageFactory;
 use Webkul\Inventory\Enums\PackageUse;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
-use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
 use Webkul\Support\Traits\HasCompanyScope;
 
 /**
- * company_id IS NULL is a routine, expected state here, not a fixed system
- * reference like Location/Route: ProductQuantity::computePackageLocationCompany()
- * resets it to null on every recompute for a package with no positive-quantity
- * stock (freshly created, fully consumed, or mid-transaction), and reassigns
- * a real company_id once all its quantities agree on one. IncludesSharedCompanyRows
- * keeps these packages visible while empty/mixed; unlike Location/Route there
- * is no write guard — the recompute is ordinary business logic triggered by
- * any regular user's stock movements, not a protected shared resource.
+ * strict_company: company_id is set from the acting user at creation and
+ * preserved by ProductQuantity::computePackageLocationCompany() even when
+ * the package becomes empty (see that method) — it is not reset to null
+ * as a routine state, so this is not a company_or_shared case like
+ * Location/Route. A package's company only changes when its quantities
+ * genuinely, unambiguously agree on a different one.
  */
-class Package extends Model implements IncludesSharedCompanyRows
+class Package extends Model
 {
     use HasCompanyScope, HasFactory;
 

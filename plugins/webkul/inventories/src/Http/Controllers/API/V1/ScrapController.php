@@ -20,15 +20,20 @@ use Webkul\Inventory\Enums\ScrapState;
 use Webkul\Inventory\Http\Requests\ScrapRequest;
 use Webkul\Inventory\Http\Resources\V1\ScrapResource;
 use Webkul\Inventory\Models\Location;
+use Webkul\Inventory\Models\Lot;
+use Webkul\Inventory\Models\Package;
 use Webkul\Inventory\Models\Product;
 use Webkul\Inventory\Models\Scrap;
 use Webkul\Inventory\Models\Warehouse;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Inventory API Management')]
 #[Subgroup('Scraps', 'Manage inventory scraps')]
 #[Authenticated]
 class ScrapController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'product',
         'uom',
@@ -92,6 +97,10 @@ class ScrapController extends Controller
         Gate::authorize('create', Scrap::class);
 
         $data = $request->validated();
+
+        $this->assertCompanyIdAllowed($data['company_id'] ?? null, Auth::user(), 'scrap');
+        $this->assertScrapRelationsAccessible($data);
+
         $data = $this->prepareScrapPayload($data);
 
         $scrap = Scrap::create($data);
@@ -138,7 +147,12 @@ class ScrapController extends Controller
             ], 422);
         }
 
-        $data = $this->prepareScrapPayload($request->validated(), $scrap);
+        $rawData = $request->validated();
+
+        $this->assertCompanyIdImmutable($rawData['company_id'] ?? null, $scrap, 'scrap');
+        $this->assertScrapRelationsAccessible($rawData);
+
+        $data = $this->prepareScrapPayload($rawData, $scrap);
 
         $scrap->update($data);
 
@@ -202,6 +216,14 @@ class ScrapController extends Controller
             return (new ScrapResource($scrap->fresh()->load($this->allowedIncludes)))
                 ->additional(['message' => 'Scrap validated successfully.']);
         });
+    }
+
+    protected function assertScrapRelationsAccessible(array $data): void
+    {
+        $this->assertRelatedRecordAccessible($data['lot_id'] ?? null, Lot::class, 'lot');
+        $this->assertRelatedRecordAccessible($data['package_id'] ?? null, Package::class, 'package');
+        $this->assertRelatedRecordAccessible($data['source_location_id'] ?? null, Location::class, 'source location');
+        $this->assertRelatedRecordAccessible($data['destination_location_id'] ?? null, Location::class, 'destination location');
     }
 
     protected function prepareScrapPayload(array $data, ?Scrap $existing = null): array

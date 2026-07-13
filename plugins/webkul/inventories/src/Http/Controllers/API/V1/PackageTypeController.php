@@ -2,6 +2,7 @@
 
 namespace Webkul\Inventory\Http\Controllers\API\V1;
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Knuckles\Scribe\Attributes\Authenticated;
 use Knuckles\Scribe\Attributes\Endpoint;
@@ -16,12 +17,15 @@ use Spatie\QueryBuilder\QueryBuilder;
 use Webkul\Inventory\Http\Requests\PackageTypeRequest;
 use Webkul\Inventory\Http\Resources\V1\PackageTypeResource;
 use Webkul\Inventory\Models\PackageType;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Inventory API Management')]
 #[Subgroup('Package Types', 'Manage package type configurations')]
 #[Authenticated]
 class PackageTypeController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'company',
         'creator',
@@ -62,7 +66,13 @@ class PackageTypeController extends Controller
     {
         Gate::authorize('create', PackageType::class);
 
-        $packageType = PackageType::create($request->validated());
+        $data = $request->validated();
+        $user = Auth::user();
+        $data['company_id'] ??= $user?->default_company_id;
+
+        $this->assertCompanyIdAllowed($data['company_id'], $user, 'package type');
+
+        $packageType = PackageType::create($data);
 
         return (new PackageTypeResource($packageType->load($this->allowedIncludes)))
             ->additional(['message' => 'Package type created successfully.'])
@@ -99,7 +109,11 @@ class PackageTypeController extends Controller
 
         Gate::authorize('update', $packageType);
 
-        $packageType->update($request->validated());
+        $data = $request->validated();
+
+        $this->assertCompanyIdImmutable($data['company_id'] ?? null, $packageType, 'package type');
+
+        $packageType->update($data);
 
         return (new PackageTypeResource($packageType->load($this->allowedIncludes)))
             ->additional(['message' => 'Package type updated successfully.']);

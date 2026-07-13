@@ -20,15 +20,21 @@ use Webkul\Inventory\Http\Requests\ProductQuantityCountRequest;
 use Webkul\Inventory\Http\Requests\ProductQuantityRequest;
 use Webkul\Inventory\Http\Resources\V1\ProductQuantityResource;
 use Webkul\Inventory\Models\Location;
+use Webkul\Inventory\Models\Lot;
+use Webkul\Inventory\Models\Package;
 use Webkul\Inventory\Models\Product;
 use Webkul\Inventory\Models\ProductQuantity;
+use Webkul\Inventory\Models\StorageCategory;
 use Webkul\Inventory\Models\Warehouse;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Inventory API Management')]
 #[Subgroup('Quantities', 'Manage inventory product quantities')]
 #[Authenticated]
 class QuantityController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'product',
         'location',
@@ -95,7 +101,15 @@ class QuantityController extends Controller
     {
         Gate::authorize('create', ProductQuantity::class);
 
-        $data = $this->preparePayload($request->validated());
+        $raw = $request->validated();
+
+        $this->assertCompanyIdAllowed($raw['company_id'] ?? null, Auth::user(), 'quantity');
+        $this->assertRelatedRecordAccessible($raw['location_id'] ?? null, Location::class, 'location');
+        $this->assertRelatedRecordAccessible($raw['storage_category_id'] ?? null, StorageCategory::class, 'storage category');
+        $this->assertRelatedRecordAccessible($raw['lot_id'] ?? null, Lot::class, 'lot');
+        $this->assertRelatedRecordAccessible($raw['package_id'] ?? null, Package::class, 'package');
+
+        $data = $this->preparePayload($raw);
 
         $existingQuantity = ProductQuantity::query()
             ->where('location_id', $data['location_id'])

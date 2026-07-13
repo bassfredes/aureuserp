@@ -16,14 +16,18 @@ use Webkul\Inventory\Enums\ProcureMethod;
 use Webkul\Inventory\Facades\Inventory;
 use Webkul\Inventory\Http\Requests\OperationRequest;
 use Webkul\Inventory\Http\Resources\V1\OperationResource;
+use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\Move;
 use Webkul\Inventory\Models\Operation;
 use Webkul\Inventory\Models\OperationType;
 use Webkul\Inventory\Models\Product;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 use Webkul\Support\Models\UOM;
 
 class OperationController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'user',
         'owner',
@@ -266,6 +270,15 @@ class OperationController extends Controller
         $operationType = $this->resolveOperationTypeModel($data['operation_type_id'] ?? $existingOperation?->operation_type_id);
         $isCreating = $existingOperation === null;
 
+        if ($isCreating) {
+            $this->assertCompanyIdAllowed($data['company_id'] ?? null, Auth::user(), 'operation');
+        } else {
+            $this->assertCompanyIdImmutable($data['company_id'] ?? null, $existingOperation, 'operation');
+        }
+
+        $this->assertRelatedRecordAccessible($data['source_location_id'] ?? null, Location::class, 'source location');
+        $this->assertRelatedRecordAccessible($data['destination_location_id'] ?? null, Location::class, 'destination location');
+
         $preparedData = [
             ...$data,
             'operation_type_id'       => $operationType->id,
@@ -353,6 +366,8 @@ class OperationController extends Controller
 
     protected function prepareMoveData(Operation $operation, array $moveData, bool $isUpdate = false): array
     {
+        $this->assertRelatedRecordAccessible($moveData['final_location_id'] ?? null, Location::class, 'final location');
+
         $product = Product::query()->findOrFail($moveData['product_id']);
         $uom = isset($moveData['uom_id'])
             ? UOM::query()->findOrFail($moveData['uom_id'])

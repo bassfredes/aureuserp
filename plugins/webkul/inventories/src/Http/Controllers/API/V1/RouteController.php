@@ -2,6 +2,7 @@
 
 namespace Webkul\Inventory\Http\Controllers\API\V1;
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Knuckles\Scribe\Attributes\Authenticated;
 use Knuckles\Scribe\Attributes\Endpoint;
@@ -16,12 +17,16 @@ use Spatie\QueryBuilder\QueryBuilder;
 use Webkul\Inventory\Http\Requests\RouteRequest;
 use Webkul\Inventory\Http\Resources\V1\RouteResource;
 use Webkul\Inventory\Models\Route;
+use Webkul\Inventory\Models\Warehouse;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Inventory API Management')]
 #[Subgroup('Routes', 'Manage inventory routes')]
 #[Authenticated]
 class RouteController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'suppliedWarehouse',
         'supplierWarehouse',
@@ -76,6 +81,14 @@ class RouteController extends Controller
         $warehouses = $data['warehouses'] ?? null;
         unset($data['warehouses']);
 
+        $user = Auth::user();
+        $data['company_id'] ??= $user?->default_company_id;
+
+        $this->assertCompanyIdAllowed($data['company_id'], $user, 'route');
+        foreach ($warehouses ?? [] as $warehouseId) {
+            $this->assertRelatedRecordAccessible($warehouseId, Warehouse::class, 'warehouse');
+        }
+
         $route = Route::create($data);
 
         if ($warehouses !== null) {
@@ -120,6 +133,11 @@ class RouteController extends Controller
         $data = $request->validated();
         $warehouses = $data['warehouses'] ?? null;
         unset($data['warehouses']);
+
+        $this->assertCompanyIdImmutable($data['company_id'] ?? null, $route, 'route');
+        foreach ($warehouses ?? [] as $warehouseId) {
+            $this->assertRelatedRecordAccessible($warehouseId, Warehouse::class, 'warehouse');
+        }
 
         $route->update($data);
 

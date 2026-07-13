@@ -2,6 +2,7 @@
 
 namespace Webkul\Inventory\Http\Controllers\API\V1;
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Knuckles\Scribe\Attributes\Authenticated;
 use Knuckles\Scribe\Attributes\Endpoint;
@@ -16,12 +17,15 @@ use Spatie\QueryBuilder\QueryBuilder;
 use Webkul\Inventory\Http\Requests\WarehouseRequest;
 use Webkul\Inventory\Http\Resources\V1\WarehouseResource;
 use Webkul\Inventory\Models\Warehouse;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Inventory API Management')]
 #[Subgroup('Warehouses', 'Manage warehouse configurations')]
 #[Authenticated]
 class WarehouseController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'company',
         'partnerAddress',
@@ -72,6 +76,11 @@ class WarehouseController extends Controller
         $supplierWarehouses = $data['supplier_warehouses'] ?? null;
         unset($data['supplier_warehouses']);
 
+        $this->assertCompanyIdAllowed($data['company_id'] ?? null, Auth::user(), 'warehouse');
+        foreach ($supplierWarehouses ?? [] as $supplierWarehouseId) {
+            $this->assertRelatedRecordAccessible($supplierWarehouseId, Warehouse::class, 'supplier warehouse');
+        }
+
         $warehouse = Warehouse::create($data);
 
         if ($supplierWarehouses !== null) {
@@ -116,6 +125,11 @@ class WarehouseController extends Controller
         $data = $request->validated();
         $supplierWarehouses = $data['supplier_warehouses'] ?? null;
         unset($data['supplier_warehouses']);
+
+        $this->assertCompanyIdImmutable($data['company_id'] ?? null, $warehouse, 'warehouse');
+        foreach ($supplierWarehouses ?? [] as $supplierWarehouseId) {
+            $this->assertRelatedRecordAccessible($supplierWarehouseId, Warehouse::class, 'supplier warehouse');
+        }
 
         $warehouse->update($data);
 

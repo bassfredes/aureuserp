@@ -1,8 +1,11 @@
 <?php
 
 use Webkul\Inventory\Models\Route;
+use Webkul\Inventory\Models\Warehouse;
 use Webkul\Security\Enums\PermissionType;
+use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\Company;
 
 require_once __DIR__.'/../../../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -358,4 +361,66 @@ it('returns 404 when force-deleting a non-existent route', function () {
 
     $this->deleteJson(inventoryRouteRoute('force-destroy', 999999))
         ->assertNotFound();
+});
+
+// ── Company-scope write-path guards ─────────────────────────────────────────────
+// Bypass actingAsInventoryRouteApiUser/SecurityHelper on purpose: that helper
+// grants the acting user access to every company that already exists at
+// authentication time, which would silently defeat these cross-company
+// tests — same pattern as LocationTest.php.
+
+function actingAsScopedRouteUser(Company $company, array $permissions): User
+{
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $company->id,
+    ]));
+
+    $user->forceFill([
+        'resource_permission' => PermissionType::GLOBAL,
+    ])->saveQuietly();
+
+    $user->givePermissionTo(collect($permissions)->map(
+        fn (string $name) => Permission::findOrCreate($name, 'web')
+    ));
+
+    test()->actingAs($user);
+
+    return $user;
+}
+
+it('forbids a user from company A creating a route in company B', function () {
+    $companyB = Company::factory()->create();
+    $companyA = Company::factory()->create();
+
+    actingAsScopedRouteUser($companyA, ['create_inventory_route']);
+
+    $this->postJson(inventoryRouteRoute('store'), [
+        'name'       => 'Cross Company Route',
+        'company_id' => $companyB->id,
+    ])->assertForbidden();
+
+    $this->assertDatabaseMissing('inventories_routes', [
+        'name'       => 'Cross Company Route',
+        'company_id' => $companyB->id,
+    ]);
+});
+
+it('forbids a user authorized in A+B from associating a route of A with a warehouse of B', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $warehouseB = Warehouse::factory()->create(['company_id' => $companyB->id]);
+
+    $user = actingAsScopedRouteUser($companyA, ['create_inventory_route']);
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+
+    $this->postJson(inventoryRouteRoute('store'), [
+        'name'        => 'Route A linked to Warehouse B',
+        'company_id'  => $companyA->id,
+        'warehouses'  => [$warehouseB->id],
+    ])->assertForbidden();
+
+    $this->assertDatabaseMissing('inventories_routes', [
+        'name'       => 'Route A linked to Warehouse B',
+        'company_id' => $companyA->id,
+    ]);
 });

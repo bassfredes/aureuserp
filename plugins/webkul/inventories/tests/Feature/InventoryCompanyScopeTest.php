@@ -50,8 +50,10 @@ dataset('strict_company_models', [
     'Warehouse'        => [Warehouse::class],
     'OperationType'    => [OperationType::class],
     'OrderPoint'       => [OrderPoint::class],
+    'Package'          => [Package::class],
     'PackageLevel'     => [PackageLevel::class],
     'PackageType'      => [PackageType::class],
+    'Lot'              => [Lot::class],
     'ProductQuantity'  => [ProductQuantity::class],
     'PutawayRule'      => [PutawayRule::class],
     'Rule'             => [Rule::class],
@@ -249,55 +251,12 @@ it('does not let a regular user create a route with a null company_id', function
     expect($route->company_id)->toBe($company->id);
 });
 
-// ── Package: shared visibility, no write guard (routine recompute) ─────────────
-
-it('keeps a null-company package visible to any scoped user', function () {
-    $companyA = Company::factory()->create();
-    $companyB = Company::factory()->create();
-
-    $package = Package::factory()->create(['company_id' => null]);
-
-    $userB = User::withoutEvents(fn () => User::factory()->create([
-        'default_company_id' => $companyB->id,
-    ]));
-
-    test()->actingAs($userB);
-
-    expect(Package::find($package->id))->not->toBeNull();
-});
-
-it('lets a regular user update a null-company package (routine recompute, not a protected shared row)', function () {
-    $company = Company::factory()->create();
-
-    $package = Package::factory()->create(['company_id' => null]);
-
-    $user = User::withoutEvents(fn () => User::factory()->create([
-        'default_company_id' => $company->id,
-    ]));
-
-    test()->actingAs($user);
-
-    $package->update(['company_id' => $company->id]);
-
-    expect($package->fresh()->company_id)->toBe($company->id);
-});
-
-// ── Lot: shared visibility, no write guard, company_id now defaults ────────────
-
-it('keeps a null-company lot visible to any scoped user', function () {
-    $companyA = Company::factory()->create();
-    $companyB = Company::factory()->create();
-
-    $lot = Lot::factory()->create(['company_id' => null]);
-
-    $userB = User::withoutEvents(fn () => User::factory()->create([
-        'default_company_id' => $companyB->id,
-    ]));
-
-    test()->actingAs($userB);
-
-    expect(Lot::find($lot->id))->not->toBeNull();
-});
+// ── Package & Lot: strict_company (revised after review) ───────────────────────
+// Package and Lot are NOT company_or_shared: a null company_id here was
+// either a routine recompute artifact (Package) or a historical API gap
+// (Lot), not a system-managed shared reference. Both are covered by the
+// generic strict_company_models dataset above (Package/Lot factories
+// always set a real company_id, matching the pattern).
 
 it('defaults a lot\'s company_id from the acting user when omitted', function () {
     $company = Company::factory()->create();
@@ -311,6 +270,62 @@ it('defaults a lot\'s company_id from the acting user when omitted', function ()
     $lot = Lot::factory()->create(['company_id' => null]);
 
     expect($lot->company_id)->toBe($company->id);
+});
+
+it('preserves a package\'s company_id when it becomes empty instead of resetting it to null', function () {
+    $company = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $company->id,
+    ]));
+
+    test()->actingAs($user);
+
+    $package = Package::factory()->create(['company_id' => $company->id]);
+
+    $quantity = ProductQuantity::factory()->create([
+        'package_id' => $package->id,
+        'company_id' => $company->id,
+        'quantity'   => 0,
+    ]);
+
+    $quantity->computePackageLocationCompany();
+
+    expect($package->fresh()->company_id)->toBe($company->id);
+});
+
+it('computes a package\'s company from the true cross-company state of its quantities, not the acting user\'s scoped view', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $userA = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $companyA->id,
+    ]));
+
+    $package = Package::factory()->create(['company_id' => $companyA->id]);
+
+    ProductQuantity::factory()->create([
+        'package_id' => $package->id,
+        'company_id' => $companyA->id,
+        'quantity'   => 5,
+    ]);
+
+    $quantityB = ProductQuantity::factory()->create([
+        'package_id' => $package->id,
+        'company_id' => $companyB->id,
+        'quantity'   => 3,
+    ]);
+
+    test()->actingAs($userA);
+
+    // If this recompute only saw $companyA's quantities (scoped visibility),
+    // it would wrongly conclude every quantity agrees on A and reassign the
+    // package to A even though B's quantity is real. It must leave
+    // company_id unchanged instead, since the true state (seen through an
+    // unscoped query) is a genuine cross-company conflict.
+    $quantityB->computePackageLocationCompany();
+
+    expect($package->fresh()->company_id)->toBe($companyA->id);
 });
 
 // ── Warehouse: creation cascade stays scoped end-to-end ─────────────────────────

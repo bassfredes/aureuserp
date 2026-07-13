@@ -15,13 +15,18 @@ use Spatie\QueryBuilder\AllowedFilter;
 use Spatie\QueryBuilder\QueryBuilder;
 use Webkul\Inventory\Http\Requests\PackageRequest;
 use Webkul\Inventory\Http\Resources\V1\PackageResource;
+use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\Package;
+use Webkul\Inventory\Models\PackageType;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Inventory API Management')]
 #[Subgroup('Packages', 'Manage inventory packages')]
 #[Authenticated]
 class PackageController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'packageType',
         'location',
@@ -69,7 +74,11 @@ class PackageController extends Controller
     {
         Gate::authorize('create', Package::class);
 
-        $package = Package::create($request->validated());
+        $data = $request->validated();
+
+        $this->assertPackageRelationsAccessible($data);
+
+        $package = Package::create($data);
 
         return (new PackageResource($package->load($this->allowedIncludes)))
             ->additional(['message' => 'Package created successfully.'])
@@ -106,10 +115,20 @@ class PackageController extends Controller
 
         Gate::authorize('update', $package);
 
-        $package->update($request->validated());
+        $data = $request->validated();
+
+        $this->assertPackageRelationsAccessible($data);
+
+        $package->update($data);
 
         return (new PackageResource($package->load($this->allowedIncludes)))
             ->additional(['message' => 'Package updated successfully.']);
+    }
+
+    protected function assertPackageRelationsAccessible(array $data): void
+    {
+        $this->assertRelatedRecordAccessible($data['package_type_id'] ?? null, PackageType::class, 'package type');
+        $this->assertRelatedRecordAccessible($data['location_id'] ?? null, Location::class, 'location');
     }
 
     #[Endpoint('Delete package', 'Delete a package')]
