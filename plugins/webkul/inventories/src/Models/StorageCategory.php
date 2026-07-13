@@ -13,10 +13,11 @@ use Webkul\Inventory\Database\Factories\StorageCategoryFactory;
 use Webkul\Inventory\Enums\AllowNewProduct;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class StorageCategory extends Model implements Sortable
 {
-    use HasFactory, SortableTrait;
+    use HasCompanyScope, HasFactory, SortableTrait;
 
     protected $table = 'inventories_storage_categories';
 
@@ -80,6 +81,8 @@ class StorageCategory extends Model implements Sortable
 
         static::creating(function ($storageCategory) {
             $storageCategory->creator_id ??= Auth::id();
+
+            $storageCategory->company_id ??= Auth::user()?->default_company_id;
         });
     }
 }

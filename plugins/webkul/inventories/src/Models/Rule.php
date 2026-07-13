@@ -17,10 +17,11 @@ use Webkul\Inventory\Enums\RuleAuto;
 use Webkul\Partner\Models\Partner;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class Rule extends Model implements Sortable
 {
-    use HasFactory, SoftDeletes, SortableTrait;
+    use HasCompanyScope, HasFactory, SoftDeletes, SortableTrait;
 
     protected $table = 'inventories_rules';
 

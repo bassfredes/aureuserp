@@ -11,11 +11,24 @@ use Webkul\Inventory\Database\Factories\LotFactory;
 use Webkul\Inventory\Enums\LocationType;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
 
-class Lot extends Model
+/**
+ * company_id IS NULL is not a fixed system reference like Location/Route:
+ * LotRequest never accepted company_id, so the API create path has always
+ * produced null-company lots (getNextSerial()/InventoryManager already
+ * treat this as an intentional shared serial pool via orWhereNull()).
+ * IncludesSharedCompanyRows preserves that visibility; no write guard,
+ * since blocking it would 403 the existing API for every non-super_admin
+ * user. The creating hook below now defaults company_id from the acting
+ * user, same fix as LocationController::store() (aureuserp#5) — reduces
+ * future null-company lots without touching legacy/existing ones.
+ */
+class Lot extends Model implements IncludesSharedCompanyRows
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory;
 
     protected $table = 'inventories_lots';
 
@@ -140,6 +153,8 @@ class Lot extends Model
 
         static::creating(function ($lot) {
             $lot->creator_id ??= Auth::id();
+
+            $lot->company_id ??= Auth::user()?->default_company_id;
         });
     }
 }

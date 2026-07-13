@@ -17,10 +17,11 @@ use Webkul\Partner\Models\Partner;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class ProductQuantity extends Model
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory;
 
     protected $table = 'inventories_product_quantities';
 
@@ -121,6 +122,8 @@ class ProductQuantity extends Model
         static::creating(function ($productQuantity) {
             $productQuantity->creator_id ??= Auth::id();
 
+            $productQuantity->company_id ??= Auth::user()?->default_company_id;
+
             $productQuantity->incoming_at ??= now();
         });
 
@@ -171,7 +174,7 @@ class ProductQuantity extends Model
 
         $package->location_id = null;
 
-        $package->company_id  = null;
+        $package->company_id = null;
 
         $quantities = $package->quantities->filter(
             fn ($quantity) => float_compare($quantity->quantity, 0, precisionRounding: $quantity->uom->rounding) > 0

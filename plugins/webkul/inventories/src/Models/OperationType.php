@@ -18,10 +18,11 @@ use Webkul\Inventory\Enums\OperationType as OperationTypeEnum;
 use Webkul\Inventory\Enums\ReservationMethod;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class OperationType extends Model implements Sortable
 {
-    use HasFactory, SoftDeletes, SortableTrait;
+    use HasCompanyScope, HasFactory, SoftDeletes, SortableTrait;
 
     protected $table = 'inventories_operation_types';
 
@@ -144,6 +145,8 @@ class OperationType extends Model implements Sortable
 
         static::creating(function ($operationType) {
             $operationType->creator_id ??= Auth::id();
+
+            $operationType->company_id ??= Auth::user()?->default_company_id;
 
             $operationType->reservation_method = ReservationMethod::AT_CONFIRM;
         });

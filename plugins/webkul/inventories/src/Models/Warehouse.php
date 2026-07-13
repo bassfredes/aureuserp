@@ -28,10 +28,11 @@ use Webkul\Inventory\Settings\WarehouseSettings;
 use Webkul\Partner\Models\Partner;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class Warehouse extends Model implements Sortable
 {
-    use HasFactory, SoftDeletes, SortableTrait;
+    use HasCompanyScope, HasFactory, SoftDeletes, SortableTrait;
 
     protected $table = 'inventories_warehouses';
 
@@ -262,7 +263,7 @@ class Warehouse extends Model implements Sortable
             }
 
             $childLocationIds = Location::query()
-                ->whereRaw('parent_path LIKE ?', [$warehouse->viewLocation->parent_path . '%'])
+                ->whereRaw('parent_path LIKE ?', [$warehouse->viewLocation->parent_path.'%'])
                 ->where('id', '!=', $warehouse->viewLocation->id)
                 ->pluck('id');
 
@@ -275,10 +276,10 @@ class Warehouse extends Model implements Sortable
                 ->pluck('id');
 
             $blocking = OperationType::where(
-                    fn ($q) => $q
-                        ->whereIn('source_location_id', $childLocationIds)
-                        ->orWhereIn('destination_location_id', $childLocationIds)
-                )
+                fn ($q) => $q
+                    ->whereIn('source_location_id', $childLocationIds)
+                    ->orWhereIn('destination_location_id', $childLocationIds)
+            )
                 ->whereNotIn('id', $operationTypes->pluck('id')->all())
                 ->get()
                 ->pluck('id');

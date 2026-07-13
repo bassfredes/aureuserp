@@ -11,10 +11,11 @@ use Spatie\EloquentSortable\SortableTrait;
 use Webkul\Inventory\Database\Factories\PackageTypeFactory;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class PackageType extends Model implements Sortable
 {
-    use HasFactory, SortableTrait;
+    use HasCompanyScope, HasFactory, SortableTrait;
 
     protected $table = 'inventories_package_types';
 

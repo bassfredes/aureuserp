@@ -10,10 +10,11 @@ use Illuminate\Support\Facades\Auth;
 use Webkul\Inventory\Database\Factories\PackageLevelFactory;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class PackageLevel extends Model
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory;
 
     protected $table = 'inventories_package_levels';
 
@@ -66,6 +67,8 @@ class PackageLevel extends Model
 
         static::creating(function ($packageLevel) {
             $packageLevel->creator_id ??= Auth::id();
+
+            $packageLevel->company_id ??= Auth::user()?->default_company_id;
         });
     }
 }
