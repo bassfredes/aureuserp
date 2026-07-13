@@ -44,7 +44,15 @@ jobs:
       - name: Build SCSS and Vite assets
         run: pnpm run build
 
+      - name: Upload built plugin assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-dist-assets
+          path: plugins/webkul/*/resources/dist
+          retention-days: 1
+
   pest_tests:
+    needs: frontend_assets
     runs-on: ${{ matrix.operating-systems }}
     timeout-minutes: 45
 
@@ -91,24 +99,18 @@ jobs:
           app_key="base64:$(php -r 'echo base64_encode(random_bytes(32));')"
           sed -i "s|^APP_KEY=.*|APP_KEY=${app_key}|" .env
 
-      - name: Set Up pnpm
-        uses: pnpm/action-setup@v4
+      - name: Download built plugin assets
+        uses: actions/download-artifact@v4
         with:
-          version: 9.0.0
-          run_install: false
+          name: plugin-dist-assets
+          path: plugins/webkul
 
-      - name: Set Up Node.js
-        uses: actions/setup-node@v4
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
         with:
-          node-version: '24'
-          cache: 'pnpm'
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install Node.js Dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build SCSS and Vite assets
-        run: pnpm run build
+          path: ~/.composer/cache
+          key: ${{ runner.os }}-php-8.4-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-php-8.4-composer-
 
       - name: Running Composer Install
         id: composer-install
