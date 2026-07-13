@@ -2,14 +2,37 @@
 
 namespace Webkul\Support\Models\Scopes;
 
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Scope;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
 
 class CompanyScope implements Scope
 {
+    /**
+     * The companies a user is allowed to operate on (default company +
+     * explicitly allowed companies). Shared by CompanyScope itself and by
+     * any write path (controllers, form requests) that must validate a
+     * client-submitted company_id/parent company against the same set this
+     * scope uses for reads — reads and writes must agree on "allowed".
+     */
+    public static function allowedCompanyIds(?Authenticatable $user): Collection
+    {
+        if (! $user) {
+            return collect();
+        }
+
+        return $user->allowedCompanies()
+            ->pluck('companies.id')
+            ->push($user->default_company_id)
+            ->unique()
+            ->filter()
+            ->values();
+    }
+
     /**
      * Filter the query to only the companies the authenticated user is
      * allowed to operate on (default company + explicitly allowed companies).
@@ -25,11 +48,7 @@ class CompanyScope implements Scope
             return;
         }
 
-        $companyIds = $user->allowedCompanies()
-            ->pluck('companies.id')
-            ->push($user->default_company_id)
-            ->unique()
-            ->filter();
+        $companyIds = static::allowedCompanyIds($user);
 
         // An authenticated user with no company association sees nothing by
         // default (fail closed) — the only sanctioned way to see across

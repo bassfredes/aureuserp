@@ -2,6 +2,7 @@
 
 namespace Webkul\Inventory\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -151,7 +152,7 @@ class Location extends Model implements IncludesSharedCompanyRows
             return;
         }
 
-        throw new \Exception('Shared Location records (company_id is null) can only be created or modified by a super_admin or a system process.');
+        throw new AuthorizationException('Shared Location records (company_id is null) can only be created or modified by a super_admin or a system process.');
     }
 
     protected static function boot()
@@ -225,7 +226,7 @@ class Location extends Model implements IncludesSharedCompanyRows
             }
 
             if ($location->isDirty('company_id')) {
-                throw new \Exception("Changing the company of this record is forbidden at this point, you should rather archive it and create a new one.");
+                throw new AuthorizationException("Changing the company of this record is forbidden at this point, you should rather archive it and create a new one.");
             }
 
             if (

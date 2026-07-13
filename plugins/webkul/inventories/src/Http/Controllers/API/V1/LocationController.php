@@ -2,6 +2,8 @@
 
 namespace Webkul\Inventory\Http\Controllers\API\V1;
 
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Knuckles\Scribe\Attributes\Authenticated;
@@ -17,6 +19,7 @@ use Spatie\QueryBuilder\QueryBuilder;
 use Webkul\Inventory\Http\Requests\LocationRequest;
 use Webkul\Inventory\Http\Resources\V1\LocationResource;
 use Webkul\Inventory\Models\Location;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 #[Group('Inventory API Management')]
 #[Subgroup('Locations', 'Manage location configurations')]
@@ -81,6 +84,7 @@ class LocationController extends Controller
         Gate::authorize('create', Location::class);
 
         $data = $request->validated();
+        $user = Auth::user();
 
         // company_id is nullable in LocationRequest so callers may create a
         // location for a company they explicitly have access to, but the
@@ -88,7 +92,10 @@ class LocationController extends Controller
         // company — not silently fall through to null, which would create
         // an unintended shared/global row (see ADR 0007,
         // IncludesSharedCompanyRows).
-        $data['company_id'] ??= Auth::user()?->default_company_id;
+        $data['company_id'] ??= $user?->default_company_id;
+
+        $this->assertCompanyIdAllowed($data['company_id'], $user);
+        $this->assertParentLocationAccessible($data['parent_id'] ?? null);
 
         $location = Location::create($data);
 
@@ -96,6 +103,42 @@ class LocationController extends Controller
             ->additional(['message' => 'Location created successfully.'])
             ->response()
             ->setStatusCode(201);
+    }
+
+    /**
+     * LocationRequest's exists:companies,id rule only checks the company is
+     * real, not that the acting user may operate on it — without this, a
+     * user in company A could submit company_id=B (any real company) and
+     * create a row there; CompanyScope only filters reads, not inserts.
+     */
+    protected function assertCompanyIdAllowed(?int $companyId, ?Authenticatable $user): void
+    {
+        if ($companyId === null) {
+            return;
+        }
+
+        if (! CompanyScope::allowedCompanyIds($user)->contains($companyId)) {
+            throw new AuthorizationException('You are not allowed to create or move a location into this company.');
+        }
+    }
+
+    /**
+     * LocationRequest's exists:inventories_locations,id rule queries the
+     * table directly, bypassing CompanyScope — it only confirms the row
+     * exists somewhere, not that this user may reference it. Location::find()
+     * is scoped: it resolves to null both for a genuinely missing id and for
+     * one that belongs to another company, which is exactly the boundary we
+     * want to enforce (don't leak which case it is).
+     */
+    protected function assertParentLocationAccessible(?int $parentId): void
+    {
+        if ($parentId === null) {
+            return;
+        }
+
+        if (! Location::find($parentId)) {
+            throw new AuthorizationException('The parent location does not exist or is not accessible to your company.');
+        }
     }
 
     #[Endpoint('Show location', 'Retrieve a specific location by ID')]
@@ -127,7 +170,11 @@ class LocationController extends Controller
 
         Gate::authorize('update', $location);
 
-        $location->update($request->validated());
+        $data = $request->validated();
+
+        $this->assertParentLocationAccessible($data['parent_id'] ?? null);
+
+        $location->update($data);
 
         return (new LocationResource($location->load($this->allowedIncludes)))
             ->additional(['message' => 'Location updated successfully.']);
