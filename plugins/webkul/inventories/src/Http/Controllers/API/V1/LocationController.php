@@ -2,6 +2,7 @@
 
 namespace Webkul\Inventory\Http\Controllers\API\V1;
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Knuckles\Scribe\Attributes\Authenticated;
 use Knuckles\Scribe\Attributes\Endpoint;
@@ -79,7 +80,17 @@ class LocationController extends Controller
     {
         Gate::authorize('create', Location::class);
 
-        $location = Location::create($request->validated());
+        $data = $request->validated();
+
+        // company_id is nullable in LocationRequest so callers may create a
+        // location for a company they explicitly have access to, but the
+        // request omitting it must default to the acting user's own
+        // company — not silently fall through to null, which would create
+        // an unintended shared/global row (see ADR 0007,
+        // IncludesSharedCompanyRows).
+        $data['company_id'] ??= Auth::user()?->default_company_id;
+
+        $location = Location::create($data);
 
         return (new LocationResource($location->load($this->allowedIncludes)))
             ->additional(['message' => 'Location created successfully.'])

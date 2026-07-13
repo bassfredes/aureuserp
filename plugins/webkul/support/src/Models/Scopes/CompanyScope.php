@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Scope;
 use Illuminate\Support\Facades\Auth;
+use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
 
 class CompanyScope implements Scope
 {
@@ -33,13 +34,32 @@ class CompanyScope implements Scope
         // An authenticated user with no company association sees nothing by
         // default (fail closed) — the only sanctioned way to see across
         // companies is the explicit, audited HasCompanyScope::forAllCompanies(),
-        // not an implicit exception baked into this scope.
+        // not an implicit exception baked into this scope. This check stays
+        // ahead of the shared-rows branch below: a companyless user must not
+        // see shared rows either, only forAllCompanies() bypasses isolation.
         if ($companyIds->isEmpty()) {
             $builder->whereRaw('1 = 0');
 
             return;
         }
 
-        $builder->whereIn($model->getTable().'.company_id', $companyIds);
+        $column = $model->qualifyColumn('company_id');
+
+        // strict_company (default): company_id IN (allowed companies) only.
+        if (! $model instanceof IncludesSharedCompanyRows) {
+            $builder->whereIn($column, $companyIds);
+
+            return;
+        }
+
+        // company_or_shared: the model opted in via IncludesSharedCompanyRows
+        // (see ADR 0007). company_id IS NULL rows are system-managed shared
+        // references (e.g. Location's global Vendors/Customers locations),
+        // not incomplete records — visible alongside the user's own
+        // companies, never as a way for a companyless user to see anything.
+        $builder->where(function (Builder $query) use ($column, $companyIds): void {
+            $query->whereIn($column, $companyIds)
+                ->orWhereNull($column);
+        });
     }
 }
