@@ -1,13 +1,19 @@
 <?php
 
+use Illuminate\Support\Facades\Auth;
+use Laravel\Sanctum\Sanctum;
+use Spatie\Permission\PermissionRegistrar;
 use Webkul\Inventory\Enums\OperationState;
 use Webkul\Inventory\Models\Delivery;
 use Webkul\Inventory\Models\InternalTransfer;
+use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\Operation;
 use Webkul\Inventory\Models\OperationType;
 use Webkul\Inventory\Models\Product;
 use Webkul\Security\Enums\PermissionType;
+use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\Company;
 
 require_once __DIR__.'/../../../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -206,4 +212,116 @@ it('returns return validation error when delivery is not done', function () {
     $this->postJson(deliveryRoute('return', $delivery->id))
         ->assertUnprocessable()
         ->assertJsonPath('message', 'Only done operations can be returned.');
+});
+
+// ── Company-scope write-path guard ──────────────────────────────────────────────
+// Bypass actingAsInventoryDeliveryApiUser/SecurityHelper on purpose — same
+// pattern as LocationTest.php/RouteTest.php/WarehouseTest.php.
+
+function actingAsScopedDeliveryUser(Company $company, array $permissions): User
+{
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $company->id,
+    ]));
+
+    $user->forceFill([
+        'resource_permission' => PermissionType::GLOBAL,
+    ])->saveQuietly();
+
+    // Both guards: the app's default auth guard is sanctum, not web, so a
+    // web-only permission silently fails Gate::authorize() regardless of
+    // company-scope logic — same dual-guard pattern as SecurityHelper.
+    // Raw upsert + re-query (not Permission::findOrCreate()) to avoid the
+    // registrar's stale-cache duplicate-row bug: findOrCreate() can create a
+    // second Permission row with a different id when the cache doesn't see
+    // rows inserted via upsert() elsewhere, and givePermissionTo() then
+    // attaches an id Gate::authorize() never matches.
+    $records = collect($permissions)->crossJoin(['web', 'sanctum'])
+        ->map(fn (array $pair) => ['name' => $pair[0], 'guard_name' => $pair[1]])
+        ->all();
+
+    Permission::query()->upsert($records, uniqueBy: ['name', 'guard_name'], update: []);
+
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+    $user->givePermissionTo(
+        Permission::query()->whereIn('name', $permissions)->whereIn('guard_name', ['web', 'sanctum'])->get()
+    );
+
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+    // The API route group uses auth:sanctum middleware, so plain
+    // test()->actingAs($user) (which only authenticates the default 'web'
+    // guard) leaves the sanctum guard unauthenticated for the real HTTP
+    // request — Gate::authorize() then denies for lack of permission on
+    // that guard, which is indistinguishable from a real company-scope
+    // denial in the response (bootstrap/app.php renders every
+    // AuthorizationException as the same generic 403 message on API
+    // requests, by design). Without the full guard chain this test would
+    // "pass" without ever reaching the company-scope check. Same guard
+    // chain as SecurityHelper::authenticateWithPermissions().
+    Auth::guard('web')->login($user);
+    Auth::guard('web')->setUser($user);
+    Auth::guard('sanctum')->setUser($user);
+    Auth::shouldUse('sanctum');
+    Sanctum::actingAs($user, ['*']);
+
+    return $user;
+}
+
+// OperationRequest (Delivery/Receipt/InternalTransfer/Dropship) has no rule
+// for company_id — it's silently dropped by validated(), never reaches the
+// controller. Unlike Warehouse/Scrap/Rule (which DO accept an explicit
+// company_id), a delivery's effective company is always derived from its
+// operation type's own source/destination locations, so there is no
+// "explicit company_id vs operation type company" conflict to guard against
+// here: the only real boundary is whether the operation type itself is
+// visible to the acting user.
+
+it('creates a delivery under the operation type company when the user is authorized in both', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    // Locations built explicitly against companyB — OperationTypeFactory's
+    // delivery() state resolves its own nested Company::factory() for its
+    // source/destination locations, which create(['company_id' => ...])
+    // does NOT retroactively rewrite, so relying on the factory state here
+    // would leave the operation type pointing at a third, invisible company.
+    $sourceB = Location::factory()->internal()->create(['company_id' => $companyB->id]);
+    $destinationB = Location::factory()->customer()->create(['company_id' => $companyB->id]);
+    $operationTypeB = OperationType::factory()->delivery()->create([
+        'company_id'               => $companyB->id,
+        'source_location_id'       => $sourceB->id,
+        'destination_location_id'  => $destinationB->id,
+    ]);
+
+    $user = actingAsScopedDeliveryUser($companyA, ['create_inventory_delivery']);
+    $user->allowedCompanies()->attach($companyB->id);
+
+    $payload = deliveryPayload(['operation_type_id' => $operationTypeB->id]);
+
+    $response = $this->postJson(deliveryRoute('store'), $payload)
+        ->assertCreated();
+
+    $delivery = Delivery::query()->findOrFail($response->json('data.id'));
+
+    expect($delivery->company_id)->toBe($companyB->id)
+        ->and($delivery->company_id)->not->toBe($companyA->id);
+});
+
+it('forbids creating a delivery referencing an operation type of a company the user is not authorized in', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $operationTypeB = OperationType::factory()->delivery()->create(['company_id' => $companyB->id]);
+
+    actingAsScopedDeliveryUser($companyA, ['create_inventory_delivery']);
+
+    $payload = deliveryPayload(['operation_type_id' => $operationTypeB->id]);
+
+    $this->postJson(deliveryRoute('store'), $payload)
+        ->assertUnprocessable();
+
+    $this->assertDatabaseMissing('inventories_operations', [
+        'operation_type_id' => $operationTypeB->id,
+    ]);
 });

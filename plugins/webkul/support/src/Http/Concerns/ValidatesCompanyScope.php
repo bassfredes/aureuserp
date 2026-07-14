@@ -56,7 +56,15 @@ trait ValidatesCompanyScope
             return;
         }
 
-        if ($data[$key] !== $model->{$key}) {
+        // $data comes straight from an array, not a type-hinted parameter,
+        // so unlike assertCompanyIdAllowed()/assertRelatedRecordAccessible()
+        // (both ?int params PHP coerces at the call boundary) a numeric
+        // string like "1" here would never loosely-equal the model's own
+        // int attribute under strict !==. Normalize both sides first.
+        $submitted = $data[$key] === null ? null : (int) $data[$key];
+        $current = $model->{$key} === null ? null : (int) $model->{$key};
+
+        if ($submitted !== $current) {
             throw new AuthorizationException("Changing the company of this {$label} is forbidden at this point, you should rather archive it and create a new one.");
         }
     }

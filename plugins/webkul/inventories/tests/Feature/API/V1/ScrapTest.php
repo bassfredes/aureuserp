@@ -3,8 +3,10 @@
 use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\Product;
 use Webkul\Inventory\Models\Scrap;
+use Webkul\Inventory\Models\Warehouse;
 use Webkul\Security\Enums\PermissionType;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\Company;
 
 require_once __DIR__.'/../../../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -228,4 +230,46 @@ it('deletes a draft scrap', function () {
     $this->deleteJson(scrapRoute('destroy', $scrap->id))
         ->assertOk()
         ->assertJsonPath('message', 'Scrap deleted successfully.');
+});
+
+// ── Company-scope write-path guard ──────────────────────────────────────────────
+// Uses actingAsInventoryScrapApiUser/SecurityHelper's own auth chain (proven
+// reliable elsewhere in this file) instead of hand-building one — building
+// the guard/permission/cache setup manually turned out to be too easy to
+// get subtly wrong. Company B is created AFTER authentication so
+// TestCase's own Company::created listener grants the acting user access
+// to it automatically, same pattern as "auth then create company" tests
+// elsewhere in this suite.
+
+it('defaults source/destination location from the effective company, not any company the A+B user can see', function () {
+    $user = actingAsInventoryScrapApiUser(['create_inventory_scrap']);
+
+    $companyA = Company::find($user->default_company_id) ?? Company::factory()->create();
+
+    // Company A's warehouse is created first, so an unscoped-to-effective-
+    // company "first()" lookup would pick it by default — the bug this
+    // test guards against.
+    $warehouseA = Warehouse::factory()->create(['company_id' => $companyA->id]);
+
+    $companyB = Company::factory()->create();
+    $warehouseB = Warehouse::factory()->create(['company_id' => $companyB->id]);
+    $scrapLocationB = Location::factory()->create(['company_id' => $companyB->id, 'is_scrap' => true]);
+    $user->allowedCompanies()->attach($companyB->id);
+
+    $product = Product::factory()->create(['is_storable' => true]);
+
+    $response = $this->postJson(scrapRoute('store'), [
+        'qty'         => 1,
+        'product_id'  => $product->id,
+        'uom_id'      => $product->uom_id,
+        'company_id'  => $companyB->id,
+        // source_location_id / destination_location_id omitted on purpose.
+    ])->assertCreated();
+
+    $scrap = Scrap::query()->findOrFail($response->json('data.id'));
+
+    expect($scrap->company_id)->toBe($companyB->id)
+        ->and($scrap->source_location_id)->toBe($warehouseB->lot_stock_location_id)
+        ->and($scrap->source_location_id)->not->toBe($warehouseA->lot_stock_location_id)
+        ->and($scrap->destination_location_id)->toBe($scrapLocationB->id);
 });

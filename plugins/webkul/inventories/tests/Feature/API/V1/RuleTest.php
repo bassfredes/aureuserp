@@ -1,5 +1,8 @@
 <?php
 
+use Illuminate\Support\Facades\Auth;
+use Laravel\Sanctum\Sanctum;
+use Spatie\Permission\PermissionRegistrar;
 use Webkul\Inventory\Enums\RuleAction;
 use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\OperationType;
@@ -418,9 +421,40 @@ it('forbids creating a rule for company A referencing an operation type of compa
         'default_company_id' => $companyA->id,
     ]));
     $user->forceFill(['resource_permission' => PermissionType::GLOBAL])->saveQuietly();
-    $user->givePermissionTo(Permission::findOrCreate('create_inventory_rule', 'web'));
+    // Both guards: the app's default auth guard is sanctum, not web, so a
+    // web-only permission silently fails Gate::authorize() regardless of
+    // company-scope logic — same dual-guard pattern as SecurityHelper.
+    // Raw upsert + re-query (not Permission::findOrCreate()) to avoid the
+    // registrar's stale-cache duplicate-row bug: findOrCreate() can create a
+    // second Permission row with a different id when the cache doesn't see
+    // rows inserted via upsert() elsewhere, and givePermissionTo() then
+    // attaches an id Gate::authorize() never matches.
+    Permission::query()->upsert(
+        collect(['web', 'sanctum'])->map(fn (string $guard) => ['name' => 'create_inventory_rule', 'guard_name' => $guard])->all(),
+        uniqueBy: ['name', 'guard_name'],
+        update: []
+    );
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+    $user->givePermissionTo(
+        Permission::query()->where('name', 'create_inventory_rule')->whereIn('guard_name', ['web', 'sanctum'])->get()
+    );
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
     $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
-    test()->actingAs($user);
+    // The API route group uses auth:sanctum middleware, so plain
+    // test()->actingAs($user) (which only authenticates the default 'web'
+    // guard) leaves the sanctum guard unauthenticated for the real HTTP
+    // request — Gate::authorize() then denies for lack of permission on
+    // that guard, which is indistinguishable from a real company-scope
+    // denial in the response (bootstrap/app.php renders every
+    // AuthorizationException as the same generic 403 message on API
+    // requests, by design). Without the full guard chain this test would
+    // "pass" without ever reaching the company-scope check. Same guard
+    // chain as SecurityHelper::authenticateWithPermissions().
+    Auth::guard('web')->login($user);
+    Auth::guard('web')->setUser($user);
+    Auth::guard('sanctum')->setUser($user);
+    Auth::shouldUse('sanctum');
+    Sanctum::actingAs($user, ['*']);
 
     $payload = inventoryRulePayload([
         'operation_type_id' => $operationTypeB->id,
