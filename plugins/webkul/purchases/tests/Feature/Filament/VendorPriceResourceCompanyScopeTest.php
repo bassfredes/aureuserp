@@ -5,8 +5,10 @@ use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Gate;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
+use Webkul\Product\Models\Product;
 use Webkul\Purchase\Filament\Admin\Clusters\Configurations\Resources\VendorPriceResource;
 use Webkul\Purchase\Filament\Admin\Clusters\Configurations\Resources\VendorPriceResource\Pages\CreateVendorPrice;
+use Webkul\Purchase\Filament\Admin\Clusters\Products\Resources\ProductResource\Pages\ManageVendors;
 use Webkul\Purchase\Models\ProductSupplier;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
@@ -97,4 +99,54 @@ it('marks the admin form\'s company_id select as required', function () {
 
     expect($component)->not->toBeNull()
         ->and($component->isRequired())->toBeTrue();
+});
+
+// ── ManageVendors (Product's "sellers" relation manager page) ──────────────
+// It reuses VendorPriceResource::form()/table() but NOT ::getEloquentQuery()
+// — Filament's relation-manager pages feed their table directly from
+// getRelationship(), so the resource-level query scope added for the
+// blockers above never applied here. Found in PR #8's second review round.
+
+it('excludes another company\'s vendor price lists from a product\'s ManageVendors listing', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    loginAsScopedVendorPriceUser($companyA, 'view_any_purchase_vendor::price');
+
+    $product = Product::factory()->create(['is_configurable' => false]);
+
+    $ownRow = ProductSupplier::factory()->create(['product_id' => $product->id, 'company_id' => $companyA->id]);
+    $foreignRow = ProductSupplier::factory()->create(['product_id' => $product->id, 'company_id' => $companyB->id]);
+
+    $page = app(ManageVendors::class);
+    $page->mount($product->id);
+
+    $ids = $page->getRelationship()->pluck('id');
+
+    expect($ids)->toContain($ownRow->id)
+        ->and($ids)->not->toContain($foreignRow->id);
+});
+
+it('does not let a company B vendor price list be part of ManageVendors\' bulk-selectable set', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    loginAsScopedVendorPriceUser($companyA, 'view_any_purchase_vendor::price');
+
+    $product = Product::factory()->create(['is_configurable' => false]);
+
+    $foreignRow = ProductSupplier::factory()->create(['product_id' => $product->id, 'company_id' => $companyB->id]);
+
+    $page = app(ManageVendors::class);
+    $page->mount($product->id);
+
+    // DeleteBulkAction (shared via VendorPriceResource::table()) resolves
+    // its candidate records through this same relationship query — a row
+    // never fetched into it can't end up in a bulk selection to begin
+    // with. Deleting through it directly proves the row is unreachable
+    // via that path, not merely hidden from a rendered list.
+    $deleted = $page->getRelationship()->whereKey($foreignRow->id)->delete();
+
+    expect($deleted)->toBe(0);
+    $this->assertDatabaseHas('products_product_suppliers', ['id' => $foreignRow->id]);
 });
