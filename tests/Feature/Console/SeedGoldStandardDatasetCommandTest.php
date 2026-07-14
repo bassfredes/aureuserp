@@ -102,3 +102,46 @@ it('loads exactly the 41 canonical SKUs under the capture company, with guarante
     expect($lenovo->category->name)->not->toBe('All');
     expect($lenovo->category->name)->toContain('Computadores');
 });
+
+use Webkul\Inventory\Models\ProductQuantity;
+
+it('reconciles exactly the four required heterogeneous quantity cases over the canonical 41 SKUs', function () {
+    $captureUser = User::where('email', 'admin@example.com')->first();
+    $companyId = $captureUser->default_company_id;
+
+    $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
+    $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
+
+    $bodegaCentral = Warehouse::where('code', 'BODEGA-CENTRAL')->where('company_id', $companyId)->first();
+    $tienda = Warehouse::where('code', 'TIENDA-STGO')->where('company_id', $companyId)->first();
+
+    $bySku = fn (string $sku) => Product::where('reference', $sku)->where('company_id', $companyId)->firstOrFail();
+
+    // Caso 1: stock positivo — primer SKU del CSV que no sea ninguno de los casos especiales
+    $positive = $bySku('MACBOOK-PRO-M3');
+    $row = ProductQuantity::where('product_id', $positive->id)->where('location_id', $bodegaCentral->lot_stock_location_id)->first();
+    expect($row)->not->toBeNull();
+    expect((float) $row->quantity)->toBeGreaterThan(0);
+    expect($row->inventory_quantity_set)->toBeTrue();
+
+    // Caso 2: stock cero == ausencia de fila en ambas ubicaciones
+    $zeroCase = $bySku('LENOVO-IDEAPAD3');
+    expect(ProductQuantity::where('product_id', $zeroCase->id)->exists())->toBeFalse();
+
+    // Caso 3: multiubicación — positivo en ambas
+    $multiLocation = $bySku('MACBOOK-AIR-M2');
+    expect((float) ProductQuantity::where('product_id', $multiLocation->id)->where('location_id', $bodegaCentral->lot_stock_location_id)->value('quantity'))->toBeGreaterThan(0);
+    expect((float) ProductQuantity::where('product_id', $multiLocation->id)->where('location_id', $tienda->lot_stock_location_id)->value('quantity'))->toBeGreaterThan(0);
+
+    // Caso 4: solo Tienda
+    $onlyTienda = $bySku('HP-PAVILION15');
+    expect(ProductQuantity::where('product_id', $onlyTienda->id)->where('location_id', $bodegaCentral->lot_stock_location_id)->exists())->toBeFalse();
+    expect((float) ProductQuantity::where('product_id', $onlyTienda->id)->where('location_id', $tienda->lot_stock_location_id)->value('quantity'))->toBeGreaterThan(0);
+
+    // Reconciliación: correr 2 veces no duplica ni revive filas eliminadas
+    expect(ProductQuantity::where('product_id', $positive->id)->count())->toBe(1);
+    expect(ProductQuantity::where('product_id', $zeroCase->id)->count())->toBe(0);
+
+    // Sin efectos colaterales de flujo de inventario
+    expect(\Webkul\Inventory\Models\Move::where('company_id', $companyId)->count())->toBe(0);
+});

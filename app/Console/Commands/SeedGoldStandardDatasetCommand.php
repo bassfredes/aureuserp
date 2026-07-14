@@ -8,6 +8,7 @@ use Illuminate\Support\Str;
 use Webkul\Inventory\Enums\DeliveryStep;
 use Webkul\Inventory\Enums\ReceptionStep;
 use Webkul\Inventory\Models\Warehouse;
+use Webkul\Inventory\Models\ProductQuantity;
 use Webkul\Product\Models\Category;
 use Webkul\Product\Models\Product;
 use Webkul\Security\Models\User;
@@ -49,10 +50,75 @@ class SeedGoldStandardDatasetCommand extends Command
         $rows = $this->readDatasetCsv($sourcePath);
 
         $products = $this->seedProducts($rows, $company, $uom);
+        $this->reconcileQuantities($products, $rows, $bodegaCentral, $tienda, $company);
 
         $this->info(sprintf('%d productos correlacionables cargados', $products->count()));
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Distribucion fija por SKU (no por indice de iteracion, para que sea
+     * estable sin importar el orden del CSV):
+     * - LENOVO-IDEAPAD3: sin stock en ninguna ubicacion.
+     * - HP-PAVILION15: solo en Tienda Santiago Centro.
+     * - MACBOOK-AIR-M2: multiubicacion, positivo en ambas.
+     * - resto: positivo solo en Bodega Central.
+     */
+    private const ZERO_STOCK_SKU = 'LENOVO-IDEAPAD3';
+
+    private const TIENDA_ONLY_SKU = 'HP-PAVILION15';
+
+    private const MULTI_LOCATION_SKU = 'MACBOOK-AIR-M2';
+
+    private function reconcileQuantities(
+        \Illuminate\Support\Collection $products,
+        array $rows,
+        Warehouse $bodegaCentral,
+        Warehouse $tienda,
+        Company $company,
+    ): void {
+        $skuToStock = collect($rows)->pluck('stockOnHand', 'sku');
+        $productIds = $products->pluck('id');
+
+        // Reconciliacion completa: limpiar todo el estado administrado por
+        // este dataset antes de reaplicar la distribucion esperada.
+        ProductQuantity::whereIn('product_id', $productIds)
+            ->whereIn('location_id', [$bodegaCentral->lot_stock_location_id, $tienda->lot_stock_location_id])
+            ->delete();
+
+        foreach ($products as $product) {
+            $sku = $product->reference;
+            $stockOnHand = max(1.0, (float) ($skuToStock[$sku] ?? 1));
+
+            if ($sku === self::ZERO_STOCK_SKU) {
+                continue; // sin filas en ninguna ubicacion
+            }
+
+            if ($sku === self::TIENDA_ONLY_SKU) {
+                $this->createQuantity($product, $tienda->lot_stock_location_id, $stockOnHand, $company);
+
+                continue;
+            }
+
+            $this->createQuantity($product, $bodegaCentral->lot_stock_location_id, $stockOnHand, $company);
+
+            if ($sku === self::MULTI_LOCATION_SKU) {
+                $this->createQuantity($product, $tienda->lot_stock_location_id, round($stockOnHand / 3) ?: 1, $company);
+            }
+        }
+    }
+
+    private function createQuantity(Product $product, int $locationId, float $quantity, Company $company): void
+    {
+        ProductQuantity::create([
+            'product_id' => $product->id,
+            'location_id' => $locationId,
+            'quantity' => $quantity,
+            'reserved_quantity' => 0,
+            'inventory_quantity_set' => true,
+            'company_id' => $company->id,
+        ]);
     }
 
     private function seedProducts(array $rows, Company $company, UOM $uom): \Illuminate\Support\Collection
