@@ -1,11 +1,20 @@
 <?php
 
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 class TestBootstrapHelper
 {
     private static bool $isERPInstalled = false;
+
+    // Allowlist explicita de bases contra las que este helper puede correr
+    // migrate:fresh (DDL destructivo). Un denylist de un unico nombre
+    // conocido ("db_aureuserp") no es fail-closed: cualquier otra base
+    // compartida con otro nombre lo hubiera atravesado igual. Debe
+    // configurarse via env, nunca inferirse. Convencion: db_aureuserp_test
+    // en local, "aureuserp" en CI (ver .github/workflows/pest_tests.yml).
+    private const ALLOWED_DATABASES_ENV = 'TEST_BOOTSTRAP_ALLOWED_DATABASES';
 
     public static function ensurePluginInstalled(string $pluginName): void
     {
@@ -54,6 +63,8 @@ class TestBootstrapHelper
             return;
         }
 
+        static::assertSafeToRunDestructiveBootstrap();
+
         Artisan::call('migrate:fresh', ['--force' => true]);
 
         Artisan::call('erp:install', [
@@ -64,5 +75,43 @@ class TestBootstrapHelper
         ]);
 
         static::$isERPInstalled = true;
+    }
+
+    /**
+     * Fail-closed guard: refuse to run destructive DDL (migrate:fresh)
+     * outside a testing environment or against a database not explicitly
+     * allowlisted via TEST_BOOTSTRAP_ALLOWED_DATABASES. Does not infer
+     * safety from DatabaseTransactions — that trait only wraps individual
+     * test bodies, it does not make migrate:fresh reversible. An empty or
+     * unset allowlist refuses everything (fail-closed default), not just a
+     * single known-dangerous name.
+     *
+     * Public so tests can exercise the decision in isolation, without
+     * paying for (or risking) an actual migrate:fresh run.
+     */
+    public static function assertSafeToRunDestructiveBootstrap(): void
+    {
+        if (! app()->environment('testing')) {
+            throw new \RuntimeException(
+                'TestBootstrapHelper::ensureERPInstalled() runs migrate:fresh (destructive DDL) and refuses to run outside APP_ENV=testing. Current environment: '.app()->environment()
+            );
+        }
+
+        $database = DB::connection()->getDatabaseName();
+        $allowedDatabases = static::allowedDatabases();
+
+        if ($allowedDatabases === [] || ! in_array($database, $allowedDatabases, true)) {
+            throw new \RuntimeException(
+                "Refusing to run migrate:fresh against \"{$database}\" — it is not in ".self::ALLOWED_DATABASES_ENV.' (currently: ['.implode(', ', $allowedDatabases)."]). Set that env var to the dedicated test database name before running this suite. This guard exists after an incident where this helper wiped the shared db_aureuserp database (see the tooling-safety issue linked from #145)."
+            );
+        }
+    }
+
+    private static function allowedDatabases(): array
+    {
+        return array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env(self::ALLOWED_DATABASES_ENV, '')),
+        )));
     }
 }
