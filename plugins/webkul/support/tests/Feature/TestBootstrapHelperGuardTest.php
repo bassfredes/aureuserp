@@ -2,6 +2,8 @@
 
 use Illuminate\Support\Facades\DB;
 
+require_once __DIR__.'/../Helpers/TestBootstrapHelper.php';
+
 function resetTestBootstrapHelperInstalledFlag(): void
 {
     $property = new ReflectionProperty(TestBootstrapHelper::class, 'isERPInstalled');
