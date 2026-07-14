@@ -35,6 +35,7 @@ use Webkul\Purchase\Filament\Admin\Clusters\Configurations\Resources\VendorPrice
 use Webkul\Purchase\Filament\Admin\Clusters\Configurations\Resources\VendorPriceResource\Pages\ViewVendorPrice;
 use Webkul\Purchase\Filament\Admin\Clusters\Products\Resources\ProductResource\Pages\ManageVendors;
 use Webkul\Purchase\Models\ProductSupplier;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 class VendorPriceResource extends Resource
 {
@@ -143,9 +144,15 @@ class VendorPriceResource extends Resource
                                     ->default(0),
                                 Select::make('company_id')
                                     ->label(__('purchases::filament/admin/clusters/configurations/resources/vendor-price.form.sections.prices.fields.company'))
-                                    ->relationship('company', 'name')
+                                    ->relationship(
+                                        'company',
+                                        'name',
+                                        modifyQueryUsing: fn (Builder $query) => $query->whereIn('id', CompanyScope::allowedCompanyIds(Auth::user())),
+                                    )
                                     ->searchable()
                                     ->default(Auth::user()->default_company_id)
+                                    ->disabled(fn (?ProductSupplier $record): bool => (bool) $record)
+                                    ->dehydrated()
                                     ->preload(),
                             ]),
                     ])

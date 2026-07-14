@@ -22,6 +22,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Purchase\Enums\OrderState;
 use Webkul\Purchase\Models\Order;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Website\Filament\Customer\Clusters\Account;
 
 class OrderResource extends Resource
@@ -35,6 +36,25 @@ class OrderResource extends Resource
     protected static ?string $recordTitleAttribute = 'name';
 
     protected static string | array $routeMiddleware = [Authenticate::class];
+
+    /**
+     * The vendor portal authenticates Webkul\Partner\Models\Partner under
+     * the `customer` guard, which carries no company membership at all —
+     * CompanyScope's fail-closed default would hide every order (ADR 0007:
+     * portal visibility is defined by partner identity, not company
+     * membership). Bypass the scope explicitly, with the partner_id
+     * restriction as part of the SAME query, so this never exposes
+     * cross-partner visibility. This covers single-record resolution
+     * (ViewAction/route model binding); table() below applies its own
+     * partner_id filter too, as defense in depth for the list query.
+     */
+    public static function getEloquentQuery(): Builder
+    {
+        $modelClass = static::getModel();
+
+        return $modelClass::withoutGlobalScope(CompanyScope::class)
+            ->where('partner_id', Auth::guard('customer')->id());
+    }
 
     public static function table(Table $table): Table
     {
@@ -87,7 +107,7 @@ class OrderResource extends Resource
                                         ->icon('heroicon-o-check-circle')
                                         ->disabled(fn (Order $record): bool => $record->mail_reception_confirmed)
                                         ->action(function (Order $record) {
-                                            $record->update([
+                                            static::updateWithoutCompanyScope($record, [
                                                 'mail_reception_confirmed' => true,
                                             ]);
 
@@ -108,7 +128,7 @@ class OrderResource extends Resource
                                         ->icon('heroicon-o-x-circle')
                                         ->disabled(fn (Order $record): bool => $record->mail_reception_declined)
                                         ->action(function (Order $record) {
-                                            $record->update([
+                                            static::updateWithoutCompanyScope($record, [
                                                 'mail_reception_declined' => true,
                                             ]);
 
@@ -265,7 +285,7 @@ class OrderResource extends Resource
                                         //     }),
 
                                         Livewire::make('chatter-panel', function (Order $record) {
-                                            $record = Order::findOrFail($record->id);
+                                            $record = Order::withoutGlobalScope(CompanyScope::class)->findOrFail($record->id);
 
                                             return [
                                                 'record'                  => $record,
@@ -289,5 +309,25 @@ class OrderResource extends Resource
                     ->columnSpan(['lg' => 2]),
             ])
             ->columns(3);
+    }
+
+    /**
+     * $record->update() rebuilds its query via newModelQuery(), which
+     * re-applies every registered global scope — including CompanyScope,
+     * which fails closed for the Partner actor of this portal (D1). Without
+     * this, the accept/decline actions above would silently no-op: the
+     * UPDATE's WHERE clause would resolve to `id = ? AND 1 = 0`. $record was
+     * already resolved through getEloquentQuery()'s partner-scoped bypass,
+     * so re-scoping this single-row update by its own key doesn't expose
+     * cross-partner writes.
+     */
+    protected static function updateWithoutCompanyScope(Order $record, array $data): void
+    {
+        $record->newQuery()
+            ->withoutGlobalScope(CompanyScope::class)
+            ->whereKey($record->getKey())
+            ->update($data);
+
+        $record->forceFill($data);
     }
 }

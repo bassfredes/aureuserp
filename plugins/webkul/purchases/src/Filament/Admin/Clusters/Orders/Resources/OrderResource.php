@@ -75,6 +75,7 @@ use Webkul\Support\Filament\Forms\Components\Repeater\TableColumn;
 use Webkul\Support\Filament\Infolists\Components\RepeatableEntry;
 use Webkul\Support\Filament\Infolists\Components\Repeater\TableColumn as InfolistTableColumn;
 use Webkul\Support\Models\Currency;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Models\UOM;
 
 class OrderResource extends Resource
@@ -294,7 +295,7 @@ class OrderResource extends Resource
                                             ->relationship(
                                                 'company',
                                                 'name',
-                                                modifyQueryUsing: fn (Builder $query) => $query->withTrashed(),
+                                                modifyQueryUsing: fn (Builder $query) => $query->withTrashed()->whereIn('id', CompanyScope::allowedCompanyIds(Auth::user())),
                                             )
                                             ->getOptionLabelFromRecordUsing(function ($record): string {
                                                 return $record->name.($record->trashed() ? ' (Deleted)' : '');
@@ -305,7 +306,13 @@ class OrderResource extends Resource
                                             ->required()
                                             ->live()
                                             ->default(Auth::user()->default_company_id)
-                                            ->disabled(fn ($record): bool => $record && ! in_array($record?->state, [OrderState::DRAFT, OrderState::SENT])),
+                                            // company_id is immutable after creation (D4, aureuserp#137):
+                                            // disabled for any existing record, not only once the order
+                                            // leaves DRAFT/SENT — those states gated the field before but
+                                            // still let a DRAFT order's company be swapped underneath its
+                                            // own lines.
+                                            ->disabled(fn ($record): bool => (bool) $record)
+                                            ->dehydrated(),
                                         TextInput::make('origin')
                                             ->label(__('purchases::filament/admin/clusters/orders/resources/order.form.tabs.additional.fields.source-document'))
                                             ->maxLength(255),
@@ -1195,7 +1202,13 @@ class OrderResource extends Resource
                     'currency_id'         => $record->currency_id,
                     'partner_id'          => $record->partner_id,
                     'creator_id'          => Auth::id(),
-                    'company_id'          => Auth::user()->default_company_id,
+                    // The line's company must match the order's, not the
+                    // acting user's default — a user with default company A
+                    // creating an order in allowed company B must produce
+                    // lines in B too (D4, aureuserp#137). Deriving from
+                    // Auth::user() here previously let HasCompanyScope hide
+                    // these lines from B's own users once the scope shipped.
+                    'company_id'          => $record->company_id,
                 ]);
 
                 return $data;
