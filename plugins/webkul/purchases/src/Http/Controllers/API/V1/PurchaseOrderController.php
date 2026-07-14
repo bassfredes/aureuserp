@@ -3,6 +3,7 @@
 namespace Webkul\Purchase\Http\Controllers\API\V1;
 
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Knuckles\Scribe\Attributes\Authenticated;
@@ -25,12 +26,16 @@ use Webkul\Purchase\Facades\PurchaseOrder as PurchaseOrderFacade;
 use Webkul\Purchase\Http\Requests\PurchaseOrderRequest;
 use Webkul\Purchase\Http\Resources\V1\OrderResource;
 use Webkul\Purchase\Models\PurchaseOrder;
+use Webkul\Purchase\Models\Requisition;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Purchase API Management')]
 #[Subgroup('Purchase Orders', 'Manage purchase orders')]
 #[Authenticated]
 class PurchaseOrderController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'partner',
         'currency',
@@ -97,6 +102,11 @@ class PurchaseOrderController extends Controller
 
         $data = $request->validated();
 
+        $effectiveCompanyId = $data['company_id'] ?? null;
+
+        $this->assertCompanyIdAllowed($effectiveCompanyId, Auth::user(), 'purchase order');
+        $this->assertRelatedRecordAccessible($data['requisition_id'] ?? null, Requisition::class, 'purchase agreement', $effectiveCompanyId);
+
         return DB::transaction(function () use ($data) {
             $lines = $data['lines'];
             unset($data['lines']);
@@ -144,6 +154,12 @@ class PurchaseOrderController extends Controller
         Gate::authorize('update', $order);
 
         $data = $request->validated();
+
+        $this->assertCompanyIdImmutable($data, $order, 'purchase order');
+
+        $effectiveCompanyId = $data['company_id'] ?? $order->company_id;
+
+        $this->assertRelatedRecordAccessible($data['requisition_id'] ?? null, Requisition::class, 'purchase agreement', $effectiveCompanyId);
 
         return DB::transaction(function () use ($order, $data) {
             $lines = $data['lines'] ?? null;

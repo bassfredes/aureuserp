@@ -9,10 +9,12 @@ use Filament\Resources\Pages\ManageRelatedRecords;
 use Filament\Schemas\Schema;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Product\Models\ProductSupplier;
 use Webkul\Purchase\Filament\Admin\Clusters\Configurations\Resources\VendorPriceResource;
 use Webkul\Purchase\Filament\Admin\Clusters\Products\Resources\ProductResource;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Traits\HasRecordNavigationTabs;
 
 class ManageVendors extends ManageRelatedRecords
@@ -28,6 +30,24 @@ class ManageVendors extends ManageRelatedRecords
     public static function getNavigationLabel(): string
     {
         return __('purchases::filament/admin/clusters/products/resources/product/pages/manage-vendors.title');
+    }
+
+    /**
+     * This page's table (list + bulk actions like DeleteBulkAction) is fed
+     * directly by this relationship query, not by
+     * VendorPriceResource::getEloquentQuery() — reusing form()/table()
+     * above doesn't reuse that method. ProductSupplier has no
+     * HasCompanyScope (products tramo of #137 still pending), so without
+     * this the sellers relation for the current product would list, and
+     * make bulk-selectable, vendor price lists from every company,
+     * ProductSupplierPolicy's per-record checks notwithstanding — a policy
+     * denial on a single row doesn't stop it from appearing in a listing
+     * or a bulk action's candidate set.
+     */
+    public function getRelationship(): Relation|Builder
+    {
+        return parent::getRelationship()
+            ->whereIn('company_id', CompanyScope::allowedCompanyIds(Auth::user()));
     }
 
     public function form(Schema $schema): Schema

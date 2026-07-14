@@ -21,7 +21,7 @@ class CompanyScope implements Scope
      */
     public static function allowedCompanyIds(?Authenticatable $user): Collection
     {
-        if (! $user) {
+        if (! static::actorSupportsCompanyMembership($user)) {
             return collect();
         }
 
@@ -34,11 +34,33 @@ class CompanyScope implements Scope
     }
 
     /**
+     * Company isolation only applies to actors that expose an operative
+     * company-membership contract (allowedCompanies() + default_company_id)
+     * — today, Webkul\Security\Models\User. Other Authenticatables (e.g.
+     * Webkul\Partner\Models\Partner, authenticated under the `customer`
+     * guard for the purchases/blogs/website vendor portals) carry no
+     * company membership at all. A concrete instanceof check would couple
+     * this shared scope to one caller's model; method_exists() is the
+     * minimal capability check, and treating an unsupported actor as "zero
+     * companies" routes it through apply()'s existing fail-closed branch
+     * instead of a fatal error from calling a method it doesn't have.
+     */
+    private static function actorSupportsCompanyMembership(?Authenticatable $user): bool
+    {
+        return $user !== null && method_exists($user, 'allowedCompanies');
+    }
+
+    /**
      * Filter the query to only the companies the authenticated user is
      * allowed to operate on (default company + explicitly allowed companies).
      *
-     * No authenticated user (console, queue, seeders) or a user with no
-     * company association: no filtering is applied.
+     * No authenticated actor at all (console, queue, seeders, installer):
+     * no filtering is applied — there is no user to scope against. An
+     * authenticated actor with no company association (no default_company_id
+     * and no allowedCompanies() rows, or one that doesn't support company
+     * membership at all — see actorSupportsCompanyMembership()) is a
+     * different case and is NOT left unfiltered: it fails closed to
+     * `1 = 0` below, seeing nothing by default.
      */
     public function apply(Builder $builder, Model $model): void
     {
