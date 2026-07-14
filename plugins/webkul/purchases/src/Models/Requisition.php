@@ -18,10 +18,11 @@ use Webkul\Purchase\Enums\RequisitionType;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class Requisition extends Model
 {
-    use HasChatter, HasCustomFields, HasFactory, HasLogActivity, SoftDeletes;
+    use HasChatter, HasCompanyScope, HasCustomFields, HasFactory, HasLogActivity, SoftDeletes;
 
     public const ACTIVITY_PLAN_PLUGIN = 'purchases';
 

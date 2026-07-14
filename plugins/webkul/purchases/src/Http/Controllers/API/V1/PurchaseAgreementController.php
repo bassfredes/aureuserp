@@ -3,6 +3,7 @@
 namespace Webkul\Purchase\Http\Controllers\API\V1;
 
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Knuckles\Scribe\Attributes\Authenticated;
@@ -20,12 +21,15 @@ use Webkul\Purchase\Enums\RequisitionState;
 use Webkul\Purchase\Http\Requests\PurchaseAgreementRequest;
 use Webkul\Purchase\Http\Resources\V1\RequisitionResource;
 use Webkul\Purchase\Models\Requisition;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Purchase API Management')]
 #[Subgroup('Purchase Agreements', 'Manage purchase agreements')]
 #[Authenticated]
 class PurchaseAgreementController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'currency',
         'partner',
@@ -83,6 +87,8 @@ class PurchaseAgreementController extends Controller
 
         $data = $request->validated();
 
+        $this->assertCompanyIdAllowed($data['company_id'] ?? null, Auth::user(), 'purchase agreement');
+
         return DB::transaction(function () use ($data) {
             $lines = $data['lines'];
             unset($data['lines']);
@@ -130,6 +136,8 @@ class PurchaseAgreementController extends Controller
         Gate::authorize('update', $agreement);
 
         $data = $request->validated();
+
+        $this->assertCompanyIdImmutable($data, $agreement, 'purchase agreement');
 
         return DB::transaction(function () use ($agreement, $data) {
             $lines = $data['lines'] ?? null;

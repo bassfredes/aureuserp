@@ -69,6 +69,7 @@ use Webkul\Support\Filament\Forms\Components\Repeater\TableColumn;
 use Webkul\Support\Filament\Infolists\Components\RepeatableEntry;
 use Webkul\Support\Filament\Infolists\Components\Repeater\TableColumn as InfolistTableColumn;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 class PurchaseAgreementResource extends Resource
 {
@@ -210,7 +211,11 @@ class PurchaseAgreementResource extends Resource
                                     ->placeholder(__('purchases::filament/admin/clusters/orders/resources/purchase-agreement.form.sections.general.fields.reference-placeholder')),
                                 Select::make('company_id')
                                     ->label(__('purchases::filament/admin/clusters/orders/resources/purchase-agreement.form.sections.general.fields.company'))
-                                    ->relationship('company', 'name', modifyQueryUsing: fn (Builder $query) => $query->withTrashed())
+                                    ->relationship(
+                                        'company',
+                                        'name',
+                                        modifyQueryUsing: fn (Builder $query) => $query->withTrashed()->whereIn('id', CompanyScope::allowedCompanyIds(Auth::user())),
+                                    )
                                     ->getOptionLabelFromRecordUsing(function ($record): string {
                                         return $record->name.($record->trashed() ? ' (Deleted)' : '');
                                     })
@@ -224,7 +229,10 @@ class PurchaseAgreementResource extends Resource
                                     ->live()
                                     ->afterStateHydrated(static::handleCompanyChange(...))
                                     ->afterStateUpdated(static::handleCompanyChange(...))
-                                    ->disabled(fn ($record): bool => $record && $record?->state != RequisitionState::DRAFT),
+                                    // company_id is immutable after creation (D4, aureuserp#137):
+                                    // disabled for any existing record, not only once it leaves DRAFT.
+                                    ->disabled(fn ($record): bool => (bool) $record)
+                                    ->dehydrated(),
                             ]),
                     ])
                     ->columns(2),
@@ -261,6 +269,15 @@ class PurchaseAgreementResource extends Resource
         return Repeater::make('lines')
             ->hiddenLabel()
             ->relationship()
+            // The relationship repeater has no field for company_id in its
+            // schema below, so without this it's silently omitted from every
+            // created line (nullable column) rather than merely
+            // user-derived like Order's equivalent bug — same invariant
+            // fix (D4, aureuserp#137): a line's company always follows its
+            // agreement's, never the acting user's default.
+            ->mutateRelationshipDataBeforeCreateUsing(fn (array $data, Requisition $record): array => array_merge($data, [
+                'company_id' => $record->company_id,
+            ]))
             ->compact()
             ->table(fn (Get $get) => [
                 TableColumn::make('product_id')

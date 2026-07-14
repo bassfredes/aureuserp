@@ -7,8 +7,10 @@ use Webkul\PluginManager\Package;
 use Webkul\Product\Models\Product;
 use Webkul\Purchase\Enums\OrderState;
 use Webkul\Purchase\Enums\QtyReceivedMethod;
+use Webkul\Purchase\Models\Order;
 use Webkul\Purchase\Models\OrderLine;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 /**
  * @extends Factory<OrderLine>
@@ -21,6 +23,28 @@ class OrderLineFactory extends Factory
      * @var string
      */
     protected $model = OrderLine::class;
+
+    /**
+     * order_id is required (NOT NULL, no default here), so every ->create()
+     * call already passes it explicitly. Default company_id from that order
+     * when the caller didn't also override company_id — otherwise every
+     * factory-built line reintroduces the NULL/mismatched rows the backfill
+     * migration exists to fix (aureuserp#137, D4).
+     */
+    public function configure(): static
+    {
+        return $this->afterMaking(function (OrderLine $line) {
+            if ($line->company_id === null && $line->order_id) {
+                // Bypass CompanyScope: this is fixture wiring, not a
+                // user-facing read, and the caller's acting-user context
+                // (if any) must not hide the very order this line belongs
+                // to from this lookup.
+                $line->company_id = Order::withoutGlobalScope(CompanyScope::class)
+                    ->find($line->order_id)
+                    ?->company_id;
+            }
+        });
+    }
 
     /**
      * Define the model's default state.

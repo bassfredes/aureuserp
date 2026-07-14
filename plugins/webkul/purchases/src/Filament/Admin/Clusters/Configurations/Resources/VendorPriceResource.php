@@ -35,6 +35,7 @@ use Webkul\Purchase\Filament\Admin\Clusters\Configurations\Resources\VendorPrice
 use Webkul\Purchase\Filament\Admin\Clusters\Configurations\Resources\VendorPriceResource\Pages\ViewVendorPrice;
 use Webkul\Purchase\Filament\Admin\Clusters\Products\Resources\ProductResource\Pages\ManageVendors;
 use Webkul\Purchase\Models\ProductSupplier;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 class VendorPriceResource extends Resource
 {
@@ -49,6 +50,21 @@ class VendorPriceResource extends Resource
     public static function getNavigationLabel(): string
     {
         return __('purchases::filament/admin/clusters/configurations/resources/vendor-price.navigation.title');
+    }
+
+    /**
+     * ProductSupplier has no HasCompanyScope (products tramo of #137 still
+     * pending), so nothing hides another company's rows from this
+     * resource's table/edit/view queries by default — restrict here
+     * explicitly. Also covers the ManageVendors relation-manager page,
+     * which reuses this resource's form()/table() but not this method;
+     * ProductSupplierPolicy's company check is the backstop for that page's
+     * own record actions.
+     */
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()
+            ->whereIn('company_id', CompanyScope::allowedCompanyIds(Auth::user()));
     }
 
     public static function form(Schema $schema): Schema
@@ -143,9 +159,16 @@ class VendorPriceResource extends Resource
                                     ->default(0),
                                 Select::make('company_id')
                                     ->label(__('purchases::filament/admin/clusters/configurations/resources/vendor-price.form.sections.prices.fields.company'))
-                                    ->relationship('company', 'name')
+                                    ->relationship(
+                                        'company',
+                                        'name',
+                                        modifyQueryUsing: fn (Builder $query) => $query->whereIn('id', CompanyScope::allowedCompanyIds(Auth::user())),
+                                    )
                                     ->searchable()
+                                    ->required()
                                     ->default(Auth::user()->default_company_id)
+                                    ->disabled(fn (?ProductSupplier $record): bool => (bool) $record)
+                                    ->dehydrated()
                                     ->preload(),
                             ]),
                     ])

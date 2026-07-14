@@ -2,6 +2,8 @@
 
 namespace Webkul\Purchase\Http\Controllers\API\V1;
 
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Knuckles\Scribe\Attributes\Authenticated;
 use Knuckles\Scribe\Attributes\Endpoint;
@@ -16,12 +18,16 @@ use Spatie\QueryBuilder\QueryBuilder;
 use Webkul\Purchase\Http\Requests\VendorPriceListRequest;
 use Webkul\Purchase\Http\Resources\V1\VendorPriceListResource;
 use Webkul\Purchase\Models\ProductSupplier;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 #[Group('Purchase API Management')]
 #[Subgroup('Vendor Price Lists', 'Manage vendor price lists')]
 #[Authenticated]
 class VendorPriceListController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'partner',
         'product',
@@ -47,7 +53,15 @@ class VendorPriceListController extends Controller
     {
         Gate::authorize('viewAny', ProductSupplier::class);
 
-        $vendorPriceLists = QueryBuilder::for(ProductSupplier::class)
+        // ProductSupplier has no HasCompanyScope, so the listing must be
+        // restricted here explicitly — otherwise a permitted user would
+        // enumerate every company's vendor price lists. An empty
+        // allowedCompanyIds() (companyless user) makes whereIn() match
+        // nothing, the same fail-closed behavior CompanyScope gives scoped
+        // models.
+        $vendorPriceLists = QueryBuilder::for(
+            ProductSupplier::query()->whereIn('company_id', CompanyScope::allowedCompanyIds(Auth::user()))
+        )
             ->allowedFilters(
                 AllowedFilter::exact('id'),
                 AllowedFilter::exact('partner_id'),
@@ -72,12 +86,48 @@ class VendorPriceListController extends Controller
     {
         Gate::authorize('create', ProductSupplier::class);
 
-        $vendorPriceList = ProductSupplier::create($request->validated());
+        $data = $request->validated();
+        $data['company_id'] = $this->resolveVendorPriceListCompanyId($data, Auth::user());
+
+        $vendorPriceList = ProductSupplier::create($data);
 
         return (new VendorPriceListResource($vendorPriceList->load($this->allowedIncludes)))
             ->additional(['message' => 'Vendor price list created successfully.'])
             ->response()
             ->setStatusCode(201);
+    }
+
+    /**
+     * VendorPriceListRequest's company_id rule is 'nullable', not required
+     * (D2): omitting it resolves to the acting user's default company, an
+     * explicit company_id is checked against the user's allowed companies,
+     * and an explicit null is rejected outright — a vendor price list is
+     * always tenant-owned, never a shared/global row, at least until the
+     * products tramo of #137 decides otherwise for this table.
+     */
+    private function resolveVendorPriceListCompanyId(array $data, $user): int
+    {
+        if (! array_key_exists('company_id', $data)) {
+            $companyId = $user?->default_company_id;
+
+            // A user with no default company (e.g. a companyless account,
+            // same fail-closed case CompanyScope itself handles) must get a
+            // controlled 403, not an uncaught TypeError from returning null
+            // out of an `: int` method.
+            if ($companyId === null) {
+                throw new AuthorizationException('A vendor price list must belong to a company, and your account has no default company to fall back to.');
+            }
+
+            return $companyId;
+        }
+
+        if ($data['company_id'] === null) {
+            throw new AuthorizationException('A vendor price list must belong to a company; company_id cannot be null.');
+        }
+
+        $this->assertCompanyIdAllowed($data['company_id'], $user, 'vendor price list');
+
+        return $data['company_id'];
     }
 
     #[Endpoint('Show vendor price list', 'Retrieve a specific vendor price list by its ID')]
@@ -109,7 +159,11 @@ class VendorPriceListController extends Controller
 
         Gate::authorize('update', $vendorPriceList);
 
-        $vendorPriceList->update($request->validated());
+        $data = $request->validated();
+
+        $this->assertCompanyIdImmutable($data, $vendorPriceList, 'vendor price list');
+
+        $vendorPriceList->update($data);
 
         return (new VendorPriceListResource($vendorPriceList->load($this->allowedIncludes)))
             ->additional(['message' => 'Vendor price list updated successfully.']);
