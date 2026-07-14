@@ -141,11 +141,11 @@ jobs:
             --admin-name="Example" \
             --admin-email="admin@example.com" \
             --admin-password="Admin123456"
-          php artisan inventories:install --no-interaction
-
-      - name: Running Pest Test (gold-standard-dataset, isolated process)
-        run: |
-          vendor/bin/pest tests/Feature/Console/SeedGoldStandardDatasetCommandTest.php --colors=always
 
       - name: Running Pest Test (resto de la suite)
         run: vendor/bin/pest --exclude-group=gold-standard-dataset --colors=always
+
+      - name: Running Pest Test (gold-standard-dataset, isolated process)
+        run: |
+          php artisan inventories:install --no-interaction
+          vendor/bin/pest tests/Feature/Console/SeedGoldStandardDatasetCommandTest.php --colors=always
