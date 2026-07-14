@@ -8,13 +8,13 @@ class TestBootstrapHelper
 {
     private static bool $isERPInstalled = false;
 
-    // Nombre real de la base compartida del stack de desarrollo local
-    // (docker-compose.yml raiz del monorepo, servicio mysql). CI usa su
-    // propio contenedor mysql efimero con DB_DATABASE=aureuserp (ver
-    // .github/workflows/pest_tests.yml), asi que ese nombre nunca choca con
-    // este denylist. Agregado tras un incidente en el que este helper
-    // corrio migrate:fresh contra esta base compartida y la vacio.
-    private const FORBIDDEN_DATABASES = ['db_aureuserp'];
+    // Allowlist explicita de bases contra las que este helper puede correr
+    // migrate:fresh (DDL destructivo). Un denylist de un unico nombre
+    // conocido ("db_aureuserp") no es fail-closed: cualquier otra base
+    // compartida con otro nombre lo hubiera atravesado igual. Debe
+    // configurarse via env, nunca inferirse. Convencion: db_aureuserp_test
+    // en local, "aureuserp" en CI (ver .github/workflows/pest_tests.yml).
+    private const ALLOWED_DATABASES_ENV = 'TEST_BOOTSTRAP_ALLOWED_DATABASES';
 
     public static function ensurePluginInstalled(string $pluginName): void
     {
@@ -79,12 +79,17 @@ class TestBootstrapHelper
 
     /**
      * Fail-closed guard: refuse to run destructive DDL (migrate:fresh)
-     * outside a testing environment or against a database known to be the
-     * shared local dev database. Does not infer safety from
-     * DatabaseTransactions — that trait only wraps individual test bodies,
-     * it does not make migrate:fresh reversible.
+     * outside a testing environment or against a database not explicitly
+     * allowlisted via TEST_BOOTSTRAP_ALLOWED_DATABASES. Does not infer
+     * safety from DatabaseTransactions — that trait only wraps individual
+     * test bodies, it does not make migrate:fresh reversible. An empty or
+     * unset allowlist refuses everything (fail-closed default), not just a
+     * single known-dangerous name.
+     *
+     * Public so tests can exercise the decision in isolation, without
+     * paying for (or risking) an actual migrate:fresh run.
      */
-    private static function assertSafeToRunDestructiveBootstrap(): void
+    public static function assertSafeToRunDestructiveBootstrap(): void
     {
         if (! app()->environment('testing')) {
             throw new \RuntimeException(
@@ -93,11 +98,20 @@ class TestBootstrapHelper
         }
 
         $database = DB::connection()->getDatabaseName();
+        $allowedDatabases = static::allowedDatabases();
 
-        if (in_array($database, self::FORBIDDEN_DATABASES, true)) {
+        if ($allowedDatabases === [] || ! in_array($database, $allowedDatabases, true)) {
             throw new \RuntimeException(
-                "Refusing to run migrate:fresh against \"{$database}\" — this is the shared local dev database, not an isolated test database. Point DB_DATABASE at a dedicated test database before running this suite. This guard exists after an incident where this helper wiped {$database} (see the tooling-safety issue linked from #145)."
+                "Refusing to run migrate:fresh against \"{$database}\" — it is not in ".self::ALLOWED_DATABASES_ENV.' (currently: ['.implode(', ', $allowedDatabases)."]). Set that env var to the dedicated test database name before running this suite. This guard exists after an incident where this helper wiped the shared db_aureuserp database (see the tooling-safety issue linked from #145)."
             );
         }
+    }
+
+    private static function allowedDatabases(): array
+    {
+        return array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env(self::ALLOWED_DATABASES_ENV, '')),
+        )));
     }
 }

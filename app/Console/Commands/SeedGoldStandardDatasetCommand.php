@@ -30,6 +30,7 @@ class SeedGoldStandardDatasetCommand extends Command
     public function handle(): int
     {
         $captureUser = $this->resolveCaptureUser();
+        $previousUser = Auth::user();
 
         // Warehouse::create() dispara internamente la creacion de Location,
         // Route y OperationType (ver Warehouse::handleWarehouseCreation()),
@@ -38,23 +39,34 @@ class SeedGoldStandardDatasetCommand extends Command
         // Auth::user()->id sin null-check) — exactamente como ocurre en
         // produccion via un request autenticado. Sin esto, el comando
         // (que corre por consola, sin usuario autenticado) falla con
-        // "Attempt to read property id on null".
+        // "Attempt to read property id on null". Se restaura el actor
+        // previo al salir para no contaminar estado global en invocaciones
+        // programaticas (tests, jobs) donde el proceso no termina aqui.
         Auth::setUser($captureUser);
 
-        $company = $this->resolveCaptureCompany($captureUser);
-        $uom = $this->resolveUom();
-        $bodegaCentral = $this->resolveBodegaCentral($company);
-        $tienda = $this->resolveTiendaSantiagoCentro($company);
+        try {
+            $company = $this->resolveCaptureCompany($captureUser);
+            $uom = $this->resolveUom();
+            $bodegaCentral = $this->resolveBodegaCentral($company);
+            $tienda = $this->resolveTiendaSantiagoCentro($company);
 
-        $sourcePath = $this->option('source') ?? database_path('data/gold-standard-products-v1.csv');
-        $rows = $this->readDatasetCsv($sourcePath);
+            $sourcePath = $this->option('source') ?? database_path('data/gold-standard-products-v1.csv');
+            $rows = $this->readDatasetCsv($sourcePath);
 
-        $products = $this->seedProducts($rows, $company, $uom);
-        $this->reconcileQuantities($products, $rows, $bodegaCentral, $tienda, $company);
+            $products = $this->seedProducts($rows, $company, $uom);
+            $this->reconcileQuantities($products, $rows, $bodegaCentral, $tienda, $company);
 
-        $this->info(sprintf('%d productos correlacionables cargados', $products->count()));
+            $this->info(sprintf('%d productos correlacionables cargados', $products->count()));
 
-        return self::SUCCESS;
+            return self::SUCCESS;
+        } finally {
+            // Auth::setUser() no acepta null (el contrato Guard::setUser()
+            // exige Authenticatable) — el caso tipico en CLI es justamente
+            // que no habia usuario previo, asi que restaurar con setUser()
+            // a secas lanzaria TypeError. logout() limpia el guard de forma
+            // segura sin importar si habia un usuario antes o no.
+            $previousUser ? Auth::setUser($previousUser) : Auth::logout();
+        }
     }
 
     /**
@@ -124,7 +136,7 @@ class SeedGoldStandardDatasetCommand extends Command
     private function seedProducts(array $rows, Company $company, UOM $uom): \Illuminate\Support\Collection
     {
         return collect($rows)->map(function (array $row) use ($company, $uom) {
-            $category = $this->resolveErpCategory($row['facets'] ?? '', $company);
+            $category = $this->resolveErpCategory($row['facets'] ?? '');
 
             return Product::updateOrCreate(
                 ['reference' => $row['sku'], 'company_id' => $company->id],
@@ -174,10 +186,20 @@ class SeedGoldStandardDatasetCommand extends Command
             });
     }
 
-    private function resolveErpCategory(string $facets, Company $company): Category
+    /**
+     * category_id se deriva estrictamente de la facet "Categoría" — la
+     * decision del dataset es que "Subcategoría" aporta contexto semantico
+     * (usado en buildInternalName()) pero nunca define la categoria ERP.
+     * Fallar explicito ante su ausencia evita que una fila sin "Categoría"
+     * cambie de semantica en silencio hacia "Subcategoría".
+     */
+    private function resolveErpCategory(string $facets): Category
     {
-        $pairs = $this->parseFacets($facets);
-        $categoryName = $pairs->get('Categoría') ?? $pairs->get('Subcategoría') ?? 'Sin categoria (dataset #145)';
+        $categoryName = $this->parseFacets($facets)->get('Categoría');
+
+        if (! $categoryName) {
+            throw new \RuntimeException('El dataset #145 requiere la facet "Categoría" en cada fila del CSV.');
+        }
 
         return Category::firstOrCreate(
             ['name' => $categoryName],
@@ -247,10 +269,12 @@ class SeedGoldStandardDatasetCommand extends Command
         }
 
         $handle = fopen($path, 'r');
-        $header = fgetcsv($handle);
+        // PHP 8.4 deprecates dejar $escape implicito en fgetcsv() — se fija
+        // explicito ("" = sin escape, el CSV fuente no usa backslash-escaping).
+        $header = fgetcsv($handle, null, ',', '"', '');
         $rows = [];
 
-        while (($line = fgetcsv($handle)) !== false) {
+        while (($line = fgetcsv($handle, null, ',', '"', '')) !== false) {
             $rows[] = array_combine($header, $line);
         }
 

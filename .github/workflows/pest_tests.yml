@@ -98,6 +98,10 @@ jobs:
           sed -i "s|^#\?\s*DB_PASSWORD=.*|DB_PASSWORD=root|" .env
           app_key="base64:$(php -r 'echo base64_encode(random_bytes(32));')"
           sed -i "s|^APP_KEY=.*|APP_KEY=${app_key}|" .env
+          # Allowlist explicita para TestBootstrapHelper::assertSafeToRunDestructiveBootstrap()
+          # (ver plugins/webkul/support/tests/Helpers/TestBootstrapHelper.php) — este job usa
+          # su propio mysql efimero con DB_DATABASE=aureuserp, nunca la base compartida local.
+          echo "TEST_BOOTSTRAP_ALLOWED_DATABASES=aureuserp" >> .env
 
       - name: Download built plugin assets
         uses: actions/download-artifact@v4
@@ -137,6 +141,11 @@ jobs:
             --admin-name="Example" \
             --admin-email="admin@example.com" \
             --admin-password="Admin123456"
+          php artisan inventories:install --no-interaction
 
-      - name: Running Pest Test
-        run: vendor/bin/pest --colors=always
+      - name: Running Pest Test (gold-standard-dataset, isolated process)
+        run: |
+          vendor/bin/pest tests/Feature/Console/SeedGoldStandardDatasetCommandTest.php --colors=always
+
+      - name: Running Pest Test (resto de la suite)
+        run: vendor/bin/pest --exclude-group=gold-standard-dataset --colors=always

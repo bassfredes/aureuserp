@@ -22,20 +22,27 @@ require_once __DIR__.'/../../../plugins/webkul/support/tests/Helpers/TestBootstr
 // comandos (migrate:fresh, erp:install, inventories:install) como procesos
 // `php artisan` independientes (fuera de cualquier transaccion de test)
 // contra la misma base produce el resultado correcto.
-// Mitigacion para este test: NO se llama a ensurePluginInstalled()/
-// ensureERPInstalled() dentro del proceso de test. `db_aureuserp_test` debe
-// estar pre-sembrada externamente antes de correr Pest (mismo patron que CI:
-// pest_tests.yml corre `php artisan erp:install --force` como paso separado
-// ANTES de `vendor/bin/pest`, nunca dentro de un test). Este beforeEach solo
-// verifica que la precondicion se cumplio, con un mensaje de error accionable
-// si no.
+//
+// Mitigacion: este archivo corre en su PROPIO proceso Pest, separado del
+// resto de la suite (grupo "gold-standard-dataset"), con la base ya
+// pre-sembrada por un paso de CI previo — nunca dentro de una transaccion
+// de test ni intercalado con otros archivos. Ver
+// .github/workflows/pest_tests.yml: primero `erp:install` + `inventories:install`
+// como pasos de shell independientes, despues este archivo solo, despues el
+// resto de la suite con `--exclude-group=gold-standard-dataset`. NO se llama
+// a ensurePluginInstalled()/ensureERPInstalled() aqui. El beforeEach solo
+// verifica que esa precondicion externa se cumplio, sin ofrecer un comando
+// copiable que pueda ejecutarse contra la base equivocada — la receta segura
+// vive unicamente en el workflow de CI.
+uses()->group('gold-standard-dataset');
+
 beforeEach(function () {
     if (! Schema::hasTable('inventories_locations') || ! \Webkul\Inventory\Models\Location::query()->exists()) {
         $this->fail(
-            'db_aureuserp_test no esta pre-sembrada. Corre (fuera de cualquier proceso de test, en el mismo orden que apps/aureuserp/.github/workflows/pest_tests.yml): '
-            .'php artisan migrate:fresh --force && '
-            .'php artisan erp:install --force --admin-name="Test Admin" --admin-email="admin@example.com" --admin-password="Admin123456" && '
-            .'php artisan inventories:install --no-interaction'
+            'La base de test no esta pre-sembrada (faltan inventories_locations). '
+            .'Este test requiere que erp:install + inventories:install ya hayan corrido, fuera de cualquier '
+            .'proceso Pest, contra la base dedicada configurada en TEST_BOOTSTRAP_ALLOWED_DATABASES '
+            .'(ver .github/workflows/pest_tests.yml para la secuencia exacta). No ejecutes migrate:fresh manualmente.'
         );
     }
 });
@@ -79,9 +86,11 @@ it('loads exactly the 41 canonical SKUs under the capture company, with guarante
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
 
     $csvLines = file(base_path('database/data/gold-standard-products-v1.csv'));
-    $header = str_getcsv(array_shift($csvLines));
+    // PHP 8.4 deprecates $escape implicito — "" (sin escape) coincide con
+    // el fixture real (ver Console/SeedGoldStandardDatasetCommand::readDatasetCsv()).
+    $header = str_getcsv(array_shift($csvLines), ',', '"', '');
     $expectedSkus = collect($csvLines)
-        ->map(fn (string $line) => array_combine($header, str_getcsv($line))['sku'])
+        ->map(fn (string $line) => array_combine($header, str_getcsv($line, ',', '"', ''))['sku'])
         ->sort()
         ->values();
 
@@ -117,31 +126,37 @@ it('reconciles exactly the four required heterogeneous quantity cases over the c
 
     $bySku = fn (string $sku) => Product::where('reference', $sku)->where('company_id', $companyId)->firstOrFail();
 
-    // Caso 1: stock positivo — primer SKU del CSV que no sea ninguno de los casos especiales
+    // Caso 1: stock positivo — MACBOOK-PRO-M3 tiene stockOnHand=5 en el CSV.
+    // Valor exacto, no solo >0: un bug que sembrara todo en 1 pasaria un
+    // check de mero ">0".
     $positive = $bySku('MACBOOK-PRO-M3');
     $row = ProductQuantity::where('product_id', $positive->id)->where('location_id', $bodegaCentral->lot_stock_location_id)->first();
     expect($row)->not->toBeNull();
-    expect((float) $row->quantity)->toBeGreaterThan(0);
+    expect((float) $row->quantity)->toBe(5.0);
     expect($row->inventory_quantity_set)->toBeTrue();
 
     // Caso 2: stock cero == ausencia de fila en ambas ubicaciones
     $zeroCase = $bySku('LENOVO-IDEAPAD3');
     expect(ProductQuantity::where('product_id', $zeroCase->id)->exists())->toBeFalse();
 
-    // Caso 3: multiubicación — positivo en ambas
+    // Caso 3: multiubicación — MACBOOK-AIR-M2 tiene stockOnHand=7; Bodega=7,
+    // Tienda=round(7/3)=2 (ver SeedGoldStandardDatasetCommand::reconcileQuantities()).
     $multiLocation = $bySku('MACBOOK-AIR-M2');
-    expect((float) ProductQuantity::where('product_id', $multiLocation->id)->where('location_id', $bodegaCentral->lot_stock_location_id)->value('quantity'))->toBeGreaterThan(0);
-    expect((float) ProductQuantity::where('product_id', $multiLocation->id)->where('location_id', $tienda->lot_stock_location_id)->value('quantity'))->toBeGreaterThan(0);
+    expect((float) ProductQuantity::where('product_id', $multiLocation->id)->where('location_id', $bodegaCentral->lot_stock_location_id)->value('quantity'))->toBe(7.0);
+    expect((float) ProductQuantity::where('product_id', $multiLocation->id)->where('location_id', $tienda->lot_stock_location_id)->value('quantity'))->toBe(2.0);
 
-    // Caso 4: solo Tienda
+    // Caso 4: solo Tienda — HP-PAVILION15 tiene stockOnHand=9.
     $onlyTienda = $bySku('HP-PAVILION15');
     expect(ProductQuantity::where('product_id', $onlyTienda->id)->where('location_id', $bodegaCentral->lot_stock_location_id)->exists())->toBeFalse();
-    expect((float) ProductQuantity::where('product_id', $onlyTienda->id)->where('location_id', $tienda->lot_stock_location_id)->value('quantity'))->toBeGreaterThan(0);
+    expect((float) ProductQuantity::where('product_id', $onlyTienda->id)->where('location_id', $tienda->lot_stock_location_id)->value('quantity'))->toBe(9.0);
 
     // Reconciliación: correr 2 veces no duplica ni revive filas eliminadas
     expect(ProductQuantity::where('product_id', $positive->id)->count())->toBe(1);
     expect(ProductQuantity::where('product_id', $zeroCase->id)->count())->toBe(0);
 
-    // Sin efectos colaterales de flujo de inventario
-    expect(\Webkul\Inventory\Models\Move::where('company_id', $companyId)->count())->toBe(0);
+    // Sin Moves agregados POR EL COMANDO — comparado contra el conteo previo
+    // a correrlo, no asumiendo que la base pre-sembrada parte en cero.
+    $movesBefore = \Webkul\Inventory\Models\Move::where('company_id', $companyId)->count();
+    $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
+    expect(\Webkul\Inventory\Models\Move::where('company_id', $companyId)->count())->toBe($movesBefore);
 });
