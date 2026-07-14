@@ -69,3 +69,36 @@ it('resolves company from the capture user and UOM/warehouses by stable keys, id
     expect(Warehouse::where('code', 'BODEGA-CENTRAL')->where('company_id', $captureUser->default_company_id)->count())->toBe(1);
     expect(Warehouse::where('code', 'TIENDA-STGO')->where('company_id', $captureUser->default_company_id)->count())->toBe(1);
 });
+
+use Webkul\Product\Models\Product;
+
+it('loads exactly the 41 canonical SKUs under the capture company, with guaranteed divergent metadata', function () {
+    $captureUser = User::where('email', 'admin@example.com')->first();
+
+    $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
+    $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
+
+    $csvLines = file(base_path('database/data/gold-standard-products-v1.csv'));
+    $header = str_getcsv(array_shift($csvLines));
+    $expectedSkus = collect($csvLines)
+        ->map(fn (string $line) => array_combine($header, str_getcsv($line))['sku'])
+        ->sort()
+        ->values();
+
+    $actualSkus = Product::where('company_id', $captureUser->default_company_id)
+        ->whereIn('reference', $expectedSkus)
+        ->pluck('reference')
+        ->sort()
+        ->values();
+
+    expect($actualSkus)->toEqual($expectedSkus);
+    expect($actualSkus)->toHaveCount(41);
+
+    $lenovo = Product::where('reference', 'LENOVO-IDEAPAD3')->where('company_id', $captureUser->default_company_id)->first();
+    expect((float) $lenovo->price)->toBe(549990.0);
+    expect($lenovo->barcode)->toBeNull();
+    expect($lenovo->name)->not->toBe('Notebook Lenovo IdeaPad 3');
+    expect($lenovo->name)->toStartWith('[');
+    expect($lenovo->category->name)->not->toBe('All');
+    expect($lenovo->category->name)->toContain('Computadores');
+});
