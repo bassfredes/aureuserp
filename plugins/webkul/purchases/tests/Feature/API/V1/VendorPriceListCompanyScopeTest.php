@@ -166,3 +166,107 @@ it('rejects an explicit null company_id on vendor price list update', function (
         'company_id' => $companyA->id,
     ]);
 });
+
+// ── ProductSupplier is not HasCompanyScope-scoped: nothing hides another
+// company's row before it reaches the controller/policy, so these paths
+// need their own explicit checks (blocker found in PR #8 review). ────────
+
+it('excludes other companies rows from the vendor price list index', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    actingAsScopedVendorPriceListUser($companyA, ['view_any_purchase_vendor::price']);
+
+    $ownRow = ProductSupplier::factory()->create(['company_id' => $companyA->id]);
+    $foreignRow = ProductSupplier::factory()->create(['company_id' => $companyB->id]);
+
+    $ids = collect(
+        $this->getJson(route('admin.api.v1.purchases.vendor-price-lists.index'))
+            ->assertOk()
+            ->json('data')
+    )->pluck('id');
+
+    expect($ids)->toContain($ownRow->id)
+        ->and($ids)->not->toContain($foreignRow->id);
+});
+
+it('forbids a user from company A viewing an existing vendor price list from company B', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    actingAsScopedVendorPriceListUser($companyA, ['view_purchase_vendor::price']);
+
+    $foreignRow = ProductSupplier::factory()->create(['company_id' => $companyB->id]);
+
+    $this->getJson(route('admin.api.v1.purchases.vendor-price-lists.show', $foreignRow))
+        ->assertForbidden();
+});
+
+it('forbids a user from company A updating a non-company field of a vendor price list from company B', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    actingAsScopedVendorPriceListUser($companyA, ['update_purchase_vendor::price']);
+
+    $foreignRow = ProductSupplier::factory()->create(['company_id' => $companyB->id, 'price' => 100]);
+
+    $this->patchJson(route('admin.api.v1.purchases.vendor-price-lists.update', $foreignRow), [
+        'price' => 999,
+    ])->assertForbidden();
+
+    $this->assertDatabaseHas('products_product_suppliers', [
+        'id'    => $foreignRow->id,
+        'price' => 100,
+    ]);
+});
+
+it('forbids a user from company A deleting a vendor price list from company B', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    actingAsScopedVendorPriceListUser($companyA, ['delete_purchase_vendor::price']);
+
+    $foreignRow = ProductSupplier::factory()->create(['company_id' => $companyB->id]);
+
+    $this->deleteJson(route('admin.api.v1.purchases.vendor-price-lists.destroy', $foreignRow))
+        ->assertForbidden();
+
+    $this->assertDatabaseHas('products_product_suppliers', ['id' => $foreignRow->id]);
+});
+
+it('returns a controlled 403, not a TypeError, when a companyless user omits company_id on create', function () {
+    // Build the payload (Product::factory() creates its own Company as a
+    // nested default) BEFORE authenticating: TestCase registers a global
+    // Company::created listener that back-fills Auth::user()'s
+    // default_company_id from any company created while a user is
+    // authenticated. Authenticating first would have this test's own
+    // fixture setup silently un-set the exact companyless condition it's
+    // trying to exercise.
+    $payload = scopedVendorPriceListPayload();
+    unset($payload['company_id']);
+
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => null,
+    ]));
+
+    $user->forceFill(['resource_permission' => PermissionType::GLOBAL])->saveQuietly();
+
+    $permission = 'create_purchase_vendor::price';
+    collect(['web', 'sanctum'])->each(
+        fn (string $guard) => Permission::query()->firstOrCreate(['name' => $permission, 'guard_name' => $guard])
+    );
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+    $user->givePermissionTo(Permission::query()->where('name', $permission)->whereIn('guard_name', ['web', 'sanctum'])->get());
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+    Auth::guard('web')->login($user);
+    Auth::guard('web')->setUser($user);
+    Auth::guard('sanctum')->setUser($user);
+    Auth::shouldUse('sanctum');
+    Sanctum::actingAs($user, ['*']);
+
+    $this->postJson(route('admin.api.v1.purchases.vendor-price-lists.store'), $payload)
+        ->assertForbidden();
+
+    $this->assertDatabaseCount('products_product_suppliers', 0);
+});

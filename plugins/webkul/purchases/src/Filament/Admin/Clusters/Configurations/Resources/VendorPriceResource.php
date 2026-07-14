@@ -52,6 +52,21 @@ class VendorPriceResource extends Resource
         return __('purchases::filament/admin/clusters/configurations/resources/vendor-price.navigation.title');
     }
 
+    /**
+     * ProductSupplier has no HasCompanyScope (products tramo of #137 still
+     * pending), so nothing hides another company's rows from this
+     * resource's table/edit/view queries by default — restrict here
+     * explicitly. Also covers the ManageVendors relation-manager page,
+     * which reuses this resource's form()/table() but not this method;
+     * ProductSupplierPolicy's company check is the backstop for that page's
+     * own record actions.
+     */
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()
+            ->whereIn('company_id', CompanyScope::allowedCompanyIds(Auth::user()));
+    }
+
     public static function form(Schema $schema): Schema
     {
         return $schema
@@ -150,6 +165,7 @@ class VendorPriceResource extends Resource
                                         modifyQueryUsing: fn (Builder $query) => $query->whereIn('id', CompanyScope::allowedCompanyIds(Auth::user())),
                                     )
                                     ->searchable()
+                                    ->required()
                                     ->default(Auth::user()->default_company_id)
                                     ->disabled(fn (?ProductSupplier $record): bool => (bool) $record)
                                     ->dehydrated()

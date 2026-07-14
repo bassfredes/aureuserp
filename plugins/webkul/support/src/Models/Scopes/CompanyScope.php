@@ -54,8 +54,13 @@ class CompanyScope implements Scope
      * Filter the query to only the companies the authenticated user is
      * allowed to operate on (default company + explicitly allowed companies).
      *
-     * No authenticated user (console, queue, seeders) or a user with no
-     * company association: no filtering is applied.
+     * No authenticated actor at all (console, queue, seeders, installer):
+     * no filtering is applied — there is no user to scope against. An
+     * authenticated actor with no company association (no default_company_id
+     * and no allowedCompanies() rows, or one that doesn't support company
+     * membership at all — see actorSupportsCompanyMembership()) is a
+     * different case and is NOT left unfiltered: it fails closed to
+     * `1 = 0` below, seeing nothing by default.
      */
     public function apply(Builder $builder, Model $model): void
     {

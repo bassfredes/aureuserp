@@ -19,6 +19,7 @@ use Webkul\Purchase\Http\Requests\VendorPriceListRequest;
 use Webkul\Purchase\Http\Resources\V1\VendorPriceListResource;
 use Webkul\Purchase\Models\ProductSupplier;
 use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 #[Group('Purchase API Management')]
 #[Subgroup('Vendor Price Lists', 'Manage vendor price lists')]
@@ -52,7 +53,15 @@ class VendorPriceListController extends Controller
     {
         Gate::authorize('viewAny', ProductSupplier::class);
 
-        $vendorPriceLists = QueryBuilder::for(ProductSupplier::class)
+        // ProductSupplier has no HasCompanyScope, so the listing must be
+        // restricted here explicitly — otherwise a permitted user would
+        // enumerate every company's vendor price lists. An empty
+        // allowedCompanyIds() (companyless user) makes whereIn() match
+        // nothing, the same fail-closed behavior CompanyScope gives scoped
+        // models.
+        $vendorPriceLists = QueryBuilder::for(
+            ProductSupplier::query()->whereIn('company_id', CompanyScope::allowedCompanyIds(Auth::user()))
+        )
             ->allowedFilters(
                 AllowedFilter::exact('id'),
                 AllowedFilter::exact('partner_id'),
@@ -99,7 +108,17 @@ class VendorPriceListController extends Controller
     private function resolveVendorPriceListCompanyId(array $data, $user): int
     {
         if (! array_key_exists('company_id', $data)) {
-            return $user?->default_company_id;
+            $companyId = $user?->default_company_id;
+
+            // A user with no default company (e.g. a companyless account,
+            // same fail-closed case CompanyScope itself handles) must get a
+            // controlled 403, not an uncaught TypeError from returning null
+            // out of an `: int` method.
+            if ($companyId === null) {
+                throw new AuthorizationException('A vendor price list must belong to a company, and your account has no default company to fall back to.');
+            }
+
+            return $companyId;
         }
 
         if ($data['company_id'] === null) {
