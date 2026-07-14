@@ -1,11 +1,15 @@
 <?php
 
+use Illuminate\Support\Facades\Auth;
+use Laravel\Sanctum\Sanctum;
+use Spatie\Permission\PermissionRegistrar;
 use Webkul\Inventory\Enums\RuleAction;
 use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\OperationType;
 use Webkul\Inventory\Models\Route;
 use Webkul\Inventory\Models\Rule;
 use Webkul\Security\Enums\PermissionType;
+use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 
@@ -242,9 +246,21 @@ it('excludes soft-deleted rules from default listing', function () {
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 it('creates a rule', function () {
-    actingAsInventoryRuleApiUser(['create_inventory_rule']);
+    $user = actingAsInventoryRuleApiUser(['create_inventory_rule']);
 
-    $payload = inventoryRulePayload();
+    $company = Company::find($user->default_company_id) ?? Company::factory()->create();
+    $source = Location::factory()->create(['company_id' => $company->id]);
+    $destination = Location::factory()->create(['company_id' => $company->id]);
+    $route = Route::factory()->create(['company_id' => $company->id]);
+    $opType = OperationType::factory()->create(['company_id' => $company->id]);
+
+    $payload = inventoryRulePayload([
+        'operation_type_id'       => $opType->id,
+        'source_location_id'      => $source->id,
+        'destination_location_id' => $destination->id,
+        'route_id'                => $route->id,
+        'company_id'              => $company->id,
+    ]);
 
     $this->postJson(inventoryRuleRoute('store'), $payload)
         ->assertCreated()
@@ -388,4 +404,68 @@ it('returns 404 when force-deleting a non-existent rule', function () {
 
     $this->deleteJson(inventoryRuleRoute('force-destroy', 999999))
         ->assertNotFound();
+});
+
+// ── Company-scope write-path guard ──────────────────────────────────────────────
+// Bypass actingAsInventoryRuleApiUser/SecurityHelper on purpose — same pattern
+// as LocationTest.php/RouteTest.php/WarehouseTest.php. Visibility isn't
+// enough: an operation_type_id of company B must be rejected even when the
+// acting user is separately authorized in both A and B.
+
+it('forbids creating a rule for company A referencing an operation type of company B, even when authorized in both', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $operationTypeB = OperationType::factory()->create(['company_id' => $companyB->id]);
+
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $companyA->id,
+    ]));
+    $user->forceFill(['resource_permission' => PermissionType::GLOBAL])->saveQuietly();
+    // Both guards: the app's default auth guard is sanctum, not web, so a
+    // web-only permission silently fails Gate::authorize() regardless of
+    // company-scope logic — same dual-guard pattern as SecurityHelper.
+    // Raw upsert + re-query (not Permission::findOrCreate()) to avoid the
+    // registrar's stale-cache duplicate-row bug: findOrCreate() can create a
+    // second Permission row with a different id when the cache doesn't see
+    // rows inserted via upsert() elsewhere, and givePermissionTo() then
+    // attaches an id Gate::authorize() never matches.
+    Permission::query()->upsert(
+        collect(['web', 'sanctum'])->map(fn (string $guard) => ['name' => 'create_inventory_rule', 'guard_name' => $guard])->all(),
+        uniqueBy: ['name', 'guard_name'],
+        update: []
+    );
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+    $user->givePermissionTo(
+        Permission::query()->where('name', 'create_inventory_rule')->whereIn('guard_name', ['web', 'sanctum'])->get()
+    );
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    // The API route group uses auth:sanctum middleware, so plain
+    // test()->actingAs($user) (which only authenticates the default 'web'
+    // guard) leaves the sanctum guard unauthenticated for the real HTTP
+    // request — Gate::authorize() then denies for lack of permission on
+    // that guard, which is indistinguishable from a real company-scope
+    // denial in the response (bootstrap/app.php renders every
+    // AuthorizationException as the same generic 403 message on API
+    // requests, by design). Without the full guard chain this test would
+    // "pass" without ever reaching the company-scope check. Same guard
+    // chain as SecurityHelper::authenticateWithPermissions().
+    Auth::guard('web')->login($user);
+    Auth::guard('web')->setUser($user);
+    Auth::guard('sanctum')->setUser($user);
+    Auth::shouldUse('sanctum');
+    Sanctum::actingAs($user, ['*']);
+
+    $payload = inventoryRulePayload([
+        'operation_type_id' => $operationTypeB->id,
+        'company_id'        => $companyA->id,
+    ]);
+
+    $this->postJson(inventoryRuleRoute('store'), $payload)
+        ->assertForbidden();
+
+    $this->assertDatabaseMissing('inventories_rules', [
+        'name'              => $payload['name'],
+        'operation_type_id' => $operationTypeB->id,
+    ]);
 });

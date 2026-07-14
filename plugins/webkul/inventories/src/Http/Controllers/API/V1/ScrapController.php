@@ -20,15 +20,20 @@ use Webkul\Inventory\Enums\ScrapState;
 use Webkul\Inventory\Http\Requests\ScrapRequest;
 use Webkul\Inventory\Http\Resources\V1\ScrapResource;
 use Webkul\Inventory\Models\Location;
+use Webkul\Inventory\Models\Lot;
+use Webkul\Inventory\Models\Package;
 use Webkul\Inventory\Models\Product;
 use Webkul\Inventory\Models\Scrap;
 use Webkul\Inventory\Models\Warehouse;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Inventory API Management')]
 #[Subgroup('Scraps', 'Manage inventory scraps')]
 #[Authenticated]
 class ScrapController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'product',
         'uom',
@@ -92,7 +97,13 @@ class ScrapController extends Controller
         Gate::authorize('create', Scrap::class);
 
         $data = $request->validated();
-        $data = $this->prepareScrapPayload($data);
+
+        $effectiveCompanyId = $data['company_id'] ?? Auth::user()?->default_company_id;
+
+        $this->assertCompanyIdAllowed($data['company_id'] ?? null, Auth::user(), 'scrap');
+        $this->assertScrapRelationsAccessible($data, $effectiveCompanyId);
+
+        $data = $this->prepareScrapPayload($data, null, $effectiveCompanyId);
 
         $scrap = Scrap::create($data);
         $scrap->tags()->sync($data['tags'] ?? []);
@@ -138,7 +149,14 @@ class ScrapController extends Controller
             ], 422);
         }
 
-        $data = $this->prepareScrapPayload($request->validated(), $scrap);
+        $rawData = $request->validated();
+
+        $effectiveCompanyId = $rawData['company_id'] ?? $scrap->company_id;
+
+        $this->assertCompanyIdImmutable($rawData, $scrap, 'scrap');
+        $this->assertScrapRelationsAccessible($rawData, $effectiveCompanyId);
+
+        $data = $this->prepareScrapPayload($rawData, $scrap, $effectiveCompanyId);
 
         $scrap->update($data);
 
@@ -204,24 +222,43 @@ class ScrapController extends Controller
         });
     }
 
-    protected function prepareScrapPayload(array $data, ?Scrap $existing = null): array
+    protected function assertScrapRelationsAccessible(array $data, ?int $effectiveCompanyId): void
+    {
+        $this->assertRelatedRecordAccessible($data['lot_id'] ?? null, Lot::class, 'lot', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['package_id'] ?? null, Package::class, 'package', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['source_location_id'] ?? null, Location::class, 'source location', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['destination_location_id'] ?? null, Location::class, 'destination location', $effectiveCompanyId);
+    }
+
+    /**
+     * $effectiveCompanyId must be the SAME value already validated by
+     * assertCompanyIdAllowed()/assertCompanyIdImmutable() in the caller —
+     * the Warehouse/Location auto-defaults below are scoped to exactly
+     * that company, not just "any company the acting user can see" (which
+     * CompanyScope alone would allow for a user authorized in more than
+     * one company, e.g. Warehouse::query()->first() picking a warehouse
+     * from a different company than the scrap being created).
+     */
+    protected function prepareScrapPayload(array $data, ?Scrap $existing = null, ?int $effectiveCompanyId = null): array
     {
         if (! isset($data['uom_id']) && isset($data['product_id'])) {
             $data['uom_id'] = Product::query()->find($data['product_id'])?->uom_id;
         }
 
+        $effectiveCompanyId ??= $existing?->company_id ?? Auth::user()?->default_company_id;
+
         if (! isset($data['source_location_id'])) {
             $data['source_location_id'] = $existing?->source_location_id
-                ?? Warehouse::query()->first()?->lot_stock_location_id;
+                ?? Warehouse::query()->where('company_id', $effectiveCompanyId)->first()?->lot_stock_location_id;
         }
 
         if (! isset($data['destination_location_id'])) {
             $data['destination_location_id'] = $existing?->destination_location_id
-                ?? Location::query()->where('is_scrap', true)->value('id');
+                ?? Location::query()->where('is_scrap', true)->where('company_id', $effectiveCompanyId)->value('id');
         }
 
         if (! isset($data['company_id'])) {
-            $data['company_id'] = $existing?->company_id ?? Auth::user()?->default_company_id;
+            $data['company_id'] = $effectiveCompanyId;
         }
 
         if (! isset($data['state']) && ! $existing) {

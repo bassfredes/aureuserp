@@ -11,10 +11,11 @@ use Webkul\Inventory\Database\Factories\OrderPointFactory;
 use Webkul\Inventory\Enums\OrderPointTrigger;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class OrderPoint extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasCompanyScope, HasFactory, SoftDeletes;
 
     protected $table = 'inventories_order_points';
 
@@ -80,6 +81,8 @@ class OrderPoint extends Model
 
         static::creating(function ($orderPoint) {
             $orderPoint->creator_id ??= Auth::id();
+
+            $orderPoint->company_id ??= Auth::user()?->default_company_id;
         });
     }
 }

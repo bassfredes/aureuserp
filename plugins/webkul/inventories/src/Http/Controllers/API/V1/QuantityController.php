@@ -20,15 +20,21 @@ use Webkul\Inventory\Http\Requests\ProductQuantityCountRequest;
 use Webkul\Inventory\Http\Requests\ProductQuantityRequest;
 use Webkul\Inventory\Http\Resources\V1\ProductQuantityResource;
 use Webkul\Inventory\Models\Location;
+use Webkul\Inventory\Models\Lot;
+use Webkul\Inventory\Models\Package;
 use Webkul\Inventory\Models\Product;
 use Webkul\Inventory\Models\ProductQuantity;
+use Webkul\Inventory\Models\StorageCategory;
 use Webkul\Inventory\Models\Warehouse;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Inventory API Management')]
 #[Subgroup('Quantities', 'Manage inventory product quantities')]
 #[Authenticated]
 class QuantityController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'product',
         'location',
@@ -95,7 +101,25 @@ class QuantityController extends Controller
     {
         Gate::authorize('create', ProductQuantity::class);
 
-        $data = $this->preparePayload($request->validated());
+        $raw = $request->validated();
+
+        // company_id can come from three places, in the same order
+        // preparePayload() below resolves it: an explicit submission, or a
+        // fallback to the (unscoped) product's own company_id. Product
+        // isn't part of this rollout (see ADR 0007), so its company_id is
+        // effectively client-influenced via product_id — the value that
+        // actually ends up on the row must be validated, not just what was
+        // literally submitted in the company_id field.
+        $product = Product::query()->findOrFail($raw['product_id']);
+        $effectiveCompanyId = $raw['company_id'] ?? $product->company_id;
+
+        $this->assertCompanyIdAllowed($effectiveCompanyId, Auth::user(), 'quantity');
+        $this->assertRelatedRecordAccessible($raw['location_id'] ?? null, Location::class, 'location', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($raw['storage_category_id'] ?? null, StorageCategory::class, 'storage category', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($raw['lot_id'] ?? null, Lot::class, 'lot', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($raw['package_id'] ?? null, Package::class, 'package', $effectiveCompanyId);
+
+        $data = $this->preparePayload($raw, $product);
 
         $existingQuantity = ProductQuantity::query()
             ->where('location_id', $data['location_id'])
@@ -245,9 +269,9 @@ class QuantityController extends Controller
         ]);
     }
 
-    protected function preparePayload(array $data): array
+    protected function preparePayload(array $data, ?Product $product = null): array
     {
-        $product = Product::query()->findOrFail($data['product_id']);
+        $product ??= Product::query()->findOrFail($data['product_id']);
 
         $data['location_id'] = $data['location_id'] ?? Warehouse::query()->first()?->lot_stock_location_id;
         $data['creator_id'] = Auth::id();

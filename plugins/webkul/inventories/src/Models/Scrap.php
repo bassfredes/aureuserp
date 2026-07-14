@@ -18,10 +18,11 @@ use Webkul\Partner\Models\Partner;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class Scrap extends Model
 {
-    use HasChatter, HasFactory, HasLogActivity;
+    use HasChatter, HasCompanyScope, HasFactory, HasLogActivity;
 
     public const ACTIVITY_PLAN_PLUGIN = 'inventories';
 
@@ -161,6 +162,8 @@ class Scrap extends Model
 
         static::creating(function ($scrap) {
             $scrap->creator_id ??= Auth::id();
+
+            $scrap->company_id ??= Auth::user()?->default_company_id;
         });
 
         static::saving(function ($scrap) {

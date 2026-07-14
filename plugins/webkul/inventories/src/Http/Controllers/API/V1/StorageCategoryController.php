@@ -2,6 +2,7 @@
 
 namespace Webkul\Inventory\Http\Controllers\API\V1;
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Knuckles\Scribe\Attributes\Authenticated;
 use Knuckles\Scribe\Attributes\Endpoint;
@@ -16,12 +17,15 @@ use Spatie\QueryBuilder\QueryBuilder;
 use Webkul\Inventory\Http\Requests\StorageCategoryRequest;
 use Webkul\Inventory\Http\Resources\V1\StorageCategoryResource;
 use Webkul\Inventory\Models\StorageCategory;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Inventory API Management')]
 #[Subgroup('Storage Categories', 'Manage storage category configurations')]
 #[Authenticated]
 class StorageCategoryController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'company',
         'creator',
@@ -63,7 +67,13 @@ class StorageCategoryController extends Controller
     {
         Gate::authorize('create', StorageCategory::class);
 
-        $storageCategory = StorageCategory::create($request->validated());
+        $data = $request->validated();
+        $user = Auth::user();
+        $data['company_id'] ??= $user?->default_company_id;
+
+        $this->assertCompanyIdAllowed($data['company_id'], $user, 'storage category');
+
+        $storageCategory = StorageCategory::create($data);
 
         return (new StorageCategoryResource($storageCategory->load($this->allowedIncludes)))
             ->additional(['message' => 'Storage category created successfully.'])
@@ -100,7 +110,11 @@ class StorageCategoryController extends Controller
 
         Gate::authorize('update', $storageCategory);
 
-        $storageCategory->update($request->validated());
+        $data = $request->validated();
+
+        $this->assertCompanyIdImmutable($data, $storageCategory, 'storage category');
+
+        $storageCategory->update($data);
 
         return (new StorageCategoryResource($storageCategory->load($this->allowedIncludes)))
             ->additional(['message' => 'Storage category updated successfully.']);

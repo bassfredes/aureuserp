@@ -1,5 +1,8 @@
 <?php
 
+use Illuminate\Support\Facades\Auth;
+use Laravel\Sanctum\Sanctum;
+use Spatie\Permission\PermissionRegistrar;
 use Webkul\Inventory\Enums\LocationType;
 use Webkul\Inventory\Enums\ProductTracking;
 use Webkul\Inventory\Models\Location;
@@ -8,7 +11,9 @@ use Webkul\Inventory\Models\Package;
 use Webkul\Inventory\Models\Product;
 use Webkul\Inventory\Models\ProductQuantity;
 use Webkul\Security\Enums\PermissionType;
+use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\Company;
 
 require_once __DIR__.'/../../../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -138,12 +143,13 @@ it('returns 404 for a non-existent quantity', function () {
 });
 
 it('creates a quantity for a valid variant payload', function () {
-    actingAsInventoryQuantityApiUser(['create_inventory_quantity']);
+    $user = actingAsInventoryQuantityApiUser(['create_inventory_quantity']);
 
     $parentProduct = Product::factory()->create([
         'is_configurable' => true,
         'is_storable'     => true,
         'tracking'        => ProductTracking::LOT,
+        'company_id'      => $user->default_company_id,
     ]);
 
     $variantProduct = Product::factory()->create([
@@ -151,11 +157,12 @@ it('creates a quantity for a valid variant payload', function () {
         'is_configurable' => false,
         'is_storable'     => true,
         'tracking'        => ProductTracking::LOT,
+        'company_id'      => $user->default_company_id,
     ]);
 
-    $location = Location::factory()->create(['type' => LocationType::INTERNAL]);
-    $lot = Lot::factory()->create(['product_id' => $variantProduct->id]);
-    $package = Package::factory()->create(['location_id' => $location->id]);
+    $location = Location::factory()->create(['type' => LocationType::INTERNAL, 'company_id' => $user->default_company_id]);
+    $lot = Lot::factory()->create(['product_id' => $variantProduct->id, 'company_id' => $user->default_company_id]);
+    $package = Package::factory()->create(['location_id' => $location->id, 'company_id' => $user->default_company_id]);
 
     $payload = inventoryQuantityPayload($variantProduct, $location, [
         'lot_id'      => $lot->id,
@@ -264,4 +271,70 @@ it('rejects counted_quantity greater than one for serial tracked products', func
     ]))
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['counted_quantity']);
+});
+
+// ── Company-scope write-path guard ──────────────────────────────────────────────
+// Bypass actingAsInventoryQuantityApiUser/SecurityHelper on purpose — same
+// pattern as LocationTest.php/RouteTest.php/WarehouseTest.php.
+
+it('forbids creating a quantity for a product belonging to another company, even when company_id is omitted', function () {
+    $companyB = Company::factory()->create();
+    $companyA = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $companyA->id,
+    ]));
+    $user->forceFill(['resource_permission' => PermissionType::GLOBAL])->saveQuietly();
+    // Both guards: the app's default auth guard is sanctum, not web, so a
+    // web-only permission silently fails Gate::authorize() regardless of
+    // company-scope logic — same dual-guard pattern as SecurityHelper.
+    // Raw upsert + re-query (not Permission::findOrCreate()) to avoid the
+    // registrar's stale-cache duplicate-row bug: findOrCreate() can create a
+    // second Permission row with a different id when the cache doesn't see
+    // rows inserted via upsert() elsewhere, and givePermissionTo() then
+    // attaches an id Gate::authorize() never matches.
+    Permission::query()->upsert(
+        collect(['web', 'sanctum'])->map(fn (string $guard) => ['name' => 'create_inventory_quantity', 'guard_name' => $guard])->all(),
+        uniqueBy: ['name', 'guard_name'],
+        update: []
+    );
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+    $user->givePermissionTo(
+        Permission::query()->where('name', 'create_inventory_quantity')->whereIn('guard_name', ['web', 'sanctum'])->get()
+    );
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+    // The API route group uses auth:sanctum middleware, so plain
+    // test()->actingAs($user) (which only authenticates the default 'web'
+    // guard) leaves the sanctum guard unauthenticated for the real HTTP
+    // request — Gate::authorize() then denies for lack of permission on
+    // that guard, which is indistinguishable from a real company-scope
+    // denial in the response (bootstrap/app.php renders every
+    // AuthorizationException as the same generic 403 message on API
+    // requests, by design). Without the full guard chain this test would
+    // "pass" without ever reaching the company-scope check. Same guard
+    // chain as SecurityHelper::authenticateWithPermissions().
+    Auth::guard('web')->login($user);
+    Auth::guard('web')->setUser($user);
+    Auth::guard('sanctum')->setUser($user);
+    Auth::shouldUse('sanctum');
+    Sanctum::actingAs($user, ['*']);
+
+    // Product isn't part of this rollout (out of scope, see ADR 0007), so
+    // it's visible to any authenticated user regardless of its own
+    // company_id — the request never even mentions companyB explicitly.
+    $productB = Product::factory()->create([
+        'is_configurable' => false,
+        'is_storable'     => true,
+        'tracking'        => ProductTracking::QTY,
+        'company_id'      => $companyB->id,
+    ]);
+
+    $location = Location::factory()->create(['company_id' => $companyA->id, 'type' => LocationType::INTERNAL]);
+
+    $this->postJson(inventoryQuantityRoute('store'), inventoryQuantityPayload($productB, $location))
+        ->assertForbidden();
+
+    $this->assertDatabaseMissing('inventories_product_quantities', [
+        'product_id' => $productB->id,
+    ]);
 });

@@ -2,6 +2,7 @@
 
 namespace Webkul\Inventory\Http\Controllers\API\V1;
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Knuckles\Scribe\Attributes\Authenticated;
 use Knuckles\Scribe\Attributes\Endpoint;
@@ -15,13 +16,18 @@ use Spatie\QueryBuilder\AllowedFilter;
 use Spatie\QueryBuilder\QueryBuilder;
 use Webkul\Inventory\Http\Requests\PackageRequest;
 use Webkul\Inventory\Http\Resources\V1\PackageResource;
+use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\Package;
+use Webkul\Inventory\Models\PackageType;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Inventory API Management')]
 #[Subgroup('Packages', 'Manage inventory packages')]
 #[Authenticated]
 class PackageController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'packageType',
         'location',
@@ -69,7 +75,13 @@ class PackageController extends Controller
     {
         Gate::authorize('create', Package::class);
 
-        $package = Package::create($request->validated());
+        $data = $request->validated();
+
+        // Package's company_id is never client-controllable (PackageRequest
+        // doesn't accept it) — the model defaults it from the acting user.
+        $this->assertPackageRelationsAccessible($data, Auth::user()?->default_company_id);
+
+        $package = Package::create($data);
 
         return (new PackageResource($package->load($this->allowedIncludes)))
             ->additional(['message' => 'Package created successfully.'])
@@ -106,10 +118,20 @@ class PackageController extends Controller
 
         Gate::authorize('update', $package);
 
-        $package->update($request->validated());
+        $data = $request->validated();
+
+        $this->assertPackageRelationsAccessible($data, $package->company_id);
+
+        $package->update($data);
 
         return (new PackageResource($package->load($this->allowedIncludes)))
             ->additional(['message' => 'Package updated successfully.']);
+    }
+
+    protected function assertPackageRelationsAccessible(array $data, ?int $effectiveCompanyId): void
+    {
+        $this->assertRelatedRecordAccessible($data['package_type_id'] ?? null, PackageType::class, 'package type', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['location_id'] ?? null, Location::class, 'location', $effectiveCompanyId);
     }
 
     #[Endpoint('Delete package', 'Delete a package')]

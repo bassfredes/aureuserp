@@ -12,10 +12,19 @@ use Webkul\Inventory\Database\Factories\PackageFactory;
 use Webkul\Inventory\Enums\PackageUse;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
 
+/**
+ * strict_company: company_id is set from the acting user at creation and
+ * preserved by ProductQuantity::computePackageLocationCompany() even when
+ * the package becomes empty (see that method) — it is not reset to null
+ * as a routine state, so this is not a company_or_shared case like
+ * Location/Route. A package's company only changes when its quantities
+ * genuinely, unambiguously agree on a different one.
+ */
 class Package extends Model
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory;
 
     protected $table = 'inventories_packages';
 

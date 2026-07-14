@@ -16,11 +16,13 @@ use Webkul\Inventory\Settings\OperationSettings;
 use Webkul\Partner\Models\Partner;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class ProductQuantity extends Model
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory;
 
     protected $table = 'inventories_product_quantities';
 
@@ -121,6 +123,8 @@ class ProductQuantity extends Model
         static::creating(function ($productQuantity) {
             $productQuantity->creator_id ??= Auth::id();
 
+            $productQuantity->company_id ??= Auth::user()?->default_company_id;
+
             $productQuantity->incoming_at ??= now();
         });
 
@@ -165,24 +169,60 @@ class ProductQuantity extends Model
         });
     }
 
+    /**
+     * Recomputes a package's location and company from its own quantities.
+     * Uses an explicit unscoped query, not the $package->quantities
+     * relation: that relation goes through CompanyScope (ProductQuantity
+     * is HasCompanyScope), so an acting user from company A would only
+     * see A's quantities and could silently misattribute a package that
+     * actually also holds B's stock to A. This is an internal system
+     * computation that must see the package's true state, not a general
+     * visibility grant.
+     *
+     * company_id is intentionally NOT reset to null when the package
+     * becomes empty (all quantities zeroed) — it keeps its last known
+     * owner. Package is a strict_company model, not company_or_shared: an
+     * empty package still belongs to the company that created it, it is
+     * not a shared/global reference. Only a genuine conflict (positive
+     * quantities spanning more than one company, which shouldn't happen
+     * in a well-formed single-company operation) leaves company_id
+     * unchanged rather than guessing.
+     */
     public function computePackageLocationCompany()
     {
         $package = $this->package;
 
-        $package->location_id = null;
+        $quantities = ProductQuantity::withoutGlobalScope(CompanyScope::class)
+            ->where('package_id', $package->id)
+            ->get()
+            ->filter(
+                fn ($quantity) => float_compare($quantity->quantity, 0, precisionRounding: $quantity->uom->rounding) > 0
+            );
 
-        $package->company_id  = null;
+        if ($quantities->isEmpty()) {
+            $package->location_id = null;
+            $package->save();
 
-        $quantities = $package->quantities->filter(
-            fn ($quantity) => float_compare($quantity->quantity, 0, precisionRounding: $quantity->uom->rounding) > 0
-        );
+            return;
+        }
 
-        if ($quantities->isNotEmpty()) {
+        $distinctCompanyIds = $quantities->pluck('company_id')->unique();
+
+        if ($distinctCompanyIds->count() === 1) {
+            // No conflict: every positive quantity agrees on one company,
+            // safe to take location_id from any of them.
+            $package->company_id = $distinctCompanyIds->first();
             $package->location_id = $quantities->first()->location_id;
-
-            if ($package->quantities->every(fn ($quantity) => $quantity->company_id === $quantities->first()->company_id)) {
-                $package->company_id = $quantities->first()->company_id;
-            }
+        } else {
+            // Genuine cross-company conflict: company_id is left untouched
+            // (see class-level note), and location_id must not be taken
+            // from an arbitrary quantity either — that could leave the
+            // package pointing at a location in a company other than its
+            // own preserved company_id. Only a quantity that actually
+            // matches the package's current company is a safe source.
+            $package->location_id = $quantities
+                ->firstWhere('company_id', $package->company_id)
+                ?->location_id;
         }
 
         $package->save();

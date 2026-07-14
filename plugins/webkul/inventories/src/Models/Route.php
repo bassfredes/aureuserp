@@ -2,6 +2,7 @@
 
 namespace Webkul\Inventory\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,10 +15,20 @@ use Spatie\EloquentSortable\SortableTrait;
 use Webkul\Inventory\Database\Factories\RouteFactory;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
+use Webkul\Support\Traits\HasCompanyScope;
 
-class Route extends Model implements Sortable
+/**
+ * company_id IS NULL rows ("Buy", "Dropship" — seeded ids 5-6 by
+ * RouteSeeder) are system-managed shared references read during
+ * procurement rule resolution (InventoryManager::searchRule()), not
+ * incomplete records: see ADR 0007 (company_or_shared). Same treatment as
+ * Location — visible alongside the user's own companies, mutation guarded
+ * to super_admin/system context.
+ */
+class Route extends Model implements IncludesSharedCompanyRows, Sortable
 {
-    use HasFactory, SoftDeletes, SortableTrait;
+    use HasCompanyScope, HasFactory, SoftDeletes, SortableTrait;
 
     protected $table = 'inventories_routes';
 
@@ -87,6 +98,31 @@ class Route extends Model implements Sortable
         return RouteFactory::new();
     }
 
+    /**
+     * Shared (company_id IS NULL) Route records are system-managed
+     * references (ADR 0007). Blocks any authenticated non-super_admin from
+     * creating a new shared row or mutating/deleting/restoring an existing
+     * one; no authenticated user (console, queue, seeders, installer) is a
+     * system context and stays unrestricted, matching CompanyScope's own
+     * rule for unauthenticated access.
+     */
+    protected static function guardSharedRowMutation(bool $isNullCompany): void
+    {
+        if (! $isNullCompany) {
+            return;
+        }
+
+        if (! Auth::check()) {
+            return;
+        }
+
+        if (static::actingUserIsSuperAdmin()) {
+            return;
+        }
+
+        throw new AuthorizationException('Shared Route records (company_id is null) can only be created or modified by a super_admin or a system process.');
+    }
+
     protected static function boot()
     {
         parent::boot();
@@ -97,6 +133,28 @@ class Route extends Model implements Sortable
             $route->creator_id ??= $authUser->id;
 
             $route->company_id ??= $authUser?->default_company_id;
+
+            static::guardSharedRowMutation($route->company_id === null);
+        });
+
+        static::updating(function (Route $route) {
+            static::guardSharedRowMutation($route->getOriginal('company_id') === null);
+
+            if ($route->isDirty('company_id')) {
+                throw new AuthorizationException('Changing the company of this record is forbidden at this point, you should rather archive it and create a new one.');
+            }
+        });
+
+        static::deleting(function (Route $route) {
+            static::guardSharedRowMutation($route->company_id === null);
+        });
+
+        static::forceDeleting(function (Route $route) {
+            static::guardSharedRowMutation($route->company_id === null);
+        });
+
+        static::restoring(function (Route $route) {
+            static::guardSharedRowMutation($route->company_id === null);
         });
     }
 }

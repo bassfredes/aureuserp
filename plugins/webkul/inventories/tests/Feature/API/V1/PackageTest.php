@@ -173,10 +173,10 @@ it('validates that name is required when creating a package', function () {
 });
 
 it('creates a package with an optional package type and location', function () {
-    actingAsInventoryPackageApiUser(['create_inventory_package']);
+    $user = actingAsInventoryPackageApiUser(['create_inventory_package']);
 
-    $packageType = PackageType::factory()->withDimensions()->create();
-    $location = Location::factory()->create();
+    $packageType = PackageType::factory()->withDimensions()->create(['company_id' => $user->default_company_id]);
+    $location = Location::factory()->create(['company_id' => $user->default_company_id]);
 
     $payload = inventoryPackagePayload([
         'package_type_id' => $packageType->id,

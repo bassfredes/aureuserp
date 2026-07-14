@@ -2,6 +2,7 @@
 
 namespace Webkul\Inventory\Http\Controllers\API\V1;
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Knuckles\Scribe\Attributes\Authenticated;
 use Knuckles\Scribe\Attributes\Endpoint;
@@ -15,13 +16,19 @@ use Spatie\QueryBuilder\AllowedFilter;
 use Spatie\QueryBuilder\QueryBuilder;
 use Webkul\Inventory\Http\Requests\RuleRequest;
 use Webkul\Inventory\Http\Resources\V1\RuleResource;
+use Webkul\Inventory\Models\Location;
+use Webkul\Inventory\Models\OperationType;
+use Webkul\Inventory\Models\Route;
 use Webkul\Inventory\Models\Rule;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Inventory API Management')]
 #[Subgroup('Rules', 'Manage inventory route rules')]
 #[Authenticated]
 class RuleController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'sourceLocation',
         'destinationLocation',
@@ -76,7 +83,14 @@ class RuleController extends Controller
     {
         Gate::authorize('create', Rule::class);
 
-        $rule = Rule::create($request->validated());
+        $data = $request->validated();
+        $user = Auth::user();
+        $data['company_id'] ??= $user?->default_company_id;
+
+        $this->assertCompanyIdAllowed($data['company_id'], $user, 'rule');
+        $this->assertRuleRelationsAccessible($data, $data['company_id']);
+
+        $rule = Rule::create($data);
 
         return (new RuleResource($rule->load($this->allowedIncludes)))
             ->additional(['message' => 'Rule created successfully.'])
@@ -113,10 +127,23 @@ class RuleController extends Controller
 
         Gate::authorize('update', $rule);
 
-        $rule->update($request->validated());
+        $data = $request->validated();
+
+        $this->assertCompanyIdImmutable($data, $rule, 'rule');
+        $this->assertRuleRelationsAccessible($data, $data['company_id'] ?? $rule->company_id);
+
+        $rule->update($data);
 
         return (new RuleResource($rule->load($this->allowedIncludes)))
             ->additional(['message' => 'Rule updated successfully.']);
+    }
+
+    protected function assertRuleRelationsAccessible(array $data, ?int $effectiveCompanyId): void
+    {
+        $this->assertRelatedRecordAccessible($data['operation_type_id'] ?? null, OperationType::class, 'operation type', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['source_location_id'] ?? null, Location::class, 'source location', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['destination_location_id'] ?? null, Location::class, 'destination location', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['route_id'] ?? null, Route::class, 'route', $effectiveCompanyId);
     }
 
     #[Endpoint('Delete rule', 'Soft delete a rule')]

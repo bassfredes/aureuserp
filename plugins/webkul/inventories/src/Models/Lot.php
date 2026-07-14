@@ -11,11 +11,28 @@ use Webkul\Inventory\Database\Factories\LotFactory;
 use Webkul\Inventory\Enums\LocationType;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
 
+/**
+ * strict_company, NOT company_or_shared: a null-company lot here is a
+ * historical data gap (LotRequest never validated company_id, so the API
+ * silently produced them), not a system-managed shared reference like
+ * Location/Route. Treating it as company_or_shared would make legacy
+ * ambiguous lots — with real business data: name, properties, expiry,
+ * product/location links — visible and editable from every company. The
+ * creating hook below defaults company_id from the acting user (same fix
+ * as LocationController::store(), aureuserp#5), closing the gap going
+ * forward; legacy null-company lots stay out of normal queries under
+ * strict scoping. getNextSerial() below explicitly bypasses CompanyScope
+ * for its own internal numbering lookup — that's the one legitimate use
+ * of cross-company visibility here (avoid duplicate serials), not a
+ * general visibility grant.
+ */
 class Lot extends Model
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory;
 
     protected $table = 'inventories_lots';
 
@@ -114,10 +131,16 @@ class Lot extends Model
 
     public static function getNextSerial(Company $company, Product $product): string
     {
-        $lastSerial = static::where(function ($q) use ($company) {
-            $q->where('company_id', $company->id)
-                ->orWhereNull('company_id');
-        })
+        // Explicit unscoped lookup: numbering must consider every existing
+        // lot for this product regardless of the acting user's visibility,
+        // including legacy null-company rows, to avoid issuing a duplicate
+        // serial. This is an internal system computation, not a general
+        // visibility grant — see the class-level note.
+        $lastSerial = static::withoutGlobalScope(CompanyScope::class)
+            ->where(function ($q) use ($company) {
+                $q->where('company_id', $company->id)
+                    ->orWhereNull('company_id');
+            })
             ->where('product_id', $product->id)
             ->orderBy('id', 'DESC')
             ->first();
@@ -140,6 +163,8 @@ class Lot extends Model
 
         static::creating(function ($lot) {
             $lot->creator_id ??= Auth::id();
+
+            $lot->company_id ??= Auth::user()?->default_company_id;
         });
     }
 }

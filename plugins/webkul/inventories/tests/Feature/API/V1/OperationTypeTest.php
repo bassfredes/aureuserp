@@ -238,9 +238,17 @@ it('excludes soft-deleted operation types from default listing', function () {
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 it('creates an operation type', function () {
-    actingAsInventoryOperationTypeApiUser(['create_inventory_operation::type']);
+    $user = actingAsInventoryOperationTypeApiUser(['create_inventory_operation::type']);
 
-    $payload = inventoryOperationTypePayload();
+    $company = Company::find($user->default_company_id) ?? Company::factory()->create();
+    $source = Location::factory()->create(['company_id' => $company->id]);
+    $destination = Location::factory()->create(['company_id' => $company->id]);
+
+    $payload = inventoryOperationTypePayload([
+        'source_location_id'      => $source->id,
+        'destination_location_id' => $destination->id,
+        'company_id'              => $company->id,
+    ]);
 
     $this->postJson(inventoryOperationTypeRoute('store'), $payload)
         ->assertCreated()

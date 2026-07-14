@@ -16,14 +16,18 @@ use Webkul\Inventory\Enums\ProcureMethod;
 use Webkul\Inventory\Facades\Inventory;
 use Webkul\Inventory\Http\Requests\OperationRequest;
 use Webkul\Inventory\Http\Resources\V1\OperationResource;
+use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\Move;
 use Webkul\Inventory\Models\Operation;
 use Webkul\Inventory\Models\OperationType;
 use Webkul\Inventory\Models\Product;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 use Webkul\Support\Models\UOM;
 
 class OperationController extends Controller
 {
+    use ValidatesCompanyScope;
+
     protected array $allowedIncludes = [
         'user',
         'owner',
@@ -266,12 +270,39 @@ class OperationController extends Controller
         $operationType = $this->resolveOperationTypeModel($data['operation_type_id'] ?? $existingOperation?->operation_type_id);
         $isCreating = $existingOperation === null;
 
+        // An EXPLICIT company (client-submitted, or the existing row's own
+        // on update) is the only thing that can conflict with the
+        // operation type: it's a value chosen independently of the
+        // operation type being referenced. When nothing explicit is given,
+        // resolveCompanyId() derives the company FROM the operation type's
+        // own location relations — that derivation can't meaningfully
+        // "conflict" with the operation type it's derived from, so the
+        // operation-type check below only runs when there's an explicit
+        // value to check it against.
+        $explicitCompanyId = $data['company_id'] ?? $existingOperation?->company_id;
+        $effectiveCompanyId = $explicitCompanyId ?? $this->resolveCompanyId($operationType);
+
+        if ($isCreating) {
+            $this->assertCompanyIdAllowed($data['company_id'] ?? null, Auth::user(), 'operation');
+        } else {
+            $this->assertCompanyIdImmutable($data, $existingOperation, 'operation');
+        }
+
+        // operationType is resolved via a scoped lookup (visible to the
+        // acting user), but visibility alone isn't enough: a user
+        // authorized in both A and B could otherwise pin an operation to
+        // company A while explicitly referencing an operation type of B,
+        // just because both are individually in scope.
+        $this->assertRelatedRecordAccessible($operationType->id, OperationType::class, 'operation type', $explicitCompanyId ?? $operationType->company_id);
+        $this->assertRelatedRecordAccessible($data['source_location_id'] ?? null, Location::class, 'source location', $effectiveCompanyId);
+        $this->assertRelatedRecordAccessible($data['destination_location_id'] ?? null, Location::class, 'destination location', $effectiveCompanyId);
+
         $preparedData = [
             ...$data,
             'operation_type_id'       => $operationType->id,
             'source_location_id'      => $data['source_location_id'] ?? $existingOperation?->source_location_id ?? $operationType->source_location_id,
             'destination_location_id' => $data['destination_location_id'] ?? $existingOperation?->destination_location_id ?? $operationType->destination_location_id,
-            'company_id'              => $data['company_id'] ?? $existingOperation?->company_id ?? $this->resolveCompanyId($operationType),
+            'company_id'              => $effectiveCompanyId,
             'user_id'                 => $data['user_id'] ?? $existingOperation?->user_id ?? Auth::id(),
             'state'                   => $data['state'] ?? $existingOperation?->state ?? OperationState::DRAFT,
         ];
@@ -353,6 +384,8 @@ class OperationController extends Controller
 
     protected function prepareMoveData(Operation $operation, array $moveData, bool $isUpdate = false): array
     {
+        $this->assertRelatedRecordAccessible($moveData['final_location_id'] ?? null, Location::class, 'final location', $operation->company_id);
+
         $product = Product::query()->findOrFail($moveData['product_id']);
         $uom = isset($moveData['uom_id'])
             ? UOM::query()->findOrFail($moveData['uom_id'])

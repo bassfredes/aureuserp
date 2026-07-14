@@ -1,9 +1,13 @@
 <?php
 
+use Illuminate\Support\Facades\Auth;
+use Laravel\Sanctum\Sanctum;
+use Spatie\Permission\PermissionRegistrar;
 use Webkul\Inventory\Models\OperationType;
 use Webkul\Inventory\Models\Rule;
 use Webkul\Inventory\Models\Warehouse;
 use Webkul\Security\Enums\PermissionType;
+use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 
@@ -215,9 +219,9 @@ it('excludes soft-deleted warehouses from default listing', function () {
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 it('creates a warehouse', function () {
-    actingAsInventoryWarehouseApiUser(['create_inventory_warehouse']);
+    $user = actingAsInventoryWarehouseApiUser(['create_inventory_warehouse']);
 
-    $payload = inventoryWarehousePayload();
+    $payload = inventoryWarehousePayload(['company_id' => $user->default_company_id]);
 
     $this->postJson(inventoryWarehouseRoute('store'), $payload)
         ->assertCreated()
@@ -393,4 +397,97 @@ it('returns 404 when force-deleting a non-existent warehouse', function () {
 
     $this->deleteJson(inventoryWarehouseRoute('force-destroy', 999999))
         ->assertNotFound();
+});
+
+// ── Company-scope write-path guards ─────────────────────────────────────────────
+// Bypass actingAsInventoryWarehouseApiUser/SecurityHelper on purpose: that
+// helper grants the acting user access to every company that already exists
+// at authentication time, which would silently defeat these cross-company
+// tests — same pattern as LocationTest.php.
+
+function actingAsScopedWarehouseUser(Company $company, array $permissions): User
+{
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $company->id,
+    ]));
+
+    $user->forceFill([
+        'resource_permission' => PermissionType::GLOBAL,
+    ])->saveQuietly();
+
+    // Both guards: the app's default auth guard is sanctum, not web, so a
+    // web-only permission silently fails Gate::authorize() regardless of
+    // company-scope logic — same dual-guard pattern as SecurityHelper.
+    // Raw upsert + re-query (not Permission::findOrCreate()) to avoid the
+    // registrar's stale-cache duplicate-row bug: findOrCreate() can create a
+    // second Permission row with a different id when the cache doesn't see
+    // rows inserted via upsert() elsewhere, and givePermissionTo() then
+    // attaches an id Gate::authorize() never matches.
+    $records = collect($permissions)->crossJoin(['web', 'sanctum'])
+        ->map(fn (array $pair) => ['name' => $pair[0], 'guard_name' => $pair[1]])
+        ->all();
+
+    Permission::query()->upsert($records, uniqueBy: ['name', 'guard_name'], update: []);
+
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+    $user->givePermissionTo(
+        Permission::query()->whereIn('name', $permissions)->whereIn('guard_name', ['web', 'sanctum'])->get()
+    );
+
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+    // The API route group uses auth:sanctum middleware, so plain
+    // test()->actingAs($user) (which only authenticates the default 'web'
+    // guard) leaves the sanctum guard unauthenticated for the real HTTP
+    // request — Gate::authorize() then denies for lack of permission on
+    // that guard, which is indistinguishable from a real company-scope
+    // denial in the response (bootstrap/app.php renders every
+    // AuthorizationException as the same generic 403 message on API
+    // requests, by design). Without the full guard chain this test would
+    // "pass" without ever reaching assertCompanyIdAllowed(). Same guard
+    // chain as SecurityHelper::authenticateWithPermissions().
+    Auth::guard('web')->login($user);
+    Auth::guard('web')->setUser($user);
+    Auth::guard('sanctum')->setUser($user);
+    Auth::shouldUse('sanctum');
+    Sanctum::actingAs($user, ['*']);
+
+    return $user;
+}
+
+it('forbids a user from company A creating a warehouse in company B', function () {
+    $companyB = Company::factory()->create();
+    $companyA = Company::factory()->create();
+
+    actingAsScopedWarehouseUser($companyA, ['create_inventory_warehouse']);
+
+    $this->postJson(inventoryWarehouseRoute('store'), [
+        'name'       => 'Cross Company Warehouse',
+        'code'       => 'XCW-'.uniqid(),
+        'company_id' => $companyB->id,
+    ])->assertForbidden();
+
+    $this->assertDatabaseMissing('inventories_warehouses', [
+        'code'       => 'XCW-'.uniqid(),
+        'company_id' => $companyB->id,
+    ]);
+});
+
+it('forbids a user from changing an existing warehouse from company A to company B', function () {
+    $companyB = Company::factory()->create();
+    $companyA = Company::factory()->create();
+
+    actingAsScopedWarehouseUser($companyA, ['update_inventory_warehouse']);
+
+    $warehouse = Warehouse::factory()->create(['company_id' => $companyA->id]);
+
+    $this->patchJson(inventoryWarehouseRoute('update', $warehouse), [
+        'company_id' => $companyB->id,
+    ])->assertForbidden();
+
+    $this->assertDatabaseHas('inventories_warehouses', [
+        'id'         => $warehouse->id,
+        'company_id' => $companyA->id,
+    ]);
 });
