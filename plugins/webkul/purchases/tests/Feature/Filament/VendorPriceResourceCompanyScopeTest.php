@@ -2,6 +2,7 @@
 
 use Filament\Facades\Filament;
 use Filament\Schemas\Schema;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Gate;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
@@ -42,14 +43,25 @@ function loginAsScopedVendorPriceUser(Company $company, string $permission): Use
     return $user->fresh();
 }
 
+/**
+ * ProductSupplier.company_id === Product.company_id is now enforced at the
+ * model boot level (D3, aureuserp#137 review): any fixture that sets an
+ * explicit company_id must pair it with a product actually in that same
+ * company, or ProductSupplier::factory()->create() itself throws.
+ */
+function filamentProductInCompany(Company $company): int
+{
+    return Product::factory()->create(['company_id' => $company->id])->id;
+}
+
 it('excludes another company\'s vendor price lists from VendorPriceResource\'s query', function () {
     $companyA = Company::factory()->create();
     $companyB = Company::factory()->create();
 
     loginAsScopedVendorPriceUser($companyA, 'view_any_purchase_vendor::price');
 
-    $ownRow = ProductSupplier::factory()->create(['company_id' => $companyA->id]);
-    $foreignRow = ProductSupplier::factory()->create(['company_id' => $companyB->id]);
+    $ownRow = ProductSupplier::factory()->create(['product_id' => filamentProductInCompany($companyA), 'company_id' => $companyA->id]);
+    $foreignRow = ProductSupplier::factory()->create(['product_id' => filamentProductInCompany($companyB), 'company_id' => $companyB->id]);
 
     $ids = VendorPriceResource::getEloquentQuery()->pluck('id');
 
@@ -72,7 +84,7 @@ it('denies a user from company A the update/delete policy abilities on a vendor 
     // factory itself), so ->create() returns that base-class instance —
     // re-fetch through the Purchase alias Gate::denies() must resolve
     // Webkul\Purchase\Policies\ProductSupplierPolicy against.
-    $foreignRowId = ProductSupplier::factory()->create(['company_id' => $companyB->id])->id;
+    $foreignRowId = ProductSupplier::factory()->create(['product_id' => filamentProductInCompany($companyB), 'company_id' => $companyB->id])->id;
     $foreignRow = ProductSupplier::find($foreignRowId);
 
     expect(Gate::forUser($user->fresh())->denies('update', $foreignRow))->toBeTrue()
@@ -108,18 +120,25 @@ it('marks the admin form\'s company_id select as required', function () {
 // blockers above never applied here. Found in PR #8's second review round.
 
 it('excludes another company\'s vendor price lists from a product\'s ManageVendors listing', function () {
+    // ProductSupplier.company_id === Product.company_id is now enforced
+    // at the model boot level (D3, aureuserp#137 review): the SAME
+    // product can no longer have suppliers in two different companies,
+    // so the "foreign" row here is a different product's supplier in
+    // company B — ManageVendors, mounted for company A's product, must
+    // still only ever surface that product's own (company A) supplier.
     $companyA = Company::factory()->create();
     $companyB = Company::factory()->create();
 
     loginAsScopedVendorPriceUser($companyA, 'view_any_purchase_vendor::price');
 
-    $product = Product::factory()->create(['is_configurable' => false]);
+    $productA = Product::factory()->create(['is_configurable' => false, 'company_id' => $companyA->id]);
+    $productB = Product::factory()->create(['is_configurable' => false, 'company_id' => $companyB->id]);
 
-    $ownRow = ProductSupplier::factory()->create(['product_id' => $product->id, 'company_id' => $companyA->id]);
-    $foreignRow = ProductSupplier::factory()->create(['product_id' => $product->id, 'company_id' => $companyB->id]);
+    $ownRow = ProductSupplier::factory()->create(['product_id' => $productA->id, 'company_id' => $companyA->id]);
+    $foreignRow = ProductSupplier::factory()->create(['product_id' => $productB->id, 'company_id' => $companyB->id]);
 
     $page = app(ManageVendors::class);
-    $page->mount($product->id);
+    $page->mount($productA->id);
 
     $ids = $page->getRelationship()->pluck('id');
 
@@ -133,12 +152,13 @@ it('does not let a company B vendor price list be part of ManageVendors\' bulk-s
 
     loginAsScopedVendorPriceUser($companyA, 'view_any_purchase_vendor::price');
 
-    $product = Product::factory()->create(['is_configurable' => false]);
+    $productA = Product::factory()->create(['is_configurable' => false, 'company_id' => $companyA->id]);
+    $productB = Product::factory()->create(['is_configurable' => false, 'company_id' => $companyB->id]);
 
-    $foreignRow = ProductSupplier::factory()->create(['product_id' => $product->id, 'company_id' => $companyB->id]);
+    $foreignRow = ProductSupplier::factory()->create(['product_id' => $productB->id, 'company_id' => $companyB->id]);
 
     $page = app(ManageVendors::class);
-    $page->mount($product->id);
+    $page->mount($productA->id);
 
     // DeleteBulkAction (shared via VendorPriceResource::table()) resolves
     // its candidate records through this same relationship query — a row
@@ -149,4 +169,40 @@ it('does not let a company B vendor price list be part of ManageVendors\' bulk-s
 
     expect($deleted)->toBe(0);
     $this->assertDatabaseHas('products_product_suppliers', ['id' => $foreignRow->id]);
+});
+
+it('cannot create a ProductSupplier through ManageVendors\' relationship for a company that mismatches its owning product', function () {
+    // D3 (aureuserp#137 review): the invariant is enforced at
+    // ProductSupplier's own model boot level, so it holds regardless of
+    // caller. This test exercises the actual Filament relation-manager
+    // write path (getRelationship()->create(), what a submitted
+    // CreateAction on this page ultimately calls), not just the model in
+    // isolation, proving ManageVendors specifically cannot produce the
+    // mismatch either.
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    // mount() needs view_any_purchase_vendor::price (same as the read-side
+    // tests above) in addition to create, or it 403s before the relation
+    // is ever built.
+    $user = loginAsScopedVendorPriceUser($companyA, 'view_any_purchase_vendor::price');
+    Permission::query()->firstOrCreate(['name' => 'create_purchase_vendor::price', 'guard_name' => 'web']);
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+    $user->givePermissionTo('create_purchase_vendor::price');
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+    $user->allowedCompanies()->attach($companyB->id);
+
+    $product = Product::factory()->create(['is_configurable' => false, 'company_id' => $companyA->id]);
+
+    $page = app(ManageVendors::class);
+    $page->mount($product->id);
+
+    expect(fn () => $page->getRelationship()->create([
+        'partner_id'  => \Webkul\Partner\Models\Partner::factory()->create()->id,
+        'currency_id' => \Webkul\Support\Models\Currency::factory()->create()->id,
+        'price'       => 10,
+        'company_id'  => $companyB->id,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('products_product_suppliers', ['product_id' => $product->id, 'company_id' => $companyB->id]);
 });

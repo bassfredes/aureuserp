@@ -9,6 +9,7 @@ use Webkul\Product\Models\ProductSupplier;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 /**
  * @extends Factory<ProductSupplier>
@@ -24,6 +25,15 @@ class ProductSupplierFactory extends Factory
 
     /**
      * Define the model's default state.
+     *
+     * `product_id` is declared before `company_id` on purpose — same
+     * rationale as PackagingFactory (D3, aureuserp#137 review):
+     * Factory::expandAttributes() resolves attributes in array order and
+     * passes each already-resolved value forward, so company_id's closure
+     * below sees product_id's final value (override or default) and
+     * derives a consistent company. An explicit company_id override still
+     * replaces the closure outright, so a caller building a deliberately
+     * mismatched fixture for a rejection test is unaffected.
      *
      * @return array<string, mixed>
      */
@@ -43,7 +53,9 @@ class ProductSupplierFactory extends Factory
             'partner_id'   => Partner::query()->value('id') ?? Partner::factory(),
             'currency_id'  => Currency::factory(),
             'creator_id'   => User::query()->value('id') ?? User::factory(),
-            'company_id'   => Company::factory(),
+            'company_id'   => fn (array $attributes) => Product::withoutGlobalScope(CompanyScope::class)
+                ->find($attributes['product_id'])?->company_id
+                ?? Company::factory()->create()->id,
         ];
     }
 }

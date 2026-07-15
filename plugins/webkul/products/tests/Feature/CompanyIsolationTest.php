@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Product\Models\PriceList;
 use Webkul\Product\Models\PriceRule;
@@ -145,8 +146,10 @@ it('hides packagings from companies the user is not allowed to see', function ()
         'default_company_id' => $companyA->id,
     ]));
 
-    $packagingA = \Webkul\Product\Models\Packaging::factory()->create(['company_id' => $companyA->id]);
-    $packagingB = \Webkul\Product\Models\Packaging::factory()->create(['company_id' => $companyB->id]);
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $productB = Product::factory()->create(['company_id' => $companyB->id]);
+    $packagingA = \Webkul\Product\Models\Packaging::factory()->create(['product_id' => $productA->id, 'company_id' => $companyA->id]);
+    $packagingB = \Webkul\Product\Models\Packaging::factory()->create(['product_id' => $productB->id, 'company_id' => $companyB->id]);
 
     test()->actingAs($userA);
 
@@ -161,7 +164,8 @@ it('hides all packagings from an authenticated user without company access', fun
         'default_company_id' => null,
     ]));
 
-    \Webkul\Product\Models\Packaging::factory()->create(['company_id' => $company->id]);
+    $product = Product::factory()->create(['company_id' => $company->id]);
+    \Webkul\Product\Models\Packaging::factory()->create(['product_id' => $product->id, 'company_id' => $company->id]);
 
     test()->actingAs($user);
 
@@ -178,8 +182,10 @@ it('hides product suppliers from companies the user is not allowed to see', func
         'default_company_id' => $companyA->id,
     ]));
 
-    $supplierA = ProductSupplier::factory()->create(['company_id' => $companyA->id]);
-    $supplierB = ProductSupplier::factory()->create(['company_id' => $companyB->id]);
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $productB = Product::factory()->create(['company_id' => $companyB->id]);
+    $supplierA = ProductSupplier::factory()->create(['product_id' => $productA->id, 'company_id' => $companyA->id]);
+    $supplierB = ProductSupplier::factory()->create(['product_id' => $productB->id, 'company_id' => $companyB->id]);
 
     test()->actingAs($userA);
 
@@ -194,7 +200,8 @@ it('hides all product suppliers from an authenticated user without company acces
         'default_company_id' => null,
     ]));
 
-    ProductSupplier::factory()->create(['company_id' => $company->id]);
+    $product = Product::factory()->create(['company_id' => $company->id]);
+    ProductSupplier::factory()->create(['product_id' => $product->id, 'company_id' => $company->id]);
 
     test()->actingAs($user);
 
@@ -242,8 +249,10 @@ it('hides price rule items from companies the user is not allowed to see', funct
         'default_company_id' => $companyA->id,
     ]));
 
-    $itemA = PriceRuleItem::factory()->create(['company_id' => $companyA->id]);
-    $itemB = PriceRuleItem::factory()->create(['company_id' => $companyB->id]);
+    $ruleA = PriceRule::factory()->create(['company_id' => $companyA->id]);
+    $ruleB = PriceRule::factory()->create(['company_id' => $companyB->id]);
+    $itemA = PriceRuleItem::factory()->create(['price_rule_id' => $ruleA->id, 'company_id' => $companyA->id]);
+    $itemB = PriceRuleItem::factory()->create(['price_rule_id' => $ruleB->id, 'company_id' => $companyB->id]);
 
     test()->actingAs($userA);
 
@@ -293,4 +302,133 @@ it('does not filter products when there is no authenticated user', function () {
     Auth::logout();
 
     expect(Product::query()->count())->toBeGreaterThanOrEqual(1);
+});
+
+// ── Relation invariants, enforced at the model level (review on PR #11) ────
+// These prove the invariant holds for ANY write path, not only the API
+// controllers: Filament's Create/Edit pages call the exact same
+// Model::create()/update() calls exercised directly below — there is no
+// separate Filament-side validation layer for this invariant to bypass.
+
+it('forbids creating a Packaging for company A referencing a Product from company B, even for a user allowed in both', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $productB = Product::factory()->create(['company_id' => $companyB->id]);
+
+    expect(fn () => \Webkul\Product\Models\Packaging::factory()->create([
+        'product_id' => $productB->id,
+        'company_id' => $companyA->id,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('products_packagings', ['product_id' => $productB->id]);
+});
+
+it('forbids changing a Packaging to reference a Product from a different company on update', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $productB = Product::factory()->create(['company_id' => $companyB->id]);
+    $packaging = \Webkul\Product\Models\Packaging::factory()->create([
+        'product_id' => $productA->id,
+        'company_id' => $companyA->id,
+    ]);
+
+    expect(fn () => $packaging->update(['product_id' => $productB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('products_packagings', [
+        'id'         => $packaging->id,
+        'product_id' => $productA->id,
+    ]);
+});
+
+it('forbids creating a ProductSupplier for company A referencing a Product from company B, even for a user allowed in both', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $productB = Product::factory()->create(['company_id' => $companyB->id]);
+
+    expect(fn () => ProductSupplier::factory()->create([
+        'product_id' => $productB->id,
+        'company_id' => $companyA->id,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('products_product_suppliers', ['product_id' => $productB->id]);
+});
+
+it('forbids changing a ProductSupplier to reference a Product from a different company on update', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $productB = Product::factory()->create(['company_id' => $companyB->id]);
+    $supplier = ProductSupplier::factory()->create([
+        'product_id' => $productA->id,
+        'company_id' => $companyA->id,
+    ]);
+
+    expect(fn () => $supplier->update(['product_id' => $productB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('products_product_suppliers', [
+        'id'         => $supplier->id,
+        'product_id' => $productA->id,
+    ]);
+});
+
+it('forbids creating a PriceRuleItem with an explicit company_id that mismatches its parent PriceRule', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $rule = PriceRule::factory()->create(['company_id' => $companyA->id]);
+
+    expect(fn () => PriceRuleItem::factory()->create([
+        'price_rule_id' => $rule->id,
+        'company_id'    => $companyB->id,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('products_price_rule_items', ['price_rule_id' => $rule->id, 'company_id' => $companyB->id]);
+});
+
+it('forbids changing a PriceRuleItem to reference a PriceRule from a different company on update', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $ruleA = PriceRule::factory()->create(['company_id' => $companyA->id]);
+    $ruleB = PriceRule::factory()->create(['company_id' => $companyB->id]);
+    $item = PriceRuleItem::factory()->create(['price_rule_id' => $ruleA->id]);
+
+    expect(fn () => $item->update(['price_rule_id' => $ruleB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('products_price_rule_items', [
+        'id'            => $item->id,
+        'price_rule_id' => $ruleA->id,
+    ]);
 });

@@ -56,6 +56,17 @@ function actingAsScopedVendorPriceListUser(Company $company, array $permissions)
     return $user;
 }
 
+/**
+ * ProductSupplier.company_id === Product.company_id is now enforced at the
+ * model boot level (D3, aureuserp#137 review): any fixture that sets an
+ * explicit company_id must pair it with a product actually in that same
+ * company, or ProductSupplier::factory()->create() itself throws.
+ */
+function productInCompany(Company $company): int
+{
+    return Product::factory()->create(['company_id' => $company->id])->id;
+}
+
 function scopedVendorPriceListPayload(array $overrides = []): array
 {
     $currency = Currency::first() ?? Currency::factory()->create();
@@ -151,7 +162,7 @@ it('forbids changing an existing vendor price list from company A to company B',
 
     actingAsScopedVendorPriceListUser($companyA, ['create_purchase_vendor::price', 'update_purchase_vendor::price']);
 
-    $vendorPriceList = ProductSupplier::factory()->create(['company_id' => $companyA->id]);
+    $vendorPriceList = ProductSupplier::factory()->create(['product_id' => productInCompany($companyA), 'company_id' => $companyA->id]);
 
     $this->patchJson(route('admin.api.v1.purchases.vendor-price-lists.update', $vendorPriceList), [
         'company_id' => $companyB->id,
@@ -168,7 +179,7 @@ it('rejects an explicit null company_id on vendor price list update', function (
 
     actingAsScopedVendorPriceListUser($companyA, ['create_purchase_vendor::price', 'update_purchase_vendor::price']);
 
-    $vendorPriceList = ProductSupplier::factory()->create(['company_id' => $companyA->id]);
+    $vendorPriceList = ProductSupplier::factory()->create(['product_id' => productInCompany($companyA), 'company_id' => $companyA->id]);
 
     $this->patchJson(route('admin.api.v1.purchases.vendor-price-lists.update', $vendorPriceList), [
         'company_id' => null,
@@ -194,8 +205,8 @@ it('excludes other companies rows from the vendor price list index', function ()
 
     actingAsScopedVendorPriceListUser($companyA, ['view_any_purchase_vendor::price']);
 
-    $ownRow = ProductSupplier::factory()->create(['company_id' => $companyA->id]);
-    $foreignRow = ProductSupplier::factory()->create(['company_id' => $companyB->id]);
+    $ownRow = ProductSupplier::factory()->create(['product_id' => productInCompany($companyA), 'company_id' => $companyA->id]);
+    $foreignRow = ProductSupplier::factory()->create(['product_id' => productInCompany($companyB), 'company_id' => $companyB->id]);
 
     $ids = collect(
         $this->getJson(route('admin.api.v1.purchases.vendor-price-lists.index'))
@@ -213,7 +224,7 @@ it('forbids a user from company A viewing an existing vendor price list from com
 
     actingAsScopedVendorPriceListUser($companyA, ['view_purchase_vendor::price']);
 
-    $foreignRow = ProductSupplier::factory()->create(['company_id' => $companyB->id]);
+    $foreignRow = ProductSupplier::factory()->create(['product_id' => productInCompany($companyB), 'company_id' => $companyB->id]);
 
     $this->getJson(route('admin.api.v1.purchases.vendor-price-lists.show', $foreignRow))
         ->assertNotFound();
@@ -225,7 +236,7 @@ it('forbids a user from company A updating a non-company field of a vendor price
 
     actingAsScopedVendorPriceListUser($companyA, ['update_purchase_vendor::price']);
 
-    $foreignRow = ProductSupplier::factory()->create(['company_id' => $companyB->id, 'price' => 100]);
+    $foreignRow = ProductSupplier::factory()->create(['product_id' => productInCompany($companyB), 'company_id' => $companyB->id, 'price' => 100]);
 
     $this->patchJson(route('admin.api.v1.purchases.vendor-price-lists.update', $foreignRow), [
         'price' => 999,
@@ -243,7 +254,7 @@ it('forbids a user from company A deleting a vendor price list from company B', 
 
     actingAsScopedVendorPriceListUser($companyA, ['delete_purchase_vendor::price']);
 
-    $foreignRow = ProductSupplier::factory()->create(['company_id' => $companyB->id]);
+    $foreignRow = ProductSupplier::factory()->create(['product_id' => productInCompany($companyB), 'company_id' => $companyB->id]);
 
     $this->deleteJson(route('admin.api.v1.purchases.vendor-price-lists.destroy', $foreignRow))
         ->assertNotFound();
