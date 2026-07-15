@@ -440,12 +440,14 @@ function actingAsScopedWarehouseUser(Company $company, array $permissions): User
     // The API route group uses auth:sanctum middleware, so plain
     // test()->actingAs($user) (which only authenticates the default 'web'
     // guard) leaves the sanctum guard unauthenticated for the real HTTP
-    // request — Gate::authorize() then denies for lack of permission on
-    // that guard, which is indistinguishable from a real company-scope
-    // denial in the response (bootstrap/app.php renders every
-    // AuthorizationException as the same generic 403 message on API
+    // request — auth:sanctum then rejects the request before Gate::
+    // authorize() is ever reached, which is indistinguishable from a real
+    // company-scope denial in the response (bootstrap/app.php renders
+    // every AuthorizationException as the same generic 403 message on API
     // requests, by design). Without the full guard chain this test would
-    // "pass" without ever reaching assertCompanyIdAllowed(). Same guard
+    // "pass" without ever reaching assertCompanyIdAllowed(). Permission
+    // resolution itself is guard-agnostic (User::$guard_name = 'web'), but
+    // authentication still requires both guards set up here. Same guard
     // chain as SecurityHelper::authenticateWithPermissions().
     Auth::guard('web')->login($user);
     Auth::guard('web')->setUser($user);

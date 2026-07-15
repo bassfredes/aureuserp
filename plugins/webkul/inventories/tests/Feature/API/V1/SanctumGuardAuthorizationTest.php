@@ -13,11 +13,12 @@
 // unico valor "web".
 //
 // Deliberadamente NO usa SecurityHelper::authenticateWithPermissions() --
-// ese helper siembra cada permiso bajo AMBOS guards (web + sanctum), lo que
-// enmascara este bug exacto. Este test siembra el permiso solo bajo "web"
-// (como lo hace ShieldSeeder en produccion) y autentica con un token
-// Sanctum real via el header Authorization, para pasar por el mismo
-// middleware auth:sanctum -> Auth::shouldUse('sanctum') que dispara el bug.
+// antes de este fix, ese helper duplicaba permisos bajo web y sanctum, lo
+// que enmascaraba la regresion que este test reproduce. Este test siembra
+// el permiso solo bajo "web" (como lo hace ShieldSeeder en produccion) y
+// autentica con un token Sanctum real via el header Authorization, para
+// pasar por el mismo middleware auth:sanctum -> Auth::shouldUse('sanctum')
+// que disparaba el bug.
 
 use Webkul\Security\Enums\PermissionType;
 use Webkul\Security\Models\Permission;
