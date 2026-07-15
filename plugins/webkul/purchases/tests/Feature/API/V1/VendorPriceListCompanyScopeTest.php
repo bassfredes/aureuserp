@@ -33,8 +33,8 @@ function actingAsScopedVendorPriceListUser(Company $company, array $permissions)
         'resource_permission' => PermissionType::GLOBAL,
     ])->saveQuietly();
 
-    $records = collect($permissions)->crossJoin(['web', 'sanctum'])
-        ->map(fn (array $pair) => ['name' => $pair[0], 'guard_name' => $pair[1]])
+    $records = collect($permissions)
+        ->map(fn (string $name) => ['name' => $name, 'guard_name' => 'web'])
         ->all();
 
     Permission::query()->upsert($records, uniqueBy: ['name', 'guard_name'], update: []);
@@ -42,7 +42,7 @@ function actingAsScopedVendorPriceListUser(Company $company, array $permissions)
     app(PermissionRegistrar::class)->forgetCachedPermissions();
 
     $user->givePermissionTo(
-        Permission::query()->whereIn('name', $permissions)->whereIn('guard_name', ['web', 'sanctum'])->get()
+        Permission::query()->whereIn('name', $permissions)->where('guard_name', 'web')->get()
     );
 
     app(PermissionRegistrar::class)->forgetCachedPermissions();
@@ -252,11 +252,9 @@ it('returns a controlled 403, not a TypeError, when a companyless user omits com
     $user->forceFill(['resource_permission' => PermissionType::GLOBAL])->saveQuietly();
 
     $permission = 'create_purchase_vendor::price';
-    collect(['web', 'sanctum'])->each(
-        fn (string $guard) => Permission::query()->firstOrCreate(['name' => $permission, 'guard_name' => $guard])
-    );
+    Permission::query()->firstOrCreate(['name' => $permission, 'guard_name' => 'web']);
     app(PermissionRegistrar::class)->forgetCachedPermissions();
-    $user->givePermissionTo(Permission::query()->where('name', $permission)->whereIn('guard_name', ['web', 'sanctum'])->get());
+    $user->givePermissionTo(Permission::query()->where('name', $permission)->where('guard_name', 'web')->get());
     app(PermissionRegistrar::class)->forgetCachedPermissions();
 
     Auth::guard('web')->login($user);

@@ -10,7 +10,11 @@ use Webkul\Support\Models\Company;
 
 class SecurityHelper
 {
-    private const GUARDS = ['web', 'sanctum'];
+    // Un unico guard: Webkul\Security\Models\User::$guard_name es 'web'
+    // (ver plugins/webkul/security/src/Models/User.php) -- autorizacion es
+    // agnostica de si la request se autentico via sesion o via token
+    // Sanctum, asi que solo existe un dominio real de permisos.
+    private const GUARD = 'web';
 
     public static function disableUserEvents(): void
     {
@@ -91,10 +95,9 @@ class SecurityHelper
     private static function ensurePermissionsExist(array $permissionNames): void
     {
         $records = collect($permissionNames)
-            ->crossJoin(self::GUARDS)
-            ->map(fn ($pair) => [
-                'name'       => $pair[0],
-                'guard_name' => $pair[1],
+            ->map(fn ($name) => [
+                'name'       => $name,
+                'guard_name' => self::GUARD,
             ])
             ->all();
 
@@ -111,7 +114,7 @@ class SecurityHelper
 
         $permissions = Permission::query()
             ->whereIn('name', $permissionNames)
-            ->whereIn('guard_name', self::GUARDS)
+            ->where('guard_name', self::GUARD)
             ->get();
 
         $user->givePermissionTo($permissions);

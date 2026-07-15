@@ -62,7 +62,19 @@ class User extends BaseUser implements FilamentUser, HasAppAuthentication, HasAp
         return 'id';
     }
 
-    protected $guard_name = ['web', 'sanctum'];
+    // Autorizacion (roles/permisos) es agnostica de como se autentico el
+    // usuario. Con ['web', 'sanctum'] aqui, el middleware auth:sanctum
+    // (Illuminate\Auth\Middleware\Authenticate::authenticate() ->
+    // Auth::shouldUse('sanctum')) muta config('auth.defaults.guard') a
+    // "sanctum" para el resto del request, y Spatie\Permission\Guard::
+    // getDefaultName() resuelve el guard efectivo a "sanctum" -- pero todos
+    // los roles/permisos estan sembrados unicamente bajo guard_name="web"
+    // (ver database/seeders/ShieldSeeder.php), asi que la busqueda de
+    // permisos no encuentra nada y cualquier Policy gateada por
+    // $user->can(...) deniega con 403 para TODO endpoint API autenticado
+    // via Sanctum. Un solo guard aqui hace que Guard::getDefaultName()
+    // siempre resuelva a "web" sin importar que guard autentico la request.
+    protected $guard_name = 'web';
 
     public function canAccessPanel(Panel $panel): bool
     {
