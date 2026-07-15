@@ -108,7 +108,12 @@ class ProductSupplier extends Model implements Sortable
         });
 
         static::updating(function ($productSupplier) {
-            if ($productSupplier->isDirty('product_id')) {
+            // Both sides of the invariant must be watched, not only
+            // product_id (aureuserp#137 review, PR #11): an update that
+            // changes company_id alone, leaving product_id untouched,
+            // still needs to be checked against that unchanged product's
+            // company or it silently persists a mismatched A/B row.
+            if ($productSupplier->isDirty(['product_id', 'company_id'])) {
                 static::assertCompanyMatchesProduct($productSupplier);
             }
         });

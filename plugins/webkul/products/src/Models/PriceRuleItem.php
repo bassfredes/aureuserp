@@ -116,7 +116,12 @@ class PriceRuleItem extends Model
         });
 
         static::updating(function ($priceRuleItem) {
-            if ($priceRuleItem->isDirty('price_rule_id')) {
+            // Both sides of the invariant must be watched, not only
+            // price_rule_id (aureuserp#137 review, PR #11): an update that
+            // changes company_id alone, leaving price_rule_id untouched,
+            // still needs to be checked against that unchanged rule's
+            // company or it silently persists a mismatched A/B row.
+            if ($priceRuleItem->isDirty(['price_rule_id', 'company_id'])) {
                 static::anchorCompanyToPriceRule($priceRuleItem);
             }
         });

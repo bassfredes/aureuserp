@@ -432,3 +432,75 @@ it('forbids changing a PriceRuleItem to reference a PriceRule from a different c
         'price_rule_id' => $ruleA->id,
     ]);
 });
+
+// ── Isolated company_id-only update (review on PR #11, round 2) ────────────
+// The updating() guards previously only fired on isDirty('product_id') /
+// isDirty('price_rule_id') — an update that changes company_id ALONE, with
+// the parent FK left untouched, skipped the check entirely and could
+// persist a mismatched A/B row. These prove the fix watches both sides.
+
+it('forbids changing only a Packaging\'s company_id to a company that mismatches its unchanged product', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $product = Product::factory()->create(['company_id' => $companyA->id]);
+    $packaging = \Webkul\Product\Models\Packaging::factory()->create([
+        'product_id' => $product->id,
+        'company_id' => $companyA->id,
+    ]);
+
+    expect(fn () => $packaging->update(['company_id' => $companyB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('products_packagings', [
+        'id'         => $packaging->id,
+        'company_id' => $companyA->id,
+    ]);
+});
+
+it('forbids changing only a ProductSupplier\'s company_id to a company that mismatches its unchanged product', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $product = Product::factory()->create(['company_id' => $companyA->id]);
+    $supplier = ProductSupplier::factory()->create([
+        'product_id' => $product->id,
+        'company_id' => $companyA->id,
+    ]);
+
+    expect(fn () => $supplier->update(['company_id' => $companyB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('products_product_suppliers', [
+        'id'         => $supplier->id,
+        'company_id' => $companyA->id,
+    ]);
+});
+
+it('forbids changing only a PriceRuleItem\'s company_id to a company that mismatches its unchanged PriceRule', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $rule = PriceRule::factory()->create(['company_id' => $companyA->id]);
+    $item = PriceRuleItem::factory()->create(['price_rule_id' => $rule->id, 'company_id' => $companyA->id]);
+
+    expect(fn () => $item->update(['company_id' => $companyB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('products_price_rule_items', [
+        'id'         => $item->id,
+        'company_id' => $companyA->id,
+    ]);
+});
