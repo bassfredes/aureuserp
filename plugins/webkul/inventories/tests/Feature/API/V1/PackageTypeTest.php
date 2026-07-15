@@ -246,22 +246,22 @@ it('forbids explicitly nulling out company_id on update', function () {
         'default_company_id' => $company->id,
     ]));
     $user->forceFill(['resource_permission' => PermissionType::GLOBAL])->saveQuietly();
-    // Both guards: the app's default auth guard is sanctum, not web, so a
-    // web-only permission silently fails Gate::authorize() regardless of
-    // company-scope logic — same dual-guard pattern as SecurityHelper.
-    // Raw upsert + re-query (not Permission::findOrCreate()) to avoid the
-    // registrar's stale-cache duplicate-row bug: findOrCreate() can create a
-    // second Permission row with a different id when the cache doesn't see
-    // rows inserted via upsert() elsewhere, and givePermissionTo() then
-    // attaches an id Gate::authorize() never matches.
+    // Un unico guard: Webkul\Security\Models\User::$guard_name es 'web' --
+    // autorizacion es agnostica de si la request se autentico via sesion o
+    // via token Sanctum. Raw upsert + re-query (not Permission::
+    // findOrCreate()) to avoid the registrar's stale-cache duplicate-row
+    // bug: findOrCreate() can create a second Permission row with a
+    // different id when the cache doesn't see rows inserted via upsert()
+    // elsewhere, and givePermissionTo() then attaches an id
+    // Gate::authorize() never matches.
     Permission::query()->upsert(
-        collect(['web', 'sanctum'])->map(fn (string $guard) => ['name' => 'update_inventory_package::type', 'guard_name' => $guard])->all(),
+        [['name' => 'update_inventory_package::type', 'guard_name' => 'web']],
         uniqueBy: ['name', 'guard_name'],
         update: []
     );
     app(PermissionRegistrar::class)->forgetCachedPermissions();
     $user->givePermissionTo(
-        Permission::query()->where('name', 'update_inventory_package::type')->whereIn('guard_name', ['web', 'sanctum'])->get()
+        Permission::query()->where('name', 'update_inventory_package::type')->where('guard_name', 'web')->get()
     );
     app(PermissionRegistrar::class)->forgetCachedPermissions();
     // The API route group uses auth:sanctum middleware, so plain

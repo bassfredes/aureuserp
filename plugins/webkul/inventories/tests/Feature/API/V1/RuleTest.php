@@ -421,22 +421,22 @@ it('forbids creating a rule for company A referencing an operation type of compa
         'default_company_id' => $companyA->id,
     ]));
     $user->forceFill(['resource_permission' => PermissionType::GLOBAL])->saveQuietly();
-    // Both guards: the app's default auth guard is sanctum, not web, so a
-    // web-only permission silently fails Gate::authorize() regardless of
-    // company-scope logic — same dual-guard pattern as SecurityHelper.
-    // Raw upsert + re-query (not Permission::findOrCreate()) to avoid the
-    // registrar's stale-cache duplicate-row bug: findOrCreate() can create a
-    // second Permission row with a different id when the cache doesn't see
-    // rows inserted via upsert() elsewhere, and givePermissionTo() then
-    // attaches an id Gate::authorize() never matches.
+    // Un unico guard: Webkul\Security\Models\User::$guard_name es 'web' --
+    // autorizacion es agnostica de si la request se autentico via sesion o
+    // via token Sanctum. Raw upsert + re-query (not Permission::
+    // findOrCreate()) to avoid the registrar's stale-cache duplicate-row
+    // bug: findOrCreate() can create a second Permission row with a
+    // different id when the cache doesn't see rows inserted via upsert()
+    // elsewhere, and givePermissionTo() then attaches an id
+    // Gate::authorize() never matches.
     Permission::query()->upsert(
-        collect(['web', 'sanctum'])->map(fn (string $guard) => ['name' => 'create_inventory_rule', 'guard_name' => $guard])->all(),
+        [['name' => 'create_inventory_rule', 'guard_name' => 'web']],
         uniqueBy: ['name', 'guard_name'],
         update: []
     );
     app(PermissionRegistrar::class)->forgetCachedPermissions();
     $user->givePermissionTo(
-        Permission::query()->where('name', 'create_inventory_rule')->whereIn('guard_name', ['web', 'sanctum'])->get()
+        Permission::query()->where('name', 'create_inventory_rule')->where('guard_name', 'web')->get()
     );
     app(PermissionRegistrar::class)->forgetCachedPermissions();
     $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);

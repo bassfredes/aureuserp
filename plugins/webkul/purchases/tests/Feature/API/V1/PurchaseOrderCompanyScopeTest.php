@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Auth;
 use Laravel\Sanctum\Sanctum;
+use Spatie\Permission\PermissionRegistrar;
 use Webkul\Partner\Models\Partner;
 use Webkul\Product\Models\Product;
 use Webkul\Purchase\Models\Order;
@@ -11,7 +12,6 @@ use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
-use Spatie\Permission\PermissionRegistrar;
 
 require_once __DIR__.'/../../../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -37,8 +37,8 @@ function actingAsScopedPurchaseOrderUser(Company $company, array $permissions): 
         'resource_permission' => PermissionType::GLOBAL,
     ])->saveQuietly();
 
-    $records = collect($permissions)->crossJoin(['web', 'sanctum'])
-        ->map(fn (array $pair) => ['name' => $pair[0], 'guard_name' => $pair[1]])
+    $records = collect($permissions)
+        ->map(fn (string $name) => ['name' => $name, 'guard_name' => 'web'])
         ->all();
 
     Permission::query()->upsert($records, uniqueBy: ['name', 'guard_name'], update: []);
@@ -46,7 +46,7 @@ function actingAsScopedPurchaseOrderUser(Company $company, array $permissions): 
     app(PermissionRegistrar::class)->forgetCachedPermissions();
 
     $user->givePermissionTo(
-        Permission::query()->whereIn('name', $permissions)->whereIn('guard_name', ['web', 'sanctum'])->get()
+        Permission::query()->whereIn('name', $permissions)->where('guard_name', 'web')->get()
     );
 
     app(PermissionRegistrar::class)->forgetCachedPermissions();

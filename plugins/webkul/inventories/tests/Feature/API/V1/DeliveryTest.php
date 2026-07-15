@@ -228,16 +228,16 @@ function actingAsScopedDeliveryUser(Company $company, array $permissions): User
         'resource_permission' => PermissionType::GLOBAL,
     ])->saveQuietly();
 
-    // Both guards: the app's default auth guard is sanctum, not web, so a
-    // web-only permission silently fails Gate::authorize() regardless of
-    // company-scope logic — same dual-guard pattern as SecurityHelper.
-    // Raw upsert + re-query (not Permission::findOrCreate()) to avoid the
-    // registrar's stale-cache duplicate-row bug: findOrCreate() can create a
-    // second Permission row with a different id when the cache doesn't see
-    // rows inserted via upsert() elsewhere, and givePermissionTo() then
-    // attaches an id Gate::authorize() never matches.
-    $records = collect($permissions)->crossJoin(['web', 'sanctum'])
-        ->map(fn (array $pair) => ['name' => $pair[0], 'guard_name' => $pair[1]])
+    // Un unico guard: Webkul\Security\Models\User::$guard_name es 'web' --
+    // autorizacion es agnostica de si la request se autentico via sesion o
+    // via token Sanctum. Raw upsert + re-query (not Permission::
+    // findOrCreate()) to avoid the registrar's stale-cache duplicate-row
+    // bug: findOrCreate() can create a second Permission row with a
+    // different id when the cache doesn't see rows inserted via upsert()
+    // elsewhere, and givePermissionTo() then attaches an id
+    // Gate::authorize() never matches.
+    $records = collect($permissions)
+        ->map(fn (string $name) => ['name' => $name, 'guard_name' => 'web'])
         ->all();
 
     Permission::query()->upsert($records, uniqueBy: ['name', 'guard_name'], update: []);
@@ -245,7 +245,7 @@ function actingAsScopedDeliveryUser(Company $company, array $permissions): User
     app(PermissionRegistrar::class)->forgetCachedPermissions();
 
     $user->givePermissionTo(
-        Permission::query()->whereIn('name', $permissions)->whereIn('guard_name', ['web', 'sanctum'])->get()
+        Permission::query()->whereIn('name', $permissions)->where('guard_name', 'web')->get()
     );
 
     app(PermissionRegistrar::class)->forgetCachedPermissions();

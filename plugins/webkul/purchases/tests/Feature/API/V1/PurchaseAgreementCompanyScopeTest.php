@@ -34,8 +34,8 @@ function actingAsScopedPurchaseAgreementUser(Company $company, array $permission
         'resource_permission' => PermissionType::GLOBAL,
     ])->saveQuietly();
 
-    $records = collect($permissions)->crossJoin(['web', 'sanctum'])
-        ->map(fn (array $pair) => ['name' => $pair[0], 'guard_name' => $pair[1]])
+    $records = collect($permissions)
+        ->map(fn (string $name) => ['name' => $name, 'guard_name' => 'web'])
         ->all();
 
     Permission::query()->upsert($records, uniqueBy: ['name', 'guard_name'], update: []);
@@ -43,7 +43,7 @@ function actingAsScopedPurchaseAgreementUser(Company $company, array $permission
     app(PermissionRegistrar::class)->forgetCachedPermissions();
 
     $user->givePermissionTo(
-        Permission::query()->whereIn('name', $permissions)->whereIn('guard_name', ['web', 'sanctum'])->get()
+        Permission::query()->whereIn('name', $permissions)->where('guard_name', 'web')->get()
     );
 
     app(PermissionRegistrar::class)->forgetCachedPermissions();
