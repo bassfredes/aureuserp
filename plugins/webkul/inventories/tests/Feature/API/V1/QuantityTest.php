@@ -319,9 +319,10 @@ it('forbids creating a quantity for a product belonging to another company, even
     Auth::shouldUse('sanctum');
     Sanctum::actingAs($user, ['*']);
 
-    // Product isn't part of this rollout (out of scope, see ADR 0007), so
-    // it's visible to any authenticated user regardless of its own
-    // company_id — the request never even mentions companyB explicitly.
+    // Product gained HasCompanyScope in the products tramo of #137: a
+    // companyB product is no longer merely policy-rejected, it's invisible
+    // to a companyA user — findOrFail() 404s before the company-scope
+    // guard in QuantityController::store() is ever reached.
     $productB = Product::factory()->create([
         'is_configurable' => false,
         'is_storable'     => true,
@@ -332,7 +333,7 @@ it('forbids creating a quantity for a product belonging to another company, even
     $location = Location::factory()->create(['company_id' => $companyA->id, 'type' => LocationType::INTERNAL]);
 
     $this->postJson(inventoryQuantityRoute('store'), inventoryQuantityPayload($productB, $location))
-        ->assertForbidden();
+        ->assertNotFound();
 
     $this->assertDatabaseMissing('inventories_product_quantities', [
         'product_id' => $productB->id,

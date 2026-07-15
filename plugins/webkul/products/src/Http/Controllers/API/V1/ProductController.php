@@ -2,6 +2,8 @@
 
 namespace Webkul\Product\Http\Controllers\API\V1;
 
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Knuckles\Scribe\Attributes\Authenticated;
 use Knuckles\Scribe\Attributes\Endpoint;
@@ -17,12 +19,15 @@ use Webkul\Product\Enums\ProductType;
 use Webkul\Product\Http\Requests\ProductRequest;
 use Webkul\Product\Http\Resources\V1\ProductResource;
 use Webkul\Product\Models\Product;
+use Webkul\Support\Http\Concerns\ValidatesCompanyScope;
 
 #[Group('Product API Management')]
 #[Subgroup('Products', 'Manage products')]
 #[Authenticated]
 class ProductController extends Controller
 {
+    use ValidatesCompanyScope;
+
     #[Endpoint('List products', 'Retrieve a paginated list of products with filtering and sorting')]
     #[QueryParam('include', 'string', 'Comma-separated list of relationships to include. </br></br><b>Available options:</b> parent, variants, uom, uomPO, category, tags, attributes, attribute_values, company, creator', required: false, example: 'category,tags')]
     #[QueryParam('filter[id]', 'string', 'Comma-separated list of IDs to filter by', required: false, example: 'No-example')]
@@ -79,6 +84,8 @@ class ProductController extends Controller
         $tags = $validated['tags'] ?? [];
         unset($validated['tags']);
 
+        $validated['company_id'] = $this->resolveProductCompanyId($validated, Auth::user());
+
         $product = Product::create($validated);
 
         if (! empty($tags)) {
@@ -89,6 +96,35 @@ class ProductController extends Controller
             ->additional(['message' => 'Product created successfully.'])
             ->response()
             ->setStatusCode(201);
+    }
+
+    /**
+     * Product's company_id is nullable (variants copy their parent's), so
+     * ProductRequest's rule is 'nullable', not required (D1, aureuserp#137):
+     * omitting it resolves to the acting user's default company, an explicit
+     * company_id is checked against the user's allowed companies, and an
+     * explicit null is rejected outright for direct API writes — a
+     * standalone product is always tenant-owned, never a shared/global row.
+     */
+    private function resolveProductCompanyId(array $data, $user): int
+    {
+        if (! array_key_exists('company_id', $data)) {
+            $companyId = $user?->default_company_id;
+
+            if ($companyId === null) {
+                throw new AuthorizationException('A product must belong to a company, and your account has no default company to fall back to.');
+            }
+
+            return $companyId;
+        }
+
+        if ($data['company_id'] === null) {
+            throw new AuthorizationException('A product must belong to a company; company_id cannot be null.');
+        }
+
+        $this->assertCompanyIdAllowed($data['company_id'], $user, 'product');
+
+        return $data['company_id'];
     }
 
     #[Endpoint('Show product', 'Retrieve a specific product by its ID')]
@@ -135,6 +171,8 @@ class ProductController extends Controller
 
         $tags = $validated['tags'] ?? null;
         unset($validated['tags']);
+
+        $this->assertCompanyIdImmutable($validated, $product, 'product');
 
         $product->update($validated);
 

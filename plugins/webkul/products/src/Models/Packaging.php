@@ -11,10 +11,11 @@ use Spatie\EloquentSortable\SortableTrait;
 use Webkul\Product\Database\Factories\PackagingFactory;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class Packaging extends Model implements Sortable
 {
-    use HasFactory, SortableTrait;
+    use HasCompanyScope, HasFactory, SortableTrait;
 
     protected $table = 'products_packagings';
 

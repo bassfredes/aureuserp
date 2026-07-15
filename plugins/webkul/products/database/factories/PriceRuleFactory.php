@@ -5,6 +5,8 @@ namespace Webkul\Product\Database\Factories;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Webkul\Product\Models\PriceRule;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Currency;
 
 /**
  * @extends Factory<PriceRule>
@@ -26,9 +28,10 @@ class PriceRuleFactory extends Factory
     public function definition(): array
     {
         return [
-            'name'       => fake()->name(),
-            'full_name'  => fake()->name(),
-            'creator_id' => User::query()->value('id') ?? User::factory(),
+            'name'        => fake()->name(),
+            'currency_id' => Currency::query()->value('id') ?? Currency::factory(),
+            'company_id'  => Company::factory(),
+            'creator_id'  => User::query()->value('id') ?? User::factory(),
         ];
     }
 }

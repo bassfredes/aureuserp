@@ -14,9 +14,11 @@ use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class ProductSupplier extends Model implements Sortable
 {
+    use HasCompanyScope;
     use HasFactory;
     use SortableTrait;
 

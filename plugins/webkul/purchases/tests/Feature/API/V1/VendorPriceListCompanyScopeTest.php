@@ -60,7 +60,20 @@ function scopedVendorPriceListPayload(array $overrides = []): array
 {
     $currency = Currency::first() ?? Currency::factory()->create();
     $partner = Partner::factory()->create();
-    $product = Product::factory()->create(['is_configurable' => false]);
+
+    // Product now enforces ProductSupplier.company_id === Product.company_id
+    // (D3, aureuserp#137): default the fixture's product to whichever
+    // company this vendor price list will actually resolve to — the
+    // override's explicit company_id when given, else the acting user's
+    // own default — so tests that omit company_id, pass an explicit
+    // allowed one, or exercise an early rejection before that check runs
+    // aren't tripped up by an unrelated, independently-randomized company.
+    $productAttributes = ['is_configurable' => false];
+    if ($companyId = $overrides['company_id'] ?? Auth::user()?->default_company_id) {
+        $productAttributes['company_id'] = $companyId;
+    }
+
+    $product = Product::factory()->create($productAttributes);
 
     return array_replace_recursive([
         'partner_id'  => $partner->id,
@@ -167,9 +180,13 @@ it('rejects an explicit null company_id on vendor price list update', function (
     ]);
 });
 
-// ── ProductSupplier is not HasCompanyScope-scoped: nothing hides another
-// company's row before it reaches the controller/policy, so these paths
-// need their own explicit checks (blocker found in PR #8 review). ────────
+// ── ProductSupplier gained HasCompanyScope in the products tramo of #137
+// (D3): a cross-company row is now hidden by the global scope before it
+// ever reaches the controller/policy, so show/update/delete on another
+// company's row 404s (ModelNotFoundException from the scoped findOrFail),
+// not 403 from Gate::authorize — matching Order/Move's established
+// behavior. The index-level whereIn() filter from PR #8 stays in place as
+// defense in depth (D3), even though it's now redundant with the scope. ──
 
 it('excludes other companies rows from the vendor price list index', function () {
     $companyA = Company::factory()->create();
@@ -199,7 +216,7 @@ it('forbids a user from company A viewing an existing vendor price list from com
     $foreignRow = ProductSupplier::factory()->create(['company_id' => $companyB->id]);
 
     $this->getJson(route('admin.api.v1.purchases.vendor-price-lists.show', $foreignRow))
-        ->assertForbidden();
+        ->assertNotFound();
 });
 
 it('forbids a user from company A updating a non-company field of a vendor price list from company B', function () {
@@ -212,7 +229,7 @@ it('forbids a user from company A updating a non-company field of a vendor price
 
     $this->patchJson(route('admin.api.v1.purchases.vendor-price-lists.update', $foreignRow), [
         'price' => 999,
-    ])->assertForbidden();
+    ])->assertNotFound();
 
     $this->assertDatabaseHas('products_product_suppliers', [
         'id'    => $foreignRow->id,
@@ -229,7 +246,7 @@ it('forbids a user from company A deleting a vendor price list from company B', 
     $foreignRow = ProductSupplier::factory()->create(['company_id' => $companyB->id]);
 
     $this->deleteJson(route('admin.api.v1.purchases.vendor-price-lists.destroy', $foreignRow))
-        ->assertForbidden();
+        ->assertNotFound();
 
     $this->assertDatabaseHas('products_product_suppliers', ['id' => $foreignRow->id]);
 });

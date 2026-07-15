@@ -19,10 +19,11 @@ use Webkul\Security\Models\User;
 use Webkul\Support\Models\Concerns\HasContributedAttributes;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class Product extends Model implements Sortable
 {
-    use HasChatter, HasContributedAttributes, HasFactory, HasLogActivity, SoftDeletes, SortableTrait;
+    use HasChatter, HasCompanyScope, HasContributedAttributes, HasFactory, HasLogActivity, SoftDeletes, SortableTrait;
 
     public const ACTIVITY_PLAN_PLUGIN = 'products';
 
@@ -416,6 +417,7 @@ class Product extends Model implements Sortable
 
         static::creating(function ($product) {
             $product->creator_id = Auth::id();
+            $product->company_id ??= Auth::user()?->default_company_id;
         });
 
         static::saved(function ($product) {

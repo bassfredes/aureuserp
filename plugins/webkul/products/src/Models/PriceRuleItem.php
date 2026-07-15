@@ -13,10 +13,12 @@ use Webkul\Product\Enums\PriceRuleType;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
+use Webkul\Support\Models\Scopes\CompanyScope;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class PriceRuleItem extends Model
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory;
 
     protected $table = 'products_price_rule_items';
 
@@ -98,6 +100,13 @@ class PriceRuleItem extends Model
 
         static::creating(function ($priceRuleItem) {
             $priceRuleItem->creator_id ??= Auth::id();
+
+            if ($priceRuleItem->company_id === null && $priceRuleItem->price_rule_id) {
+                $priceRuleItem->company_id = PriceRule::withoutGlobalScope(CompanyScope::class)
+                    ->find($priceRuleItem->price_rule_id)?->company_id;
+            }
+
+            $priceRuleItem->company_id ??= Auth::user()?->default_company_id;
         });
     }
 }

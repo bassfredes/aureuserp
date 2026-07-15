@@ -48,7 +48,7 @@ class ProductRequest extends FormRequest
             'uom_id'               => ['nullable', 'integer'],
             'uom_po_id'            => ['nullable', 'integer'],
             'category_id'          => [...$requiredRule, 'integer', 'exists:products_categories,id'],
-            'company_id'           => ['nullable', 'integer'],
+            'company_id'           => ['nullable', 'integer', 'exists:companies,id'],
             'tags'                 => ['nullable', 'array'],
             'tags.*'               => ['integer', 'exists:products_tags,id'],
         ];

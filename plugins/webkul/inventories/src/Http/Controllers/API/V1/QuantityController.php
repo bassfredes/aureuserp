@@ -103,13 +103,15 @@ class QuantityController extends Controller
 
         $raw = $request->validated();
 
-        // company_id can come from three places, in the same order
+        // company_id can come from two places, in the same order
         // preparePayload() below resolves it: an explicit submission, or a
-        // fallback to the (unscoped) product's own company_id. Product
-        // isn't part of this rollout (see ADR 0007), so its company_id is
-        // effectively client-influenced via product_id — the value that
-        // actually ends up on the row must be validated, not just what was
-        // literally submitted in the company_id field.
+        // fallback to the product's own company_id. Product gained
+        // HasCompanyScope in the products tramo of #137: findOrFail() below
+        // already 404s for a product belonging to a company the acting user
+        // can't see, before assertCompanyIdAllowed() below ever runs — that
+        // guard stays as defense in depth for the case where the product IS
+        // visible (e.g. a multi-company user) but effectiveCompanyId still
+        // doesn't match it.
         $product = Product::query()->findOrFail($raw['product_id']);
         $effectiveCompanyId = $raw['company_id'] ?? $product->company_id;
 

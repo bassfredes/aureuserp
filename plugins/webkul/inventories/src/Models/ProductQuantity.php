@@ -106,9 +106,18 @@ class ProductQuantity extends Model
         return $this->belongsTo(User::class);
     }
 
+    /**
+     * Uses an explicit unscoped Product lookup, not the $this->product
+     * relation: Product gained HasCompanyScope in the products tramo of
+     * #137, and this accessor is used by internal system computations
+     * (e.g. computePackageLocationCompany() below) that deliberately fetch
+     * ProductQuantity rows across companies via withoutGlobalScope() — the
+     * scoped relation would silently return null for another company's
+     * product in that context, not the row this accessor actually needs.
+     */
     public function getUomAttribute(): UOM
     {
-        return $this->product->uom;
+        return Product::withoutGlobalScope(CompanyScope::class)->findOrFail($this->product_id)->uom;
     }
 
     public function getAvailableQuantityAttribute(): float

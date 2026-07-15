@@ -8,13 +8,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
 use Spatie\EloquentSortable\Sortable;
 use Spatie\EloquentSortable\SortableTrait;
+use Webkul\Product\Database\Factories\PriceListFactory;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class PriceList extends Model implements Sortable
 {
-    use HasFactory, SortableTrait;
+    use HasCompanyScope, HasFactory, SortableTrait;
 
     protected $table = 'products_product_price_lists';
 
@@ -53,6 +55,12 @@ class PriceList extends Model implements Sortable
 
         static::creating(function ($priceList) {
             $priceList->creator_id ??= Auth::id();
+            $priceList->company_id ??= Auth::user()?->default_company_id;
         });
+    }
+
+    protected static function newFactory(): PriceListFactory
+    {
+        return PriceListFactory::new();
     }
 }
