@@ -139,7 +139,7 @@ jobs:
           php artisan erp:install \
             --force \
             --admin-name="Example" \
-            --admin-email="admin@example.com" \
+            --admin-email="admin@erp.localhost" \
             --admin-password="Admin123456"
 
       - name: Running Pest Test (resto de la suite)

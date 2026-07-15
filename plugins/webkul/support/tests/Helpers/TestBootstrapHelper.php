@@ -70,7 +70,9 @@ class TestBootstrapHelper
         Artisan::call('erp:install', [
             '--force'          => true,
             '--admin-name'     => 'Test Admin',
-            '--admin-email'    => 'admin@example.com',
+            // admin@erp.localhost -- alineado con el admin real de la base
+            // compartida db_aureuserp (confirmado en preflight #145, Tarea 0).
+            '--admin-email'    => 'admin@erp.localhost',
             '--admin-password' => 'Admin123456',
         ]);
 
@@ -92,7 +94,7 @@ class TestBootstrapHelper
     public static function assertSafeToRunDestructiveBootstrap(): void
     {
         if (! app()->environment('testing')) {
-            throw new \RuntimeException(
+            throw new RuntimeException(
                 'TestBootstrapHelper::ensureERPInstalled() runs migrate:fresh (destructive DDL) and refuses to run outside APP_ENV=testing. Current environment: '.app()->environment()
             );
         }
@@ -101,8 +103,8 @@ class TestBootstrapHelper
         $allowedDatabases = static::allowedDatabases();
 
         if ($allowedDatabases === [] || ! in_array($database, $allowedDatabases, true)) {
-            throw new \RuntimeException(
-                "Refusing to run migrate:fresh against \"{$database}\" — it is not in ".self::ALLOWED_DATABASES_ENV.' (currently: ['.implode(', ', $allowedDatabases)."]). Set that env var to the dedicated test database name before running this suite. This guard exists after an incident where this helper wiped the shared db_aureuserp database (see the tooling-safety issue linked from #145)."
+            throw new RuntimeException(
+                "Refusing to run migrate:fresh against \"{$database}\" — it is not in ".self::ALLOWED_DATABASES_ENV.' (currently: ['.implode(', ', $allowedDatabases).']). Set that env var to the dedicated test database name before running this suite. This guard exists after an incident where this helper wiped the shared db_aureuserp database (see the tooling-safety issue linked from #145).'
             );
         }
     }

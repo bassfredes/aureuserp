@@ -3,12 +3,13 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Webkul\Inventory\Enums\DeliveryStep;
 use Webkul\Inventory\Enums\ReceptionStep;
-use Webkul\Inventory\Models\Warehouse;
 use Webkul\Inventory\Models\ProductQuantity;
+use Webkul\Inventory\Models\Warehouse;
 use Webkul\Product\Models\Category;
 use Webkul\Product\Models\Product;
 use Webkul\Security\Models\User;
@@ -25,7 +26,13 @@ class SeedGoldStandardDatasetCommand extends Command
     // CompanyScope no filtra sin usuario autenticado (consola), pero la captura
     // HTTP si queda scopeada a este usuario — el seed debe crear todo bajo su
     // default_company_id o la captura vera listas vacias.
-    private const DEFAULT_CAPTURE_USER_EMAIL = 'admin@example.com';
+    //
+    // admin@erp.localhost (no admin@example.com) es el usuario admin real que
+    // ya existe en la base compartida db_aureuserp (confirmado en preflight
+    // Tarea 0, Paso 3/4, 2026-07-15) -- admin@example.com solo existe en la
+    // base de test aislada (TestBootstrapHelper siembra ese email via
+    // erp:install --admin-email).
+    private const DEFAULT_CAPTURE_USER_EMAIL = 'admin@erp.localhost';
 
     public function handle(): int
     {
@@ -84,7 +91,7 @@ class SeedGoldStandardDatasetCommand extends Command
     private const MULTI_LOCATION_SKU = 'MACBOOK-AIR-M2';
 
     private function reconcileQuantities(
-        \Illuminate\Support\Collection $products,
+        Collection $products,
         array $rows,
         Warehouse $bodegaCentral,
         Warehouse $tienda,
@@ -124,16 +131,16 @@ class SeedGoldStandardDatasetCommand extends Command
     private function createQuantity(Product $product, int $locationId, float $quantity, Company $company): void
     {
         ProductQuantity::create([
-            'product_id' => $product->id,
-            'location_id' => $locationId,
-            'quantity' => $quantity,
-            'reserved_quantity' => 0,
+            'product_id'             => $product->id,
+            'location_id'            => $locationId,
+            'quantity'               => $quantity,
+            'reserved_quantity'      => 0,
             'inventory_quantity_set' => true,
-            'company_id' => $company->id,
+            'company_id'             => $company->id,
         ]);
     }
 
-    private function seedProducts(array $rows, Company $company, UOM $uom): \Illuminate\Support\Collection
+    private function seedProducts(array $rows, Company $company, UOM $uom): Collection
     {
         return collect($rows)->map(function (array $row) use ($company, $uom) {
             $category = $this->resolveErpCategory($row['facets'] ?? '');
@@ -141,17 +148,17 @@ class SeedGoldStandardDatasetCommand extends Command
             return Product::updateOrCreate(
                 ['reference' => $row['sku'], 'company_id' => $company->id],
                 [
-                    'type' => 'goods',
-                    'name' => $this->buildInternalName($row, $category),
-                    'barcode' => null,
-                    'price' => (float) $row['price'],
-                    'cost' => round((float) $row['price'] * 0.7, 2),
-                    'description' => $this->deriveInternalDescription($row['description']),
-                    'enable_sales' => true,
+                    'type'            => 'goods',
+                    'name'            => $this->buildInternalName($row, $category),
+                    'barcode'         => null,
+                    'price'           => (float) $row['price'],
+                    'cost'            => round((float) $row['price'] * 0.7, 2),
+                    'description'     => $this->deriveInternalDescription($row['description']),
+                    'enable_sales'    => true,
                     'enable_purchase' => true,
-                    'uom_id' => $uom->id,
-                    'uom_po_id' => $uom->id,
-                    'category_id' => $category->id,
+                    'uom_id'          => $uom->id,
+                    'uom_po_id'       => $uom->id,
+                    'category_id'     => $category->id,
                 ],
             );
         });
@@ -175,7 +182,7 @@ class SeedGoldStandardDatasetCommand extends Command
         return "Ficha interna: {$firstSentence}.";
     }
 
-    private function parseFacets(string $facets): \Illuminate\Support\Collection
+    private function parseFacets(string $facets): Collection
     {
         return collect(explode('|', $facets))
             ->filter()
@@ -243,9 +250,9 @@ class SeedGoldStandardDatasetCommand extends Command
         return Warehouse::firstOrCreate(
             ['code' => 'BODEGA-CENTRAL', 'company_id' => $company->id],
             [
-                'name' => 'Bodega Central',
+                'name'            => 'Bodega Central',
                 'reception_steps' => ReceptionStep::ONE_STEP,
-                'delivery_steps' => DeliveryStep::ONE_STEP,
+                'delivery_steps'  => DeliveryStep::ONE_STEP,
             ],
         );
     }
@@ -255,9 +262,9 @@ class SeedGoldStandardDatasetCommand extends Command
         return Warehouse::firstOrCreate(
             ['code' => 'TIENDA-STGO', 'company_id' => $company->id],
             [
-                'name' => 'Tienda Santiago Centro',
+                'name'            => 'Tienda Santiago Centro',
                 'reception_steps' => ReceptionStep::ONE_STEP,
-                'delivery_steps' => DeliveryStep::ONE_STEP,
+                'delivery_steps'  => DeliveryStep::ONE_STEP,
             ],
         );
     }
