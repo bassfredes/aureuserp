@@ -1,7 +1,9 @@
 <?php
+
 // apps/aureuserp/tests/Feature/Console/SeedGoldStandardDatasetCommandTest.php
 
 use Illuminate\Support\Facades\Schema;
+use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\Warehouse;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\UOM;
@@ -37,7 +39,7 @@ require_once __DIR__.'/../../../plugins/webkul/support/tests/Helpers/TestBootstr
 uses()->group('gold-standard-dataset');
 
 beforeEach(function () {
-    if (! Schema::hasTable('inventories_locations') || ! \Webkul\Inventory\Models\Location::query()->exists()) {
+    if (! Schema::hasTable('inventories_locations') || ! Location::query()->exists()) {
         $this->fail(
             'La base de test no esta pre-sembrada (faltan inventories_locations). '
             .'Este test requiere que erp:install + inventories:install ya hayan corrido, fuera de cualquier '
@@ -48,14 +50,16 @@ beforeEach(function () {
 });
 
 // NOTA (desviacion del brief, ver task-1-report.md): el plan original
-// (task-1-brief.md) usaba info@aureuserp.com como capture user, pero
-// progress.md (Tarea 0, preflight #145) documenta que el plan fue
-// corregido: el usuario ERP real es admin@example.com (el que crea
-// erp:install por defecto). info@aureuserp.com no existe en ninguna
-// parte del codebase (ni seeders, ni InstallERP). Se usa admin@example.com
-// aqui y en el comando para mantener consistencia con esa correccion.
+// (task-1-brief.md) usaba info@aureuserp.com como capture user; el preflight
+// (Tarea 0, #145, 2026-07-14) lo corrigio primero a admin@example.com
+// (el que crea erp:install por defecto), y una segunda vuelta del preflight
+// (2026-07-15) encontro que la base compartida real db_aureuserp tiene en
+// cambio admin@erp.localhost como unico admin -- admin@example.com solo
+// existe en la base de test aislada. Se usa admin@erp.localhost aqui, en el
+// comando y en TestBootstrapHelper::ensureERPInstalled() para que la base de
+// test refleje la identidad real que usara la captura final (Tarea 7).
 it('resolves company from the capture user and UOM/warehouses by stable keys, idempotently', function () {
-    $captureUser = User::where('email', 'admin@example.com')->first();
+    $captureUser = User::where('email', 'admin@erp.localhost')->first();
     expect($captureUser)->not->toBeNull();
     expect($captureUser->default_company_id)->not->toBeNull();
 
@@ -80,7 +84,7 @@ it('resolves company from the capture user and UOM/warehouses by stable keys, id
 use Webkul\Product\Models\Product;
 
 it('loads exactly the 41 canonical SKUs under the capture company, with guaranteed divergent metadata', function () {
-    $captureUser = User::where('email', 'admin@example.com')->first();
+    $captureUser = User::where('email', 'admin@erp.localhost')->first();
 
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
@@ -112,10 +116,11 @@ it('loads exactly the 41 canonical SKUs under the capture company, with guarante
     expect($lenovo->category->name)->toContain('Computadores');
 });
 
+use Webkul\Inventory\Models\Move;
 use Webkul\Inventory\Models\ProductQuantity;
 
 it('reconciles exactly the four required heterogeneous quantity cases over the canonical 41 SKUs', function () {
-    $captureUser = User::where('email', 'admin@example.com')->first();
+    $captureUser = User::where('email', 'admin@erp.localhost')->first();
     $companyId = $captureUser->default_company_id;
 
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
@@ -156,7 +161,7 @@ it('reconciles exactly the four required heterogeneous quantity cases over the c
 
     // Sin Moves agregados POR EL COMANDO — comparado contra el conteo previo
     // a correrlo, no asumiendo que la base pre-sembrada parte en cero.
-    $movesBefore = \Webkul\Inventory\Models\Move::where('company_id', $companyId)->count();
+    $movesBefore = Move::where('company_id', $companyId)->count();
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
-    expect(\Webkul\Inventory\Models\Move::where('company_id', $companyId)->count())->toBe($movesBefore);
+    expect(Move::where('company_id', $companyId)->count())->toBe($movesBefore);
 });
