@@ -21,16 +21,19 @@ use Webkul\Inventory\Enums\ProductTracking;
 use Webkul\Inventory\Enums\RuleAction;
 use Webkul\Inventory\Facades\Inventory as InventoryFacade;
 use Webkul\Partner\Models\Partner;
+use Webkul\Product\Models\Packaging;
+use Webkul\Product\Models\Product;
 use Webkul\Purchase\Models\OrderLine as PurchaseOrderLine;
 use Webkul\Sale\Models\OrderLine as SaleOrderLine;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\UOM;
 use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class Move extends Model
 {
-    use HasCompanyScope, HasFactory;
+    use HasCompanyScope, HasFactory, ValidatesRelatedCompanyScope;
 
     protected $table = 'inventories_moves';
 
@@ -318,6 +321,12 @@ class Move extends Model
         return MoveFactory::new();
     }
 
+    /**
+     * Product.company_id / Packaging.company_id must match this move's own
+     * company_id (D5b, aureuserp#137) — company_id is resolved above from
+     * the parent operation/operationType first, so the check runs against
+     * that already-authoritative value, never the acting user's default.
+     */
     protected static function boot()
     {
         parent::boot();
@@ -326,6 +335,9 @@ class Move extends Model
             $move->creator_id ??= Auth::id();
 
             $move->company_id ??= $move->operation?->company_id ?? $move->operationType?->company_id;
+
+            static::assertRelatedBelongsToCompany($move->product_id, Product::class, 'product', $move->company_id);
+            static::assertRelatedBelongsToCompany($move->product_packaging_id, Packaging::class, 'packaging', $move->company_id);
 
             $move->state ??= MoveState::DRAFT;
 
@@ -347,6 +359,16 @@ class Move extends Model
                 ])) {
                     $move->additional = true;
                 }
+            }
+        });
+
+        static::updating(function ($move) {
+            if ($move->isDirty(['product_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($move->product_id, Product::class, 'product', $move->company_id);
+            }
+
+            if ($move->isDirty(['product_packaging_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($move->product_packaging_id, Packaging::class, 'packaging', $move->company_id);
             }
         });
 

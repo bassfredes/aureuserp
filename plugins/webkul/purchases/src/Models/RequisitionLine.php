@@ -12,10 +12,11 @@ use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\UOM;
 use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class RequisitionLine extends Model
 {
-    use HasCompanyScope, HasFactory;
+    use HasCompanyScope, HasFactory, ValidatesRelatedCompanyScope;
 
     protected $table = 'purchases_requisition_lines';
 
@@ -78,12 +79,24 @@ class RequisitionLine extends Model
         return RequisitionLineFactory::new();
     }
 
+    /**
+     * Product.company_id must match this line's own company_id
+     * (D5b, aureuserp#137).
+     */
     protected static function boot()
     {
         parent::boot();
 
         static::creating(function ($requisitionLine) {
             $requisitionLine->creator_id ??= Auth::id();
+
+            static::assertRelatedBelongsToCompany($requisitionLine->product_id, Product::class, 'product', $requisitionLine->company_id);
+        });
+
+        static::updating(function ($requisitionLine) {
+            if ($requisitionLine->isDirty(['product_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($requisitionLine->product_id, Product::class, 'product', $requisitionLine->company_id);
+            }
         });
     }
 }

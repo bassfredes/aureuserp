@@ -12,14 +12,16 @@ use Webkul\Inventory\Enums\ProcureMethod;
 use Webkul\Inventory\Enums\ProductTracking;
 use Webkul\Inventory\Facades\Inventory as InventoryFacade;
 use Webkul\Partner\Models\Partner;
+use Webkul\Product\Models\Product;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\UOM;
 use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class MoveLine extends Model
 {
-    use HasCompanyScope, HasFactory;
+    use HasCompanyScope, HasFactory, ValidatesRelatedCompanyScope;
 
     protected $table = 'inventories_move_lines';
 
@@ -143,6 +145,10 @@ class MoveLine extends Model
 
             $moveLine->company_id ??= $moveLine->move?->company_id;
 
+            // Product.company_id must match this line's own company_id
+            // (D5b, aureuserp#137).
+            static::assertRelatedBelongsToCompany($moveLine->product_id, Product::class, 'product', $moveLine->company_id);
+
             $moveLine->computeState();
         });
 
@@ -193,6 +199,10 @@ class MoveLine extends Model
         });
 
         static::updating(function ($moveLine) {
+            if ($moveLine->isDirty(['product_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($moveLine->product_id, Product::class, 'product', $moveLine->company_id);
+            }
+
             $values = $moveLine->getDirty();
 
             $triggers = ['source_location_id', 'destination_location_id', 'lot_id', 'package_id', 'result_package_id', 'uom_id'];

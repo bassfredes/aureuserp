@@ -64,7 +64,7 @@ function scopedPurchaseOrderPayload(Company $company, array $overrides = []): ar
 {
     $currency = Currency::first() ?? Currency::factory()->create();
     $partner = Partner::factory()->create();
-    $product = Product::factory()->create(['is_configurable' => false]);
+    $product = Product::factory()->create(['is_configurable' => false, 'company_id' => $company->id]);
 
     return array_replace_recursive([
         'partner_id'  => $partner->id,

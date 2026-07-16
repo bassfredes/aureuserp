@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\Auth;
 use Webkul\Inventory\Enums\OperationState;
 use Webkul\Inventory\Models\Dropship;
 use Webkul\Inventory\Models\Operation;
@@ -39,8 +40,15 @@ function dropshipRoute(string $action, mixed $dropship = null): string
 
 function dropshipPayload(array $overrides = []): array
 {
-    $product = Product::factory()->create();
     $operationType = OperationType::factory()->dropship()->create();
+    // Product.company_id must match the effective operation company
+    // (D5b, aureuserp#137) — OperationController::resolveCompanyId()
+    // derives it from the operation type's own destinationLocation relation (not
+    // company_id directly: OperationTypeFactory's receipt()/delivery()/
+    // etc. states each resolve their own independent Company::factory()
+    // for source/destination/company_id, so the three don't actually
+    // match each other by default).
+    $product = Product::factory()->create(['company_id' => $operationType->destinationLocation?->company_id]);
 
     return array_replace_recursive([
         'operation_type_id' => $operationType->id,

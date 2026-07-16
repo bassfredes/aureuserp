@@ -55,9 +55,16 @@ function purchaseOrderRoute(string $action, mixed $order = null): string
     return $order ? route($name, $order) : route($name);
 }
 
-function makePurchaseLinePayload(array $overrides = []): array
+function makePurchaseLinePayload(array $overrides = [], ?Company $company = null): array
 {
-    $product = Product::factory()->create(['is_configurable' => false]);
+    // Product.company_id must match the order's own company (D5b,
+    // aureuserp#137) — aligned to the caller's $company when given,
+    // instead of an independent random one.
+    $productAttributes = ['is_configurable' => false];
+    if ($company) {
+        $productAttributes['company_id'] = $company->id;
+    }
+    $product = Product::factory()->create($productAttributes);
 
     return array_merge([
         'product_id'  => $product->id,
@@ -79,7 +86,7 @@ function purchaseOrderPayload(int $lineCount = 2, array $overrides = []): array
         'ordered_at'  => now()->format('Y-m-d'),
         'company_id'  => $company->id,
         'lines'       => collect(range(1, $lineCount))
-            ->map(fn () => makePurchaseLinePayload())
+            ->map(fn () => makePurchaseLinePayload(company: $company))
             ->all(),
     ];
 

@@ -36,9 +36,14 @@ class MoveLineFactory extends Factory
             'scheduled_at'        => now(),
 
             // Relationships
+            // company_id is declared before product_id on purpose (D5b,
+            // aureuserp#137): see MoveFactory for the same rationale.
             'move_id'                 => Move::factory(),
             'operation_id'            => Operation::factory(),
-            'product_id'              => Product::factory(),
+            'company_id'              => Company::factory(),
+            'product_id'              => fn (array $attributes) => Product::factory()->create([
+                'company_id' => $attributes['company_id'],
+            ])->id,
             'uom_id'                  => UOM::factory(),
             'package_id'              => null,
             'result_package_id'       => null,
@@ -47,7 +52,6 @@ class MoveLineFactory extends Factory
             'partner_id'              => null,
             'source_location_id'      => Location::factory(),
             'destination_location_id' => Location::factory(),
-            'company_id'              => Company::factory(),
             'creator_id'              => User::query()->value('id') ?? User::factory(),
         ];
     }

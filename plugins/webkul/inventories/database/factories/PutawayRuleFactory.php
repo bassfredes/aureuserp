@@ -43,6 +43,17 @@ class PutawayRuleFactory extends Factory
         ];
     }
 
+    /**
+     * Does NOT align the created product's company to this rule's own:
+     * withProduct() is a state, resolved before company_id's own
+     * definition()-level value (Factory::getRawAttributes() runs before
+     * expandAttributes()), and an afterMaking()-based correction here
+     * would silently overwrite a caller's deliberately mismatched
+     * product_id/company_id pair built for a rejection test (D5b,
+     * aureuserp#137 review lesson, carried over from Packaging/
+     * ProductSupplier). A caller that needs both to agree must pass a
+     * matching company_id explicitly alongside withProduct().
+     */
     public function withProduct(): static
     {
         return $this->state(fn (array $attributes) => [

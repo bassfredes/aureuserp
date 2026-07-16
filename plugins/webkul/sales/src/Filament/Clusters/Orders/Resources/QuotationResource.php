@@ -1233,9 +1233,14 @@ class QuotationResource extends Resource
                     ->relationship(
                         name: 'product',
                         titleAttribute: 'name',
-                        modifyQueryUsing: fn (Builder $query) => $query
+                        // Scoped to the Order's own company (D5b, aureuserp#137),
+                        // not merely CompanyScope's "any allowed company" — a
+                        // multi-company user must not be offered a product from
+                        // a different company than the Order being edited.
+                        modifyQueryUsing: fn (Builder $query, Get $get) => $query
                             ->withTrashed()
-                            ->whereNull('is_configurable'),
+                            ->whereNull('is_configurable')
+                            ->where('company_id', $get('../../company_id') ?? Auth::user()->default_company_id),
                     )
                     ->getOptionLabelFromRecordUsing(function ($record): string {
                         return $record->name.($record->trashed() ? ' (Deleted)' : '');
@@ -1570,7 +1575,13 @@ class QuotationResource extends Resource
                     ->relationship(
                         'product',
                         'name',
-                        fn ($query) => $query->withTrashed()->where('is_configurable', null),
+                        // Scoped to the Order's own company (D5b, aureuserp#137):
+                        // this optional-line product gets copied verbatim into a
+                        // real OrderLine by the "add" action below, so an
+                        // incompatible pick here would only surface as a
+                        // rejection later — narrow the options up front instead.
+                        fn ($query, Get $get) => $query->withTrashed()->where('is_configurable', null)
+                            ->where('company_id', $get('../../company_id') ?? Auth::user()->default_company_id),
                     )
                     ->searchable()
                     ->preload()
@@ -1773,7 +1784,13 @@ class QuotationResource extends Resource
             'currency_id'          => $record->currency_id,
             'partner_id'           => $record->partner_id,
             'creator_id'           => Auth::id(),
-            'company_id'           => Auth::user()->default_company_id,
+            // The line's company must inherit from the Order it belongs
+            // to, not the acting user's default (D5b, aureuserp#137): a
+            // user authorized in more than one company could otherwise
+            // edit a company-B Order while defaulted to company A and
+            // silently create a same-aggregate company mismatch on every
+            // line, independent of the Product/Packaging FK check below.
+            'company_id'           => $record->company_id,
             ...$data,
         ];
     }

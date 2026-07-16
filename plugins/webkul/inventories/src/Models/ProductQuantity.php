@@ -14,15 +14,17 @@ use Webkul\Inventory\Enums\MoveState;
 use Webkul\Inventory\Enums\ProductTracking;
 use Webkul\Inventory\Settings\OperationSettings;
 use Webkul\Partner\Models\Partner;
+use Webkul\Product\Models\Product;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Models\UOM;
 use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class ProductQuantity extends Model
 {
-    use HasCompanyScope, HasFactory;
+    use HasCompanyScope, HasFactory, ValidatesRelatedCompanyScope;
 
     protected $table = 'inventories_product_quantities';
 
@@ -123,9 +125,25 @@ class ProductQuantity extends Model
         static::creating(function ($productQuantity) {
             $productQuantity->creator_id ??= Auth::id();
 
-            $productQuantity->company_id ??= Auth::user()?->default_company_id;
+            // Falls back to the product's own company before the acting
+            // user's default (D5b, aureuserp#137) — consistent with
+            // QuantityController::store()'s existing
+            // `$raw['company_id'] ?? $product->company_id` derivation, and
+            // a prerequisite for the guard below to mean anything when
+            // company_id is omitted rather than explicit.
+            $productQuantity->company_id ??= Product::withoutGlobalScope(CompanyScope::class)
+                ->find($productQuantity->product_id)?->company_id
+                ?? Auth::user()?->default_company_id;
+
+            static::assertRelatedBelongsToCompany($productQuantity->product_id, Product::class, 'product', $productQuantity->company_id);
 
             $productQuantity->incoming_at ??= now();
+        });
+
+        static::updating(function ($productQuantity) {
+            if ($productQuantity->isDirty(['product_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($productQuantity->product_id, Product::class, 'product', $productQuantity->company_id);
+            }
         });
 
         static::saving(function ($productQuantity) {

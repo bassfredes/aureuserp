@@ -311,7 +311,14 @@ class PurchaseAgreementResource extends Resource
                     ->relationship(
                         'product',
                         'name',
-                        fn ($query) => $query->where('type', ProductType::GOODS)->withTrashed()->whereNull('is_configurable'),
+                        // Scoped to the Requisition's own company (D5b,
+                        // aureuserp#137), matching the $get('type') precedent
+                        // a few lines up in this same table() closure — a
+                        // multi-company user must not be offered a product
+                        // from a different company than the agreement being
+                        // edited.
+                        fn ($query, Get $get) => $query->where('type', ProductType::GOODS)->withTrashed()->whereNull('is_configurable')
+                            ->where('company_id', $get('company_id') ?? Auth::user()->default_company_id),
                     )
                     ->required()
                     ->searchable()

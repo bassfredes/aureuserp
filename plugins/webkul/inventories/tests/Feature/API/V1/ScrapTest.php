@@ -38,9 +38,11 @@ function scrapRoute(string $action, mixed $scrap = null): string
 
 function scrapPayload(array $overrides = []): array
 {
-    $product = Product::factory()->create(['is_storable' => true]);
     $sourceLocation = Location::factory()->internal()->create();
     $destinationLocation = Location::factory()->scrap()->create(['company_id' => $sourceLocation->company_id]);
+    // Product.company_id must match the effective scrap company (D5b,
+    // aureuserp#137).
+    $product = Product::factory()->create(['is_storable' => true, 'company_id' => $sourceLocation->company_id]);
 
     return array_replace_recursive([
         'qty'                     => 1,
@@ -256,7 +258,9 @@ it('defaults source/destination location from the effective company, not any com
     $scrapLocationB = Location::factory()->create(['company_id' => $companyB->id, 'is_scrap' => true]);
     $user->allowedCompanies()->attach($companyB->id);
 
-    $product = Product::factory()->create(['is_storable' => true]);
+    // Product.company_id must match the effective scrap company (D5b,
+    // aureuserp#137).
+    $product = Product::factory()->create(['is_storable' => true, 'company_id' => $companyB->id]);
 
     $response = $this->postJson(scrapRoute('store'), [
         'qty'         => 1,

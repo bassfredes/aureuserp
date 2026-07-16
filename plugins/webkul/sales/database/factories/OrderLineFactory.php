@@ -17,6 +17,7 @@ use Webkul\Sale\Models\OrderLine;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Models\UOM;
 
 /**
@@ -84,12 +85,28 @@ class OrderLineFactory extends Factory
             'margin_percent'               => $marginPercent,
             'create_date'                  => fake()->dateTimeBetween('-30 days', 'now'),
             'write_date'                   => fake()->dateTimeBetween('-30 days', 'now'),
+            // order_id/company_id/product_id are declared in this order on
+            // purpose (D5b, aureuserp#137): Factory::expandAttributes()
+            // resolves attributes in array order and passes each
+            // already-resolved value forward to later closures, so
+            // company_id derives from the (possibly overridden) order's
+            // own company, and product_id is created in that same company
+            // — avoiding the independent-Company::factory() mismatch that
+            // caused real test-fixture bugs in the products rollout
+            // (aureuserp#11). An explicit override for either still wins
+            // outright (array_merge replaces the closure before
+            // expandAttributes runs), so a caller building a deliberately
+            // mismatched fixture for a rejection test is unaffected.
             'order_id'                     => Order::factory(),
-            'company_id'                   => Company::factory(),
+            'company_id'                   => fn (array $attributes) => Order::withoutGlobalScope(CompanyScope::class)
+                ->find($attributes['order_id'])?->company_id
+                ?? Company::factory()->create()->id,
             'currency_id'                  => Currency::factory(),
             'order_partner_id'             => Partner::query()->value('id') ?? Partner::factory(),
             'salesman_id'                  => User::query()->value('id') ?? User::factory(),
-            'product_id'                   => Product::factory(),
+            'product_id'                   => fn (array $attributes) => Product::factory()->create([
+                'company_id' => $attributes['company_id'],
+            ])->id,
             'product_uom_id'               => UOM::factory(),
             'linked_sale_order_sale_id'    => null,
             'creator_id'                   => User::query()->value('id') ?? User::factory(),
@@ -199,13 +216,39 @@ class OrderLineFactory extends Factory
 
     /**
      * Indicate that the line has packaging.
+     *
+     * product_packaging_id is deliberately NOT set here as a state value:
+     * Factory states resolve before order_id/company_id/product_id's own
+     * definition()-level closures do (Factory::getRawAttributes() runs
+     * before expandAttributes()), so a Packaging::factory() call here
+     * couldn't see this line's actual resolved company. configure()'s
+     * afterMaking() below runs after the full model is built instead,
+     * when product_id/company_id are both real, final values.
      */
     public function withPackaging(): static
     {
         return $this->state(fn (array $attributes) => [
-            'product_packaging_id'  => Packaging::factory(),
             'product_packaging_qty' => fake()->randomFloat(2, 1, 10),
         ]);
+    }
+
+    /**
+     * withPackaging()'s companion: creates the actual Packaging once
+     * product_id/company_id are fully resolved, aligned to this line's own
+     * company (D5b, aureuserp#137) — Packaging.company_id must already
+     * equal its Product's company (aureuserp#11), so passing this line's
+     * resolved product_id/company_id straight through is sufficient.
+     */
+    public function configure(): static
+    {
+        return $this->afterMaking(function (OrderLine $orderLine) {
+            if ($orderLine->product_packaging_qty !== null && ! $orderLine->product_packaging_id) {
+                $orderLine->product_packaging_id = Packaging::factory()->create([
+                    'product_id' => $orderLine->product_id,
+                    'company_id' => $orderLine->company_id,
+                ])->id;
+            }
+        });
     }
 
     /**

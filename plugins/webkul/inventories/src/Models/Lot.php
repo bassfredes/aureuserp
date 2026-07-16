@@ -9,11 +9,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Inventory\Database\Factories\LotFactory;
 use Webkul\Inventory\Enums\LocationType;
+use Webkul\Product\Models\Product;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Models\UOM;
 use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 /**
  * strict_company, NOT company_or_shared: a null-company lot here is a
@@ -32,7 +34,7 @@ use Webkul\Support\Traits\HasCompanyScope;
  */
 class Lot extends Model
 {
-    use HasCompanyScope, HasFactory;
+    use HasCompanyScope, HasFactory, ValidatesRelatedCompanyScope;
 
     protected $table = 'inventories_lots';
 
@@ -164,7 +166,22 @@ class Lot extends Model
         static::creating(function ($lot) {
             $lot->creator_id ??= Auth::id();
 
-            $lot->company_id ??= Auth::user()?->default_company_id;
+            // Falls back to the product's own company before the acting
+            // user's default (D5b, aureuserp#137) — a lot is fundamentally
+            // tied to one specific product, so that's the more authoritative
+            // source when company_id is omitted; the user-default fallback
+            // stays for the case where product_id itself is also absent.
+            $lot->company_id ??= Product::withoutGlobalScope(CompanyScope::class)
+                ->find($lot->product_id)?->company_id
+                ?? Auth::user()?->default_company_id;
+
+            static::assertRelatedBelongsToCompany($lot->product_id, Product::class, 'product', $lot->company_id);
+        });
+
+        static::updating(function ($lot) {
+            if ($lot->isDirty(['product_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($lot->product_id, Product::class, 'product', $lot->company_id);
+            }
         });
     }
 }
