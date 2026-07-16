@@ -61,12 +61,11 @@ it('throws when the related record has a null company but the effective company 
         ->toThrow(AuthorizationException::class);
 });
 
-it('does not throw when both the effective company and the related record\'s company are null', function () {
+it('throws when both the effective company and the related record\'s company are null (fail closed, review round 3)', function () {
     $product = Product::factory()->create(['company_id' => null]);
 
-    RelatedCompanyScopeTestSubject::assertRelated($product->id, Product::class, 'product', null);
-
-    expect(true)->toBeTrue();
+    expect(fn () => RelatedCompanyScopeTestSubject::assertRelated($product->id, Product::class, 'product', null))
+        ->toThrow(AuthorizationException::class);
 });
 
 it('still throws for a soft-deleted related record from a different company', function () {
@@ -122,4 +121,12 @@ it('falls back to the child\'s own company_id when the parent id does not resolv
     $result = RelatedCompanyScopeTestSubject::resolveEffective(999999, Product::class, $company->id, 'parent');
 
     expect($result)->toBe($company->id);
+});
+
+it('throws when a resolved parent has no company of its own, even if the child specifies one (fail closed, review round 3)', function () {
+    $companyB = Company::factory()->create();
+    $parent = Product::factory()->create(['company_id' => null]);
+
+    expect(fn () => RelatedCompanyScopeTestSubject::resolveEffective($parent->id, Product::class, $companyB->id, 'parent'))
+        ->toThrow(AuthorizationException::class);
 });

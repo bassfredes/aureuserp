@@ -59,7 +59,13 @@ trait ValidatesRelatedCompanyScope
             return;
         }
 
-        if ((int) $related->company_id !== (int) $companyId) {
+        // Fail closed on NULL, on either side (D5b review round 3,
+        // aureuserp#137): casting both sides to int before comparing
+        // turned NULL/NULL into 0 === 0, silently accepting a relation
+        // with no company on either end as a "match". Product/Packaging
+        // are strict_company in this rollout — a related FK is present,
+        // so NULL can never stand in for a valid company on either side.
+        if ($companyId === null || $related->company_id === null || (int) $related->company_id !== (int) $companyId) {
             throw new AuthorizationException("The related {$label} belongs to a different company.");
         }
     }
@@ -94,8 +100,18 @@ trait ValidatesRelatedCompanyScope
 
         $parent = $query->find($parentId);
 
-        if (! $parent || $parent->company_id === null) {
+        if (! $parent) {
             return $childCompanyId;
+        }
+
+        // A resolved parent is authoritative and must fail closed here
+        // (D5b review round 3, aureuserp#137): if the parent itself has
+        // no company of its own, it cannot vouch for any company on the
+        // child's behalf — falling back to the child's own company_id
+        // would let a write path smuggle an arbitrary company past a
+        // parent that never actually claimed it.
+        if ($parent->company_id === null) {
+            throw new AuthorizationException("The {$parentLabel} has no company of its own to anchor to.");
         }
 
         if ($childCompanyId !== null && (int) $childCompanyId !== (int) $parent->company_id) {
