@@ -143,10 +143,10 @@ class MoveLine extends Model
         static::creating(function ($moveLine) {
             $moveLine->creator_id ??= Auth::id();
 
-            $moveLine->company_id ??= $moveLine->move?->company_id;
+            // company_id is resolved from the parent Move, not trusted
+            // from the line itself (D5b, aureuserp#137 review round 1).
+            $moveLine->company_id = static::resolveEffectiveCompanyId($moveLine->move_id, Move::class, $moveLine->company_id, 'move');
 
-            // Product.company_id must match this line's own company_id
-            // (D5b, aureuserp#137).
             static::assertRelatedBelongsToCompany($moveLine->product_id, Product::class, 'product', $moveLine->company_id);
 
             $moveLine->computeState();
@@ -199,7 +199,9 @@ class MoveLine extends Model
         });
 
         static::updating(function ($moveLine) {
-            if ($moveLine->isDirty(['product_id', 'company_id'])) {
+            if ($moveLine->isDirty(['move_id', 'company_id', 'product_id'])) {
+                $moveLine->company_id = static::resolveEffectiveCompanyId($moveLine->move_id, Move::class, $moveLine->company_id, 'move');
+
                 static::assertRelatedBelongsToCompany($moveLine->product_id, Product::class, 'product', $moveLine->company_id);
             }
 

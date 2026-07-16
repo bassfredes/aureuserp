@@ -127,6 +127,73 @@ it('forbids changing only a Move\'s company_id to a company that mismatches its 
     $this->assertDatabaseHas('inventories_moves', ['id' => $move->id, 'company_id' => $companyA->id]);
 });
 
+// ── Move: parent-anchored effective company (D5b review round 2) ───────────
+// A Move's effective company must come from its Operation (or, absent
+// one, its OperationType) — never trusted from the Move's own mutable
+// company_id column.
+
+it('forbids a Move with an explicit company_id for company B when its Operation belongs to company A, even referencing a Product from B', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $operation = \Webkul\Inventory\Models\Operation::factory()->create(['company_id' => $companyA->id]);
+    $productB = Product::factory()->create(['company_id' => $companyB->id]);
+
+    expect(fn () => Move::factory()->create([
+        'operation_id' => $operation->id,
+        'company_id'   => $companyB->id,
+        'product_id'   => $productB->id,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('inventories_moves', ['operation_id' => $operation->id, 'product_id' => $productB->id]);
+});
+
+it('derives a Move.company_id from its Operation when omitted, not from the acting user\'s default', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyB->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $operation = \Webkul\Inventory\Models\Operation::factory()->create(['company_id' => $companyA->id]);
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+
+    $move = new Move(['product_id' => $productA->id, 'uom_id' => $productA->uom_id]);
+    $move->operation_id = $operation->id;
+    $move->save();
+
+    expect($move->company_id)->toBe($companyA->id);
+});
+
+it('forbids moving a Move to a different-company Operation while keeping the same Product, on update', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $operationA = \Webkul\Inventory\Models\Operation::factory()->create(['company_id' => $companyA->id]);
+    $operationB = \Webkul\Inventory\Models\Operation::factory()->create(['company_id' => $companyB->id]);
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+
+    $move = Move::factory()->create([
+        'operation_id' => $operationA->id,
+        'company_id'   => $companyA->id,
+        'product_id'   => $productA->id,
+    ]);
+
+    expect(fn () => $move->update(['operation_id' => $operationB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('inventories_moves', ['id' => $move->id, 'operation_id' => $operationA->id]);
+});
+
 // ── MoveLine ─────────────────────────────────────────────────────────────────
 
 it('forbids a MoveLine for company A referencing a Product from company B, even for a user allowed in both', function () {
@@ -177,6 +244,83 @@ it('forbids changing a MoveLine\'s product_id to a Product from a different comp
         ->toThrow(AuthorizationException::class);
 
     $this->assertDatabaseHas('inventories_move_lines', ['id' => $moveLine->id, 'product_id' => $productA->id]);
+});
+
+// ── MoveLine: parent-anchored effective company (D5b review round 2) ───────
+// A MoveLine's effective company must come from its parent Move, never
+// trusted from the line's own mutable company_id column.
+
+it('forbids a MoveLine with an explicit company_id for company B when its Move belongs to company A, even referencing a Product from B', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $uom = \Webkul\Support\Models\UOM::query()->value('id') ?? \Webkul\Support\Models\UOM::factory()->create()->id;
+    $productA = Product::factory()->create(['company_id' => $companyA->id, 'uom_id' => $uom]);
+    $productB = Product::factory()->create(['company_id' => $companyB->id, 'uom_id' => $uom]);
+    $parentMove = Move::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id, 'uom_id' => $uom]);
+
+    expect(fn () => MoveLine::factory()->create([
+        'move_id'    => $parentMove->id,
+        'company_id' => $companyB->id,
+        'product_id' => $productB->id,
+        'uom_id'     => $uom,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('inventories_move_lines', ['move_id' => $parentMove->id, 'product_id' => $productB->id]);
+});
+
+it('derives a MoveLine.company_id from its parent Move when omitted, not from the acting user\'s default', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyB->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $uom = \Webkul\Support\Models\UOM::query()->value('id') ?? \Webkul\Support\Models\UOM::factory()->create()->id;
+    $productA = Product::factory()->create(['company_id' => $companyA->id, 'uom_id' => $uom]);
+    $parentMove = Move::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id, 'uom_id' => $uom]);
+
+    $moveLine = new MoveLine(['product_id' => $productA->id, 'uom_id' => $uom]);
+    $moveLine->move_id = $parentMove->id;
+    $moveLine->save();
+
+    expect($moveLine->company_id)->toBe($companyA->id);
+});
+
+it('forbids moving a MoveLine to a different-company Move while keeping the same Product, on update', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $uom = \Webkul\Support\Models\UOM::query()->value('id') ?? \Webkul\Support\Models\UOM::factory()->create()->id;
+    $productA = Product::factory()->create(['company_id' => $companyA->id, 'uom_id' => $uom]);
+    $productB = Product::factory()->create(['company_id' => $companyB->id, 'uom_id' => $uom]);
+    $parentMoveA = Move::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id, 'uom_id' => $uom]);
+    // parentMoveB's own product must belong to company B (Move's own
+    // guard), independent from the MoveLine under test still pointing at
+    // productA — that mismatch is exactly what this test asserts gets
+    // rejected.
+    $parentMoveB = Move::factory()->create(['company_id' => $companyB->id, 'product_id' => $productB->id, 'uom_id' => $uom]);
+
+    $moveLine = MoveLine::factory()->create([
+        'move_id'    => $parentMoveA->id,
+        'company_id' => $companyA->id,
+        'product_id' => $productA->id,
+        'uom_id'     => $uom,
+    ]);
+
+    expect(fn () => $moveLine->update(['move_id' => $parentMoveB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('inventories_move_lines', ['id' => $moveLine->id, 'move_id' => $parentMoveA->id]);
 });
 
 // ── ProductQuantity ──────────────────────────────────────────────────────────

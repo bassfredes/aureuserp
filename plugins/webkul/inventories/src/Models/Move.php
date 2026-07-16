@@ -334,7 +334,9 @@ class Move extends Model
         static::creating(function ($move) {
             $move->creator_id ??= Auth::id();
 
-            $move->company_id ??= $move->operation?->company_id ?? $move->operationType?->company_id;
+            $move->company_id = $move->operation_id
+                ? static::resolveEffectiveCompanyId($move->operation_id, Operation::class, $move->company_id, 'operation')
+                : static::resolveEffectiveCompanyId($move->operation_type_id, OperationType::class, $move->company_id, 'operation type');
 
             static::assertRelatedBelongsToCompany($move->product_id, Product::class, 'product', $move->company_id);
             static::assertRelatedBelongsToCompany($move->product_packaging_id, Packaging::class, 'packaging', $move->company_id);
@@ -363,11 +365,12 @@ class Move extends Model
         });
 
         static::updating(function ($move) {
-            if ($move->isDirty(['product_id', 'company_id'])) {
-                static::assertRelatedBelongsToCompany($move->product_id, Product::class, 'product', $move->company_id);
-            }
+            if ($move->isDirty(['operation_id', 'operation_type_id', 'company_id', 'product_id', 'product_packaging_id'])) {
+                $move->company_id = $move->operation_id
+                    ? static::resolveEffectiveCompanyId($move->operation_id, Operation::class, $move->company_id, 'operation')
+                    : static::resolveEffectiveCompanyId($move->operation_type_id, OperationType::class, $move->company_id, 'operation type');
 
-            if ($move->isDirty(['product_packaging_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($move->product_id, Product::class, 'product', $move->company_id);
                 static::assertRelatedBelongsToCompany($move->product_packaging_id, Packaging::class, 'packaging', $move->company_id);
             }
         });

@@ -145,6 +145,79 @@ it('forbids changing only an OrderLine\'s company_id to a company that mismatche
     $this->assertDatabaseHas('sales_order_lines', ['id' => $line->id, 'company_id' => $companyA->id]);
 });
 
+// ── Parent-anchored effective company (D5b review round 2) ──────────────────
+// The effective company for an OrderLine must come from its own Order,
+// never from the line's own mutable company_id column — a write path that
+// sets order_id correctly but company_id to something else (deliberately
+// or by a bug) must not be able to slip an explicit mismatch past the
+// Product/Packaging guard by pairing it with a same-company product.
+
+it('forbids an OrderLine with an explicit company_id for company B when its Order belongs to company A, even referencing a Product from B', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $order = Order::factory()->create(['company_id' => $companyA->id]);
+    $productB = Product::factory()->create(['company_id' => $companyB->id]);
+
+    expect(fn () => OrderLine::factory()->create([
+        'order_id'   => $order->id,
+        'company_id' => $companyB->id,
+        'product_id' => $productB->id,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('sales_order_lines', ['order_id' => $order->id, 'product_id' => $productB->id]);
+});
+
+it('derives OrderLine.company_id from its Order when omitted, not from the acting user\'s default', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    // Acting user's default is B; the Order being lined is A.
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyB->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $order = Order::factory()->create(['company_id' => $companyA->id]);
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+
+    $line = new OrderLine([
+        'product_id' => $productA->id,
+        'name'       => 'Line item',
+    ]);
+    $line->order_id = $order->id;
+    $line->save();
+
+    expect($line->company_id)->toBe($companyA->id);
+});
+
+it('forbids moving an OrderLine to a different-company Order while keeping the same Product, on update', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $orderA = Order::factory()->create(['company_id' => $companyA->id]);
+    $orderB = Order::factory()->create(['company_id' => $companyB->id]);
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+
+    $line = OrderLine::factory()->create([
+        'order_id'   => $orderA->id,
+        'company_id' => $companyA->id,
+        'product_id' => $productA->id,
+    ]);
+
+    expect(fn () => $line->update(['order_id' => $orderB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('sales_order_lines', ['id' => $line->id, 'order_id' => $orderA->id]);
+});
+
 // ── Non-API write path: Filament's repeater mutator ─────────────────────────
 
 it('derives OrderLine.company_id from the Order record in the Filament repeater mutator, not the acting user default', function () {

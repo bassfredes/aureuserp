@@ -30,24 +30,78 @@ trait ValidatesRelatedCompanyScope
     /**
      * $companyId is the aggregate's own already-resolved effective
      * company — never Auth::user()'s default, and never derived from
-     * $relatedId itself. A null $relatedId or $companyId is a no-op:
-     * required-field validation for either is the caller's own concern,
-     * not this trait's.
+     * $relatedId itself. A null $relatedId is a no-op: required-field
+     * validation for it is the caller's own concern, not this trait's.
+     *
+     * Strict equality, always — a null $companyId does NOT mean "shared",
+     * and a null $related->company_id does NOT mean "shared" either.
+     * Product/Packaging are strict_company in this rollout, so any
+     * asymmetry (one side null, the other not) is itself a mismatch. The
+     * lookup includes soft-deleted rows: a soft-deleted cross-company
+     * Product must still be caught, not silently pass because `find()`
+     * couldn't see it.
      */
     protected static function assertRelatedBelongsToCompany(?int $relatedId, string $relatedClass, string $label, ?int $companyId): void
     {
-        if ($relatedId === null || $companyId === null) {
+        if ($relatedId === null) {
             return;
         }
 
-        $related = $relatedClass::withoutGlobalScope(CompanyScope::class)->find($relatedId);
+        $query = $relatedClass::withoutGlobalScope(CompanyScope::class);
+
+        if (in_array(\Illuminate\Database\Eloquent\SoftDeletes::class, class_uses_recursive($relatedClass), true)) {
+            $query = $query->withTrashed();
+        }
+
+        $related = $query->find($relatedId);
 
         if (! $related) {
             return;
         }
 
-        if ($related->company_id !== null && (int) $related->company_id !== (int) $companyId) {
+        if ((int) $related->company_id !== (int) $companyId) {
             throw new AuthorizationException("The related {$label} belongs to a different company.");
         }
+    }
+
+    /**
+     * Resolves the effective company_id from the owning parent aggregate
+     * (Order, Operation, Move, ...) rather than trusting the child's own
+     * mutable company_id column — a child's company_id can be set to
+     * anything by a write path that doesn't go through the parent, so
+     * the parent's real, persisted company_id is the only authoritative
+     * source (D5b review round 1, aureuserp#137).
+     *
+     * If the child already carries an explicit company_id that conflicts
+     * with the parent's, that is rejected outright rather than silently
+     * overwritten — a caller passing a mismatched company_id alongside a
+     * correct parent_id is exactly the case this guards against. When no
+     * parent is resolvable (missing id, parent not found, or a genuinely
+     * parent-less/standalone record), the child's own company_id is kept
+     * as-is.
+     */
+    protected static function resolveEffectiveCompanyId(?int $parentId, string $parentClass, ?int $childCompanyId, string $parentLabel): ?int
+    {
+        if ($parentId === null) {
+            return $childCompanyId;
+        }
+
+        $query = $parentClass::withoutGlobalScope(CompanyScope::class);
+
+        if (in_array(\Illuminate\Database\Eloquent\SoftDeletes::class, class_uses_recursive($parentClass), true)) {
+            $query = $query->withTrashed();
+        }
+
+        $parent = $query->find($parentId);
+
+        if (! $parent || $parent->company_id === null) {
+            return $childCompanyId;
+        }
+
+        if ($childCompanyId !== null && (int) $childCompanyId !== (int) $parent->company_id) {
+            throw new AuthorizationException("The company_id does not match the {$parentLabel}'s company.");
+        }
+
+        return (int) $parent->company_id;
     }
 }

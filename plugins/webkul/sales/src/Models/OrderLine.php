@@ -199,16 +199,17 @@ class OrderLine extends Model implements Sortable
 
             $orderLine->creator_id ??= Auth::id();
 
+            $orderLine->company_id = static::resolveEffectiveCompanyId($orderLine->order_id, Order::class, $orderLine->company_id, 'order');
+
             static::assertRelatedBelongsToCompany($orderLine->product_id, Product::class, 'product', $orderLine->company_id);
             static::assertRelatedBelongsToCompany($orderLine->product_packaging_id, Packaging::class, 'packaging', $orderLine->company_id);
         });
 
         static::updating(function ($orderLine) {
-            if ($orderLine->isDirty(['product_id', 'company_id'])) {
-                static::assertRelatedBelongsToCompany($orderLine->product_id, Product::class, 'product', $orderLine->company_id);
-            }
+            if ($orderLine->isDirty(['order_id', 'company_id', 'product_id', 'product_packaging_id'])) {
+                $orderLine->company_id = static::resolveEffectiveCompanyId($orderLine->order_id, Order::class, $orderLine->company_id, 'order');
 
-            if ($orderLine->isDirty(['product_packaging_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($orderLine->product_id, Product::class, 'product', $orderLine->company_id);
                 static::assertRelatedBelongsToCompany($orderLine->product_packaging_id, Packaging::class, 'packaging', $orderLine->company_id);
             }
         });

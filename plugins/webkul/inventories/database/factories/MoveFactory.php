@@ -65,7 +65,14 @@ class MoveFactory extends Factory
             'destination_location_id' => Location::factory(),
             'final_location_id'       => null,
             'partner_id'              => null,
-            'operation_id'            => Operation::factory(),
+            // Also tied to company_id (D5b, aureuserp#137 review round 2):
+            // Move's own model guard now resolves its effective company
+            // from this Operation, not from company_id directly — an
+            // independently-random Operation would mismatch the very
+            // company_id this same factory call is trying to set.
+            'operation_id'            => fn (array $attributes) => Operation::factory()->create([
+                'company_id' => $attributes['company_id'],
+            ])->id,
             'rule_id'                 => null,
             'operation_type_id'       => OperationType::factory(),
             'origin_returned_move_id' => null,

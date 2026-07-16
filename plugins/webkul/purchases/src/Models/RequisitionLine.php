@@ -90,11 +90,15 @@ class RequisitionLine extends Model
         static::creating(function ($requisitionLine) {
             $requisitionLine->creator_id ??= Auth::id();
 
+            $requisitionLine->company_id = static::resolveEffectiveCompanyId($requisitionLine->requisition_id, Requisition::class, $requisitionLine->company_id, 'requisition');
+
             static::assertRelatedBelongsToCompany($requisitionLine->product_id, Product::class, 'product', $requisitionLine->company_id);
         });
 
         static::updating(function ($requisitionLine) {
-            if ($requisitionLine->isDirty(['product_id', 'company_id'])) {
+            if ($requisitionLine->isDirty(['requisition_id', 'company_id', 'product_id'])) {
+                $requisitionLine->company_id = static::resolveEffectiveCompanyId($requisitionLine->requisition_id, Requisition::class, $requisitionLine->company_id, 'requisition');
+
                 static::assertRelatedBelongsToCompany($requisitionLine->product_id, Product::class, 'product', $requisitionLine->company_id);
             }
         });
