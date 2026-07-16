@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\Auth;
 use Webkul\Partner\Models\Partner;
 use Webkul\Product\Models\Product;
 use Webkul\Purchase\Models\ProductSupplier;
@@ -54,7 +55,17 @@ function vendorPriceListPayload(array $overrides = []): array
 {
     $currency = Currency::first() ?? Currency::factory()->create();
     $partner = Partner::factory()->create();
-    $product = Product::factory()->create(['is_configurable' => false]);
+
+    // Product now enforces ProductSupplier.company_id === Product.company_id
+    // (D3, aureuserp#137): default the fixture's product to the acting
+    // user's own company so this payload keeps resolving to a valid,
+    // company-consistent vendor price list.
+    $productAttributes = ['is_configurable' => false];
+    if ($companyId = Auth::user()?->default_company_id) {
+        $productAttributes['company_id'] = $companyId;
+    }
+
+    $product = Product::factory()->create($productAttributes);
 
     return array_merge([
         'partner_id'  => $partner->id,

@@ -15,6 +15,7 @@ use Knuckles\Scribe\Attributes\Subgroup;
 use Knuckles\Scribe\Attributes\UrlParam;
 use Spatie\QueryBuilder\AllowedFilter;
 use Spatie\QueryBuilder\QueryBuilder;
+use Webkul\Product\Models\Product;
 use Webkul\Purchase\Http\Requests\VendorPriceListRequest;
 use Webkul\Purchase\Http\Resources\V1\VendorPriceListResource;
 use Webkul\Purchase\Models\ProductSupplier;
@@ -89,6 +90,12 @@ class VendorPriceListController extends Controller
         $data = $request->validated();
         $data['company_id'] = $this->resolveVendorPriceListCompanyId($data, Auth::user());
 
+        // ProductSupplier.company_id must match its Product.company_id (D3,
+        // aureuserp#137): this is the invariant owned by the products tramo
+        // for this model, independent of the Sales/Purchases/Inventories
+        // cross-plugin FK hardening deferred to the follow-up PR (D5).
+        $this->assertRelatedRecordAccessible($data['product_id'] ?? null, Product::class, 'product', $data['company_id']);
+
         $vendorPriceList = ProductSupplier::create($data);
 
         return (new VendorPriceListResource($vendorPriceList->load($this->allowedIncludes)))
@@ -162,6 +169,10 @@ class VendorPriceListController extends Controller
         $data = $request->validated();
 
         $this->assertCompanyIdImmutable($data, $vendorPriceList, 'vendor price list');
+
+        if (array_key_exists('product_id', $data) && (int) $data['product_id'] !== $vendorPriceList->product_id) {
+            $this->assertRelatedRecordAccessible($data['product_id'], Product::class, 'product', $vendorPriceList->company_id);
+        }
 
         $vendorPriceList->update($data);
 

@@ -2,6 +2,7 @@
 
 namespace Webkul\Product\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,10 +14,12 @@ use Webkul\Product\Enums\PriceRuleType;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
+use Webkul\Support\Models\Scopes\CompanyScope;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class PriceRuleItem extends Model
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory;
 
     protected $table = 'products_price_rule_items';
 
@@ -92,12 +95,58 @@ class PriceRuleItem extends Model
         return PriceRuleItemFactory::new();
     }
 
+    /**
+     * PriceRuleItem.company_id is anchored to its parent PriceRule's
+     * company_id, not merely defaulted when missing (D4, aureuserp#137
+     * review): the previous `??=`-only derivation let an explicit
+     * mismatched company_id through untouched. An item's company is never
+     * independent of its rule's, so an explicit disagreement is rejected
+     * outright rather than silently overwritten or silently accepted.
+     */
     protected static function boot()
     {
         parent::boot();
 
         static::creating(function ($priceRuleItem) {
             $priceRuleItem->creator_id ??= Auth::id();
+
+            static::anchorCompanyToPriceRule($priceRuleItem);
+
+            $priceRuleItem->company_id ??= Auth::user()?->default_company_id;
         });
+
+        static::updating(function ($priceRuleItem) {
+            // Both sides of the invariant must be watched, not only
+            // price_rule_id (aureuserp#137 review, PR #11): an update that
+            // changes company_id alone, leaving price_rule_id untouched,
+            // still needs to be checked against that unchanged rule's
+            // company or it silently persists a mismatched A/B row.
+            if ($priceRuleItem->isDirty(['price_rule_id', 'company_id'])) {
+                static::anchorCompanyToPriceRule($priceRuleItem);
+            }
+        });
+    }
+
+    private static function anchorCompanyToPriceRule(self $priceRuleItem): void
+    {
+        if (! $priceRuleItem->price_rule_id) {
+            return;
+        }
+
+        $priceRule = PriceRule::withoutGlobalScope(CompanyScope::class)->find($priceRuleItem->price_rule_id);
+
+        if (! $priceRule) {
+            return;
+        }
+
+        if ($priceRuleItem->company_id === null) {
+            $priceRuleItem->company_id = $priceRule->company_id;
+
+            return;
+        }
+
+        if ((int) $priceRuleItem->company_id !== (int) $priceRule->company_id) {
+            throw new AuthorizationException('A price rule item must belong to the same company as its parent price rule.');
+        }
     }
 }

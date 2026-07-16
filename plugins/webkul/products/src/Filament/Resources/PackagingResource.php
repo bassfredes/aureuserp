@@ -27,7 +27,9 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Auth;
 use Webkul\Product\Models\Packaging;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 class PackagingResource extends Resource
 {
@@ -73,9 +75,14 @@ class PackagingResource extends Resource
                     ->maxValue(99999999),
                 Select::make('company_id')
                     ->label(__('products::filament/resources/packaging.form.company'))
-                    ->relationship('company', 'name')
+                    ->relationship('company', 'name', modifyQueryUsing: fn (Builder $query) => $query->whereIn('id', CompanyScope::allowedCompanyIds(Auth::user())))
                     ->searchable()
-                    ->preload(),
+                    ->preload()
+                    ->required()
+                    ->default(Auth::user()->default_company_id)
+                    // company_id is immutable after creation (D2, aureuserp#137).
+                    ->disabled(fn ($record): bool => (bool) $record)
+                    ->dehydrated(),
             ]);
     }
 

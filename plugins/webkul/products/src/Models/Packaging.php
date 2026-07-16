@@ -2,6 +2,7 @@
 
 namespace Webkul\Product\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,10 +12,12 @@ use Spatie\EloquentSortable\SortableTrait;
 use Webkul\Product\Database\Factories\PackagingFactory;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class Packaging extends Model implements Sortable
 {
-    use HasFactory, SortableTrait;
+    use HasCompanyScope, HasFactory, SortableTrait;
 
     protected $table = 'products_packagings';
 
@@ -48,6 +51,13 @@ class Packaging extends Model implements Sortable
         return $this->belongsTo(User::class);
     }
 
+    /**
+     * Packaging.company_id === Product.company_id is enforced here, at the
+     * model boot level, not only in PackagingController (D2, aureuserp#137
+     * review): Filament's PackagingResource writes the model directly, and
+     * a controller-only guard leaves that write path (and any other direct
+     * create/update) free to produce a mismatched cross-company row.
+     */
     protected static function boot()
     {
         parent::boot();
@@ -55,8 +65,50 @@ class Packaging extends Model implements Sortable
         static::creating(function ($packaging) {
             $packaging->creator_id ??= Auth::id();
 
+            static::assertCompanyMatchesProduct($packaging);
+
             $packaging->company_id ??= Auth::user()?->default_company_id;
         });
+
+        static::updating(function ($packaging) {
+            // Both sides of the invariant must be watched, not only
+            // product_id (aureuserp#137 review, PR #11): an update that
+            // changes company_id alone, leaving product_id untouched,
+            // still needs to be checked against that unchanged product's
+            // company or it silently persists a mismatched A/B row.
+            if ($packaging->isDirty(['product_id', 'company_id'])) {
+                static::assertCompanyMatchesProduct($packaging);
+            }
+        });
+    }
+
+    /**
+     * company_id is derived from the referenced product when omitted, and
+     * any explicit value that disagrees with the product's own company is
+     * rejected outright — a Packaging never belongs to a different company
+     * than the Product it packages.
+     */
+    private static function assertCompanyMatchesProduct(self $packaging): void
+    {
+        if (! $packaging->product_id) {
+            return;
+        }
+
+        $product = Product::withoutGlobalScope(CompanyScope::class)->find($packaging->product_id);
+
+        if (! $product) {
+            return;
+        }
+
+        if ($packaging->company_id === null) {
+            $packaging->company_id = $product->company_id;
+
+            return;
+        }
+
+        if ((int) $packaging->company_id !== (int) $product->company_id) {
+            throw new AuthorizationException('A packaging must belong to the same company as its product.');
+        }
     }
 
     protected static function newFactory(): PackagingFactory

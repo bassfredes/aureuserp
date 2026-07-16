@@ -192,11 +192,20 @@ class ProductQuantity extends Model
     {
         $package = $this->package;
 
+        // Uses an explicit unscoped Product lookup, not $quantity->uom (which
+        // resolves through the now-scoped $quantity->product relation):
+        // this loop already deliberately reads cross-company quantities via
+        // withoutGlobalScope() above, so the rounding lookup for each one
+        // must see its own product regardless of the acting user's company
+        // — but only here, not by widening the general uom accessor.
+        $unscopedUomRounding = fn ($productId) => Product::withoutGlobalScope(CompanyScope::class)
+            ->find($productId)?->uom?->rounding;
+
         $quantities = ProductQuantity::withoutGlobalScope(CompanyScope::class)
             ->where('package_id', $package->id)
             ->get()
             ->filter(
-                fn ($quantity) => float_compare($quantity->quantity, 0, precisionRounding: $quantity->uom->rounding) > 0
+                fn ($quantity) => float_compare($quantity->quantity, 0, precisionRounding: $unscopedUomRounding($quantity->product_id)) > 0
             );
 
         if ($quantities->isEmpty()) {

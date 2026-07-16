@@ -21,6 +21,7 @@ use Webkul\Product\Filament\Resources\CategoryResource;
 use Webkul\Product\Filament\Resources\ProductResource;
 use Webkul\Product\Filament\Resources\ProductResource\Support\ProductSchemaRegistry as Registry;
 use Webkul\Product\Models\Category;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Models\UOM;
 
 class ProductForm
@@ -157,7 +158,7 @@ class ProductForm
                     ->relationship(
                         'company',
                         'name',
-                        modifyQueryUsing: fn (Builder $query) => $query->withTrashed(),
+                        modifyQueryUsing: fn (Builder $query) => $query->withTrashed()->whereIn('id', CompanyScope::allowedCompanyIds(Auth::user())),
                     )
                     ->getOptionLabelFromRecordUsing(function ($record): string {
                         return $record->name.($record->trashed() ? ' (Deleted)' : '');
@@ -165,7 +166,11 @@ class ProductForm
                     ->disableOptionWhen(fn ($label) => str_contains($label, ' (Deleted)'))
                     ->searchable()
                     ->preload()
-                    ->default(Auth::user()->default_company_id),
+                    ->required()
+                    ->default(Auth::user()->default_company_id)
+                    // company_id is immutable after creation (D1, aureuserp#137).
+                    ->disabled(fn ($record): bool => (bool) $record)
+                    ->dehydrated(),
             ]);
     }
 

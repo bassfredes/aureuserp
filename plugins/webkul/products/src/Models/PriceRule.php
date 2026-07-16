@@ -14,10 +14,11 @@ use Webkul\Product\Database\Factories\PriceRuleFactory;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class PriceRule extends Model implements Sortable
 {
-    use HasFactory, SoftDeletes, SortableTrait;
+    use HasCompanyScope, HasFactory, SoftDeletes, SortableTrait;
 
     protected $table = 'products_price_rules';
 
@@ -65,6 +66,7 @@ class PriceRule extends Model implements Sortable
 
         static::creating(function ($priceRule) {
             $priceRule->creator_id ??= Auth::id();
+            $priceRule->company_id ??= Auth::user()?->default_company_id;
         });
     }
 }
