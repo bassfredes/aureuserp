@@ -15,14 +15,16 @@ use Webkul\Inventory\Database\Factories\ScrapFactory;
 use Webkul\Inventory\Enums\MoveState;
 use Webkul\Inventory\Enums\ScrapState;
 use Webkul\Partner\Models\Partner;
+use Webkul\Product\Models\Product;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\UOM;
 use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class Scrap extends Model
 {
-    use HasChatter, HasCompanyScope, HasFactory, HasLogActivity;
+    use HasChatter, HasCompanyScope, HasFactory, HasLogActivity, ValidatesRelatedCompanyScope;
 
     public const ACTIVITY_PLAN_PLUGIN = 'inventories';
 
@@ -164,6 +166,16 @@ class Scrap extends Model
             $scrap->creator_id ??= Auth::id();
 
             $scrap->company_id ??= Auth::user()?->default_company_id;
+
+            // Product.company_id must match this scrap's own company_id
+            // (D5b, aureuserp#137).
+            static::assertRelatedBelongsToCompany($scrap->product_id, Product::class, 'product', $scrap->company_id);
+        });
+
+        static::updating(function ($scrap) {
+            if ($scrap->isDirty(['product_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($scrap->product_id, Product::class, 'product', $scrap->company_id);
+            }
         });
 
         static::saving(function ($scrap) {

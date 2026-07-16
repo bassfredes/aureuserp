@@ -132,7 +132,9 @@ it('hides everything from an authenticated user with no company', function (stri
 
 function createScopedMoveLine(int $companyId): MoveLine
 {
-    $product = Product::factory()->create();
+    // Product.company_id must match the Move's own company_id (D5b,
+    // aureuserp#137).
+    $product = Product::factory()->create(['company_id' => $companyId]);
 
     $move = Move::factory()->create([
         'product_id' => $product->id,

@@ -9,13 +9,15 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Inventory\Database\Factories\OrderPointFactory;
 use Webkul\Inventory\Enums\OrderPointTrigger;
+use Webkul\Product\Models\Product;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class OrderPoint extends Model
 {
-    use HasCompanyScope, HasFactory, SoftDeletes;
+    use HasCompanyScope, HasFactory, SoftDeletes, ValidatesRelatedCompanyScope;
 
     protected $table = 'inventories_order_points';
 
@@ -83,6 +85,16 @@ class OrderPoint extends Model
             $orderPoint->creator_id ??= Auth::id();
 
             $orderPoint->company_id ??= Auth::user()?->default_company_id;
+
+            // Product.company_id must match this order point's own
+            // company_id (D5b, aureuserp#137).
+            static::assertRelatedBelongsToCompany($orderPoint->product_id, Product::class, 'product', $orderPoint->company_id);
+        });
+
+        static::updating(function ($orderPoint) {
+            if ($orderPoint->isDirty(['product_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($orderPoint->product_id, Product::class, 'product', $orderPoint->company_id);
+            }
         });
     }
 }

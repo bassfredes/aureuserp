@@ -22,6 +22,7 @@ use Filament\Support\View\Components\InputComponent\WrapperComponent\IconCompone
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Illuminate\Support\Str;
 use Illuminate\View\ComponentAttributeBag;
 use Webkul\Field\Filament\Forms\Components\ProgressStepper as FormProgressStepper;
@@ -327,10 +328,20 @@ class OperationForm
                     ->relationship(
                         name: 'product',
                         titleAttribute: 'name',
+                        // Scoped to the acting user's allowed companies
+                        // (D5b, aureuserp#137): this form has no direct
+                        // company_id field to key off of (Operation's
+                        // company is derived from its warehouse/operation
+                        // type, not user-editable here), so this narrows
+                        // to what the model-level guard would accept for
+                        // at least a single-company user; a genuinely
+                        // multi-company user still relies on that guard
+                        // rejecting an incompatible pick at save time.
                         modifyQueryUsing: fn (Builder $query) => $query
                             ->withTrashed()
                             ->where('type', ProductType::GOODS)
-                            ->whereNull('is_configurable'),
+                            ->whereNull('is_configurable')
+                            ->whereIn('company_id', CompanyScope::allowedCompanyIds(Auth::user())),
                     )
                     ->required()
                     ->searchable()

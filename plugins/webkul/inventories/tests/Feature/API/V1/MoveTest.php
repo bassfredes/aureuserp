@@ -7,6 +7,7 @@ use Webkul\Inventory\Models\Warehouse;
 use Webkul\Product\Models\Product;
 use Webkul\Security\Enums\PermissionType;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\Company;
 
 require_once __DIR__.'/../../../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -47,11 +48,16 @@ function inventoryMoveRoute(): string
 
 function createMoveLineRecord(array $moveOverrides = [], array $lineOverrides = []): MoveLine
 {
-    $product = Product::factory()->create();
+    // Product.company_id must match the Move's own company_id (D5b,
+    // aureuserp#137) — a shared explicit $company covers both the default
+    // case (neither side overridden) and an override's own company_id.
+    $company = $moveOverrides['company_id'] ?? Company::factory()->create()->id;
+    $product = Product::factory()->create(['company_id' => $company]);
 
     $move = Move::factory()->create(array_merge([
         'product_id' => $product->id,
         'uom_id'     => $product->uom_id,
+        'company_id' => $company,
     ], $moveOverrides));
 
     return MoveLine::factory()->create(array_merge([

@@ -111,7 +111,7 @@ it('filters quantities by product_id', function () {
 
     $product = Product::factory()->create();
 
-    ProductQuantity::factory()->create(['product_id' => $product->id]);
+    ProductQuantity::factory()->create(['product_id' => $product->id, 'company_id' => $product->company_id]);
     ProductQuantity::factory()->count(2)->create();
 
     $response = $this->getJson(inventoryQuantityRoute('index')."?filter[product_id]={$product->id}&include=product")
@@ -224,7 +224,7 @@ it('rejects lots that do not belong to the selected product', function () {
     ]);
 
     $location = Location::factory()->create(['type' => LocationType::INTERNAL]);
-    $otherProductLot = Lot::factory()->create(['product_id' => $otherProduct->id]);
+    $otherProductLot = Lot::factory()->create(['product_id' => $otherProduct->id, 'company_id' => $otherProduct->company_id]);
 
     $this->postJson(inventoryQuantityRoute('store'), inventoryQuantityPayload($product, $location, [
         'lot_id' => $otherProductLot->id,
@@ -263,7 +263,7 @@ it('rejects counted_quantity greater than one for serial tracked products', func
     ]);
 
     $location = Location::factory()->create(['type' => LocationType::INTERNAL]);
-    $lot = Lot::factory()->create(['product_id' => $serialProduct->id]);
+    $lot = Lot::factory()->create(['product_id' => $serialProduct->id, 'company_id' => $serialProduct->company_id]);
 
     $this->postJson(inventoryQuantityRoute('store'), inventoryQuantityPayload($serialProduct, $location, [
         'lot_id'           => $lot->id,

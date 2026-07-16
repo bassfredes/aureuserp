@@ -971,10 +971,15 @@ class OrderResource extends Resource
                     ->relationship(
                         'product',
                         'name',
-                        fn ($query) => $query
+                        // Scoped to the Order's own company (D5b, aureuserp#137),
+                        // not merely CompanyScope's "any allowed company" — a
+                        // multi-company user must not be offered a product from
+                        // a different company than the Order being edited.
+                        fn ($query, Get $get) => $query
                             ->withTrashed()
                             ->where('type', ProductType::GOODS)
-                            ->whereNull('is_configurable'),
+                            ->whereNull('is_configurable')
+                            ->where('company_id', $get('../../company_id') ?? Auth::user()->default_company_id),
                     )
                     ->getOptionLabelFromRecordUsing(function ($record): string {
                         return $record->name.($record->trashed() ? ' (Deleted)' : '');

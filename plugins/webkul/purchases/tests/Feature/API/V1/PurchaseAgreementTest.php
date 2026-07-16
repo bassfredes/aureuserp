@@ -56,9 +56,16 @@ function purchaseAgreementRoute(string $action, mixed $agreement = null): string
     return $agreement ? route($name, $agreement) : route($name);
 }
 
-function makeAgreementLinePayload(array $overrides = []): array
+function makeAgreementLinePayload(array $overrides = [], ?Company $company = null): array
 {
-    $product = Product::factory()->create(['is_configurable' => false]);
+    // Product.company_id must match the agreement's own company (D5b,
+    // aureuserp#137) — aligned to the caller's $company when given,
+    // instead of an independent random one.
+    $productAttributes = ['is_configurable' => false];
+    if ($company) {
+        $productAttributes['company_id'] = $company->id;
+    }
+    $product = Product::factory()->create($productAttributes);
 
     return array_merge([
         'product_id' => $product->id,
@@ -80,7 +87,7 @@ function purchaseAgreementPayload(int $lineCount = 1, array $overrides = []): ar
         'company_id'  => $company->id,
         'starts_at'   => now()->addDay()->format('Y-m-d'),
         'lines'       => collect(range(1, $lineCount))
-            ->map(fn () => makeAgreementLinePayload())
+            ->map(fn () => makeAgreementLinePayload(company: $company))
             ->all(),
     ];
 

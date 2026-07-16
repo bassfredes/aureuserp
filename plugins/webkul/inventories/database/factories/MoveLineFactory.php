@@ -36,9 +36,22 @@ class MoveLineFactory extends Factory
             'scheduled_at'        => now(),
 
             // Relationships
-            'move_id'                 => Move::factory(),
-            'operation_id'            => Operation::factory(),
-            'product_id'              => Product::factory(),
+            // company_id is declared before move_id/operation_id/product_id
+            // on purpose (D5b, aureuserp#137 review round 2): MoveLine's
+            // own model guard now resolves its effective company from its
+            // parent Move, not from company_id directly — an
+            // independently-random Move (or operation) would mismatch the
+            // very company_id this same factory call is trying to set.
+            'company_id'              => Company::factory(),
+            'move_id'                 => fn (array $attributes) => Move::factory()->create([
+                'company_id' => $attributes['company_id'],
+            ])->id,
+            'operation_id'            => fn (array $attributes) => Operation::factory()->create([
+                'company_id' => $attributes['company_id'],
+            ])->id,
+            'product_id'              => fn (array $attributes) => Product::factory()->create([
+                'company_id' => $attributes['company_id'],
+            ])->id,
             'uom_id'                  => UOM::factory(),
             'package_id'              => null,
             'result_package_id'       => null,
@@ -47,7 +60,6 @@ class MoveLineFactory extends Factory
             'partner_id'              => null,
             'source_location_id'      => Location::factory(),
             'destination_location_id' => Location::factory(),
-            'company_id'              => Company::factory(),
             'creator_id'              => User::query()->value('id') ?? User::factory(),
         ];
     }

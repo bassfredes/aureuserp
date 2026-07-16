@@ -17,10 +17,11 @@ use Webkul\Product\Models\Product;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class PutawayRule extends Model implements Sortable
 {
-    use HasCompanyScope, HasFactory, SoftDeletes, SortableTrait;
+    use HasCompanyScope, HasFactory, SoftDeletes, SortableTrait, ValidatesRelatedCompanyScope;
 
     protected $table = 'inventories_putaway_rules';
 
@@ -101,6 +102,17 @@ class PutawayRule extends Model implements Sortable
             $putawayRule->creator_id ??= Auth::id();
 
             $putawayRule->company_id ??= Auth::user()?->default_company_id;
+
+            // Product.company_id must match this rule's own company_id
+            // (D5b, aureuserp#137). product_id is nullable (a rule may
+            // target a whole Category instead), so a no-op when absent.
+            static::assertRelatedBelongsToCompany($putawayRule->product_id, Product::class, 'product', $putawayRule->company_id);
+        });
+
+        static::updating(function ($putawayRule) {
+            if ($putawayRule->isDirty(['product_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($putawayRule->product_id, Product::class, 'product', $putawayRule->company_id);
+            }
         });
     }
 }

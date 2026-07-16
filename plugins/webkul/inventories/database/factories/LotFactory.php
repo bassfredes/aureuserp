@@ -31,10 +31,14 @@ class LotFactory extends Factory
             'alert_date'      => null,
 
             // Relationships
-            'product_id'  => Product::factory(),
+            // company_id is declared before product_id on purpose (D5b,
+            // aureuserp#137): see MoveFactory for the same rationale.
+            'company_id'  => Company::factory(),
+            'product_id'  => fn (array $attributes) => Product::factory()->create([
+                'company_id' => $attributes['company_id'],
+            ])->id,
             'uom_id'      => UOM::factory(),
             'location_id' => null,
-            'company_id'  => Company::factory(),
             'creator_id'  => User::query()->value('id') ?? User::factory(),
         ];
     }

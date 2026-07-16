@@ -25,29 +25,17 @@ class OrderLineFactory extends Factory
     protected $model = OrderLine::class;
 
     /**
-     * order_id is required (NOT NULL, no default here), so every ->create()
-     * call already passes it explicitly. Default company_id from that order
-     * when the caller didn't also override company_id — otherwise every
-     * factory-built line reintroduces the NULL/mismatched rows the backfill
-     * migration exists to fix (aureuserp#137, D4).
-     */
-    public function configure(): static
-    {
-        return $this->afterMaking(function (OrderLine $line) {
-            if ($line->company_id === null && $line->order_id) {
-                // Bypass CompanyScope: this is fixture wiring, not a
-                // user-facing read, and the caller's acting-user context
-                // (if any) must not hide the very order this line belongs
-                // to from this lookup.
-                $line->company_id = Order::withoutGlobalScope(CompanyScope::class)
-                    ->find($line->order_id)
-                    ?->company_id;
-            }
-        });
-    }
-
-    /**
      * Define the model's default state.
+     *
+     * order_id/company_id/product_id are declared in this order on purpose
+     * (D5b, aureuserp#137 — extends the existing D4 backfill-avoidance
+     * rationale): Factory::expandAttributes() resolves attributes in array
+     * order and passes each already-resolved value forward to later
+     * closures, so company_id derives from the (possibly overridden)
+     * order's own company, and product_id is created in that same company
+     * instead of an independent random one. An explicit override for
+     * either still wins outright, so a caller building a deliberately
+     * mismatched fixture for a rejection test is unaffected.
      *
      * @return array<string, mixed>
      */
@@ -63,7 +51,13 @@ class OrderLineFactory extends Factory
             'qty_received_method' => Package::isPluginInstalled('inventories')
                 ? QtyReceivedMethod::STOCK_MOVE
                 : QtyReceivedMethod::MANUAL,
-            'product_id'          => Product::factory(),
+            // order_id is required (NOT NULL), so every ->create() call
+            // already passes it explicitly or gets this default.
+            'company_id'          => fn (array $attributes) => Order::withoutGlobalScope(CompanyScope::class)
+                ->find($attributes['order_id'] ?? null)?->company_id,
+            'product_id'          => fn (array $attributes) => Product::factory()->create([
+                'company_id' => $attributes['company_id'],
+            ])->id,
             'planned_at'          => now()->addDays(7),
             'product_qty'         => $productQty,
             'product_uom_qty'     => $productQty,

@@ -45,8 +45,15 @@ function deliveryRoute(string $action, mixed $delivery = null): string
 
 function deliveryPayload(array $overrides = []): array
 {
-    $product = Product::factory()->create();
     $operationType = OperationType::factory()->delivery()->create();
+    // Product.company_id must match the effective operation company
+    // (D5b, aureuserp#137) — OperationController::resolveCompanyId()
+    // derives it from the operation type's own sourceLocation relation (not
+    // company_id directly: OperationTypeFactory's receipt()/delivery()/
+    // etc. states each resolve their own independent Company::factory()
+    // for source/destination/company_id, so the three don't actually
+    // match each other by default).
+    $product = Product::factory()->create(['company_id' => $operationType->sourceLocation?->company_id]);
 
     return array_replace_recursive([
         'operation_type_id' => $operationType->id,
@@ -300,7 +307,20 @@ it('creates a delivery under the operation type company when the user is authori
     $user = actingAsScopedDeliveryUser($companyA, ['create_inventory_delivery']);
     $user->allowedCompanies()->attach($companyB->id);
 
-    $payload = deliveryPayload(['operation_type_id' => $operationTypeB->id]);
+    // deliveryPayload()'s own default move references a product in
+    // whatever company its own default operation type resolved to, which
+    // the operation_type_id override below doesn't retroactively align
+    // (D5b, aureuserp#137) — build the move's product in companyB
+    // explicitly instead.
+    $productB = Product::factory()->create(['company_id' => $companyB->id]);
+    $payload = deliveryPayload([
+        'operation_type_id' => $operationTypeB->id,
+        'moves'             => [[
+            'product_id'      => $productB->id,
+            'product_uom_qty' => 1,
+            'uom_id'          => $productB->uom_id,
+        ]],
+    ]);
 
     $response = $this->postJson(deliveryRoute('store'), $payload)
         ->assertCreated();

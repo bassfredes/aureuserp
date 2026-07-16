@@ -311,7 +311,17 @@ class PurchaseAgreementResource extends Resource
                     ->relationship(
                         'product',
                         'name',
-                        fn ($query) => $query->where('type', ProductType::GOODS)->withTrashed()->whereNull('is_configurable'),
+                        // Scoped to the Requisition's own company (D5b,
+                        // aureuserp#137 review round 2): the repeater item
+                        // has no company_id field of its own (see the
+                        // mutateRelationshipDataBeforeCreateUsing comment
+                        // above), so plain $get('company_id') always missed
+                        // and fell through to the acting user's default —
+                        // ../../company_id walks back out of the repeater
+                        // item to the agreement's own top-level field, same
+                        // convention as QuotationResource's product Select.
+                        fn ($query, Get $get) => $query->where('type', ProductType::GOODS)->withTrashed()->whereNull('is_configurable')
+                            ->where('company_id', $get('../../company_id') ?? Auth::user()->default_company_id),
                     )
                     ->required()
                     ->searchable()

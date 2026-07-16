@@ -30,10 +30,11 @@ use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class OrderLine extends Model implements Sortable
 {
-    use HasFactory, SortableTrait;
+    use HasFactory, SortableTrait, ValidatesRelatedCompanyScope;
 
     protected $table = 'sales_order_lines';
 
@@ -180,6 +181,15 @@ class OrderLine extends Model implements Sortable
         return $orderDate->addDays($this->customer_lead ?? 0);
     }
 
+    /**
+     * Product.company_id / Packaging.company_id must match this line's own
+     * company_id (D5b, aureuserp#137): read isolation from CompanyScope is
+     * not the same guarantee as relation integrity — a user authorized in
+     * both A and B could otherwise create a company-A OrderLine that
+     * references a company-B Product/Packaging. Both sides of each pair are
+     * watched on update (isDirty on the FK OR on company_id itself), not
+     * only the FK — the same both-sides lesson from aureuserp#11's review.
+     */
     protected static function boot()
     {
         parent::boot();
@@ -188,6 +198,20 @@ class OrderLine extends Model implements Sortable
             $orderLine->state ??= $orderLine->order->state;
 
             $orderLine->creator_id ??= Auth::id();
+
+            $orderLine->company_id = static::resolveEffectiveCompanyId($orderLine->order_id, Order::class, $orderLine->company_id, 'order');
+
+            static::assertRelatedBelongsToCompany($orderLine->product_id, Product::class, 'product', $orderLine->company_id);
+            static::assertRelatedBelongsToCompany($orderLine->product_packaging_id, Packaging::class, 'packaging', $orderLine->company_id);
+        });
+
+        static::updating(function ($orderLine) {
+            if ($orderLine->isDirty(['order_id', 'company_id', 'product_id', 'product_packaging_id'])) {
+                $orderLine->company_id = static::resolveEffectiveCompanyId($orderLine->order_id, Order::class, $orderLine->company_id, 'order');
+
+                static::assertRelatedBelongsToCompany($orderLine->product_id, Product::class, 'product', $orderLine->company_id);
+                static::assertRelatedBelongsToCompany($orderLine->product_packaging_id, Packaging::class, 'packaging', $orderLine->company_id);
+            }
         });
 
         static::saving(function ($orderLine) {

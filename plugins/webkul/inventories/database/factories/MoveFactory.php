@@ -48,13 +48,31 @@ class MoveFactory extends Factory
             'scheduled_at'        => now(),
 
             // Relationships
-            'product_id'              => Product::factory(),
+            // company_id is declared before product_id on purpose (D5b,
+            // aureuserp#137): Factory::expandAttributes() resolves
+            // attributes in array order and passes each already-resolved
+            // value forward, so product_id is created in the same company
+            // as this move, instead of an independent random one. An
+            // explicit override for either still wins outright, so a
+            // caller building a deliberately mismatched fixture for a
+            // rejection test is unaffected.
+            'company_id'              => Company::factory(),
+            'product_id'              => fn (array $attributes) => Product::factory()->create([
+                'company_id' => $attributes['company_id'],
+            ])->id,
             'uom_id'                  => UOM::factory(),
             'source_location_id'      => Location::factory(),
             'destination_location_id' => Location::factory(),
             'final_location_id'       => null,
             'partner_id'              => null,
-            'operation_id'            => Operation::factory(),
+            // Also tied to company_id (D5b, aureuserp#137 review round 2):
+            // Move's own model guard now resolves its effective company
+            // from this Operation, not from company_id directly — an
+            // independently-random Operation would mismatch the very
+            // company_id this same factory call is trying to set.
+            'operation_id'            => fn (array $attributes) => Operation::factory()->create([
+                'company_id' => $attributes['company_id'],
+            ])->id,
             'rule_id'                 => null,
             'operation_type_id'       => OperationType::factory(),
             'origin_returned_move_id' => null,
@@ -62,7 +80,6 @@ class MoveFactory extends Factory
             'warehouse_id'            => null,
             'product_packaging_id'    => null,
             'scrap_id'                => null,
-            'company_id'              => Company::factory(),
             'creator_id'              => User::query()->value('id') ?? User::factory(),
         ];
     }

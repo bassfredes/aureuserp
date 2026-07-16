@@ -19,14 +19,23 @@ function runPurchasesLineCompanyIdBackfill(): void
 /**
  * OrderLineFactory/RequisitionLineFactory now default company_id from their
  * parent (D4 factory fix), so `->create(['company_id' => null])` no longer
- * produces a null row — the factory corrects it before insert. Force the
- * column back to null via a raw update afterward, bypassing the factory
- * entirely, to still exercise the historical-bad-data path this migration
- * repairs.
+ * produces a null row — the factory corrects it before insert. Since D5b
+ * (aureuserp#137 review round 2), the model's own creating()/updating()
+ * hooks also reject an explicitly mismatched company_id outright, so even
+ * a deliberately-mismatched ->create() call no longer reaches the
+ * database. Both null and mismatched historical-bad-data states this
+ * migration repairs must be forced in via a raw DB update afterward,
+ * bypassing the model (and its guard) entirely — this is simulating data
+ * that predates the guard, not exercising a live write path.
  */
 function forceNullCompanyId(string $table, int $id): void
 {
     DB::table($table)->where('id', $id)->update(['company_id' => null]);
+}
+
+function forceCompanyId(string $table, int $id, int $companyId): void
+{
+    DB::table($table)->where('id', $id)->update(['company_id' => $companyId]);
 }
 
 it('backfills purchases_order_lines.company_id from its parent order, both null and mismatched', function () {
@@ -38,7 +47,9 @@ it('backfills purchases_order_lines.company_id from its parent order, both null 
     $nullLine = OrderLine::factory()->create(['order_id' => $order->id]);
     forceNullCompanyId('purchases_order_lines', $nullLine->id);
 
-    $mismatchLine = OrderLine::factory()->create(['order_id' => $order->id, 'company_id' => $companyB->id]);
+    $mismatchLine = OrderLine::factory()->create(['order_id' => $order->id, 'company_id' => $companyA->id]);
+    forceCompanyId('purchases_order_lines', $mismatchLine->id, $companyB->id);
+
     $correctLine = OrderLine::factory()->create(['order_id' => $order->id, 'company_id' => $companyA->id]);
 
     runPurchasesLineCompanyIdBackfill();
@@ -57,7 +68,8 @@ it('backfills purchases_requisition_lines.company_id from its parent agreement, 
     $nullLine = RequisitionLine::factory()->create(['requisition_id' => $agreement->id]);
     forceNullCompanyId('purchases_requisition_lines', $nullLine->id);
 
-    $mismatchLine = RequisitionLine::factory()->create(['requisition_id' => $agreement->id, 'company_id' => $companyB->id]);
+    $mismatchLine = RequisitionLine::factory()->create(['requisition_id' => $agreement->id, 'company_id' => $companyA->id]);
+    forceCompanyId('purchases_requisition_lines', $mismatchLine->id, $companyB->id);
 
     runPurchasesLineCompanyIdBackfill();
 

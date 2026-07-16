@@ -28,10 +28,11 @@ use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
 use Webkul\Support\Models\UOM;
 use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class OrderLine extends Model implements Sortable
 {
-    use HasCompanyScope, HasFactory, SortableTrait;
+    use HasCompanyScope, HasFactory, SortableTrait, ValidatesRelatedCompanyScope;
 
     protected $table = 'purchases_order_lines';
 
@@ -168,12 +169,31 @@ class OrderLine extends Model implements Sortable
         return OrderLineFactory::new();
     }
 
+    /**
+     * Product.company_id / Packaging.company_id must match this line's own
+     * company_id (D5b, aureuserp#137): both sides watched on update, not
+     * only the FK — same both-sides lesson from aureuserp#11's review.
+     */
     protected static function boot()
     {
         parent::boot();
 
         static::creating(function ($orderLine) {
             $orderLine->creator_id ??= Auth::id();
+
+            $orderLine->company_id = static::resolveEffectiveCompanyId($orderLine->order_id, Order::class, $orderLine->company_id, 'order');
+
+            static::assertRelatedBelongsToCompany($orderLine->product_id, Product::class, 'product', $orderLine->company_id);
+            static::assertRelatedBelongsToCompany($orderLine->product_packaging_id, Packaging::class, 'packaging', $orderLine->company_id);
+        });
+
+        static::updating(function ($orderLine) {
+            if ($orderLine->isDirty(['order_id', 'company_id', 'product_id', 'product_packaging_id'])) {
+                $orderLine->company_id = static::resolveEffectiveCompanyId($orderLine->order_id, Order::class, $orderLine->company_id, 'order');
+
+                static::assertRelatedBelongsToCompany($orderLine->product_id, Product::class, 'product', $orderLine->company_id);
+                static::assertRelatedBelongsToCompany($orderLine->product_packaging_id, Packaging::class, 'packaging', $orderLine->company_id);
+            }
         });
 
         static::created(function ($orderLine) {
