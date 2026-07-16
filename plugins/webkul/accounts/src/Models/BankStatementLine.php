@@ -8,4 +8,6 @@ use Illuminate\Database\Eloquent\Model;
 class BankStatementLine extends Model
 {
     use HasFactory;
+
+    protected $table = 'accounts_bank_statement_lines';
 }
