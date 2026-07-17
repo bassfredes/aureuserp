@@ -122,7 +122,10 @@ it('lets the signed RespondQuotation GET render without mutating, and POST updat
 
     Auth::logout();
 
-    $signedUrl = URL::signedRoute('purchases.quotations.respond', [
+    // Real links are always temporary now (review round 2, #138 PR 1) —
+    // a permanent signedRoute() is rejected outright before reaching this
+    // flow at all.
+    $signedUrl = URL::temporarySignedRoute('purchases.quotations.respond', now()->addHour(), [
         'order'  => $order->id,
         'action' => 'accept',
     ]);

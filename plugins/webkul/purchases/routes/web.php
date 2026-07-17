@@ -2,8 +2,9 @@
 
 use Illuminate\Support\Facades\Route;
 use Webkul\Purchase\Http\Controllers\RespondQuotationController;
+use Webkul\Purchase\Http\Middleware\RequireSignatureExpiry;
 
-Route::middleware(['web', 'signed'])->group(function () {
+Route::middleware(['web', 'signed', RequireSignatureExpiry::class])->group(function () {
     // Same URI for both verbs, constrained to the two known actions
     // (Intelligent-Integration-Suite#138, PR 1): the confirmation form on
     // the GET page posts back to this exact path + query string, so the

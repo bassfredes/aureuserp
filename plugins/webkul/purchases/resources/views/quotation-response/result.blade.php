@@ -10,7 +10,7 @@ $messageKey = match (true) {
     $idempotent ?? false => 'already-recorded',
     $outcome === 'accepted' => 'accepted',
     $outcome === 'declined' => 'declined',
-    $outcome === 'conflict', $outcome === 'invalid_state', $outcome === 'invalid_partner' => 'conflict',
+    $outcome === 'conflict', $outcome === 'invalid_state', $outcome === 'invalid_partner', $outcome === 'invalid_action' => 'conflict',
     $outcome === 'link_invalid' => 'link-invalid',
     default => 'order-unavailable',
 };

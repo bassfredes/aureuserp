@@ -25,6 +25,16 @@ class QuotationResponseService
 {
     public function respond(int $orderId, string $action): QuotationResponseResult
     {
+        // The route constraint already limits {action} to accept|decline,
+        // but this service is the actual authorization boundary — a
+        // future caller reaching it directly (another controller, a
+        // command, a test) must not be able to smuggle an unknown action
+        // through as an implicit decline. Validate before the lookup or
+        // any write (#138 audit, PR 1 review round 2).
+        if (! in_array($action, ['accept', 'decline'], true)) {
+            return new QuotationResponseResult(422, 'invalid_action');
+        }
+
         return DB::transaction(function () use ($orderId, $action) {
             $order = Order::withoutGlobalScope(CompanyScope::class)
                 ->whereKey($orderId)
@@ -74,6 +84,7 @@ class QuotationResponseService
             ]);
 
             $order->addMessage([
+                'company_id'  => $order->company_id,
                 'causer_type' => $order->partner->getMorphClass(),
                 'causer_id'   => $order->partner->id,
                 'body'        => $wantsAccept
