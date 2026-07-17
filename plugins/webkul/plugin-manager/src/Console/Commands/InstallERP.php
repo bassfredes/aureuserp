@@ -15,6 +15,7 @@ use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
+use Webkul\Support\Services\CompanyContext;
 
 use function Laravel\Prompts\password;
 use function Laravel\Prompts\text;
@@ -57,15 +58,28 @@ class InstallERP extends Command
 
         $this->info('🚀 Starting ERP System Installation...');
 
-        $this->runMigrations();
+        // Migrations, seeders and admin-user creation run with no
+        // authenticated actor — CompanyScope now fails closed (1=0) for
+        // any HasCompanyScope model query without one (ADR 0007), so the
+        // whole install flow needs an explicit bootstrap context. Nested
+        // seeders/installers invoked in-process (Artisan::call(),
+        // $this->call()) share this same context, they don't need their
+        // own.
+        CompanyContext::runForBootstrap(
+            reason: 'erp:install fresh installation',
+            caller: static::class,
+            callback: function () {
+                $this->runMigrations();
 
-        $this->generateRolesAndPermissions();
+                $this->generateRolesAndPermissions();
 
-        $this->storageLink();
+                $this->storageLink();
 
-        $this->runSeeder();
+                $this->runSeeder();
 
-        $this->createAdminUser();
+                $this->createAdminUser();
+            },
+        );
 
         $this->markAsInstalled();
 

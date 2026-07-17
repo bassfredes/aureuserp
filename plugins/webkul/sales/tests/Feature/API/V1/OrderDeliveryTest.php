@@ -31,18 +31,25 @@ function salesOrderDeliveryRoute(string $action, mixed $order): string
 
 function createOrderWithDeliveries(int $deliveryCount = 2): Order
 {
-    $order = Order::factory()->create();
+    // Called both before and after actingAs*() across this file's tests
+    // (including "requires authentication", with no acting user at all) —
+    // Operation::updateName() reads its OperationType's Warehouse
+    // (strict_company), so this needs an explicit system context rather
+    // than the no-user implicit bypass (ADR 0007).
+    return TestBootstrapHelper::withSystemContextIfNoUser(function () use ($deliveryCount) {
+        $order = Order::factory()->create();
 
-    if (! Package::isPluginInstalled('inventories')) {
-        return $order;
-    }
+        if (! Package::isPluginInstalled('inventories')) {
+            return $order;
+        }
 
-    Operation::factory()->count($deliveryCount)->create([
-        'sale_order_id' => $order->id,
-        'company_id'    => $order->company_id,
-    ]);
+        Operation::factory()->count($deliveryCount)->create([
+            'sale_order_id' => $order->id,
+            'company_id'    => $order->company_id,
+        ]);
 
-    return $order->refresh();
+        return $order->refresh();
+    });
 }
 
 it('requires authentication to list order deliveries', function () {

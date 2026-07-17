@@ -1,12 +1,36 @@
 <?php
 
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Webkul\Support\Services\CompanyContext;
 
 class TestBootstrapHelper
 {
     private static bool $isERPInstalled = false;
+
+    /**
+     * Many fixture-setup helpers are shared between tests that call them
+     * before actingAs() (no user yet) and tests that call them after
+     * (already authenticated) — CompanyScope now fails closed for the
+     * no-user case with no active CompanyContext (ADR 0007), while
+     * CompanyContext itself refuses to open one for an already-
+     * authenticated actor. This picks whichever is correct for the caller
+     * at the moment it runs, so fixture helpers don't need two copies.
+     */
+    public static function withSystemContextIfNoUser(callable $callback): mixed
+    {
+        if (Auth::check()) {
+            return $callback();
+        }
+
+        return CompanyContext::runForAllCompanies(
+            reason: 'test fixture setup — no acting user yet',
+            caller: 'TestBootstrapHelper',
+            callback: $callback,
+        );
+    }
 
     // Allowlist explicita de bases contra las que este helper puede correr
     // migrate:fresh (DDL destructivo). Un denylist de un unico nombre

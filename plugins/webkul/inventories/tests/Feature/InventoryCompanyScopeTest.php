@@ -27,6 +27,7 @@ use Webkul\Product\Models\Product;
 use Webkul\Security\Models\Role;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -75,8 +76,15 @@ it('hides another company\'s rows and shows the user\'s own', function (string $
         'default_company_id' => $companyA->id,
     ]));
 
-    $rowA = $modelClass::factory()->create(['company_id' => $companyA->id]);
-    $rowB = $modelClass::factory()->create(['company_id' => $companyB->id]);
+    // Several of these models' own creation boot hooks eagerly re-query a
+    // strict_company relation (e.g. Operation::updateName() reads its
+    // OperationType's Warehouse) — fixtures span two companies before
+    // actingAs() picks one, so this needs the explicit all_companies
+    // system context rather than the no-user implicit bypass (ADR 0007).
+    [$rowA, $rowB] = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: fn () => [
+        $modelClass::factory()->create(['company_id' => $companyA->id]),
+        $modelClass::factory()->create(['company_id' => $companyB->id]),
+    ]);
 
     test()->actingAs($userA);
 
@@ -97,9 +105,11 @@ it('shows rows from every company explicitly allowed to the user, not a third', 
     ]));
     $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
 
-    $rowA = $modelClass::factory()->create(['company_id' => $companyA->id]);
-    $rowB = $modelClass::factory()->create(['company_id' => $companyB->id]);
-    $rowC = $modelClass::factory()->create(['company_id' => $companyC->id]);
+    [$rowA, $rowB, $rowC] = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: fn () => [
+        $modelClass::factory()->create(['company_id' => $companyA->id]),
+        $modelClass::factory()->create(['company_id' => $companyB->id]),
+        $modelClass::factory()->create(['company_id' => $companyC->id]),
+    ]);
 
     test()->actingAs($user);
 
@@ -113,7 +123,7 @@ it('shows rows from every company explicitly allowed to the user, not a third', 
 it('hides everything from an authenticated user with no company', function (string $modelClass) {
     $company = Company::factory()->create();
 
-    $row = $modelClass::factory()->create(['company_id' => $company->id]);
+    $row = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: fn () => $modelClass::factory()->create(['company_id' => $company->id]));
 
     $companyless = User::withoutEvents(fn () => User::factory()->create([
         'default_company_id' => null,
@@ -161,8 +171,10 @@ it('hides another company\'s move lines and shows the user\'s own', function () 
         'default_company_id' => $companyA->id,
     ]));
 
-    $lineA = createScopedMoveLine($companyA->id);
-    $lineB = createScopedMoveLine($companyB->id);
+    [$lineA, $lineB] = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: fn () => [
+        createScopedMoveLine($companyA->id),
+        createScopedMoveLine($companyB->id),
+    ]);
 
     test()->actingAs($userA);
 
@@ -176,7 +188,7 @@ it('hides another company\'s move lines and shows the user\'s own', function () 
 it('hides move lines from an authenticated user with no company', function () {
     $company = Company::factory()->create();
 
-    $line = createScopedMoveLine($company->id);
+    $line = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: fn () => createScopedMoveLine($company->id));
 
     $companyless = User::withoutEvents(fn () => User::factory()->create([
         'default_company_id' => null,
@@ -304,24 +316,28 @@ it('computes a package\'s company from the true cross-company state of its quant
         'default_company_id' => $companyA->id,
     ]));
 
-    $package = Package::factory()->create(['company_id' => $companyA->id]);
+    [$package, $quantityB, $locationA] = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: function () use ($companyA, $companyB) {
+        $package = Package::factory()->create(['company_id' => $companyA->id]);
 
-    $locationA = Location::factory()->create(['company_id' => $companyA->id]);
-    $locationB = Location::factory()->create(['company_id' => $companyB->id]);
+        $locationA = Location::factory()->create(['company_id' => $companyA->id]);
+        $locationB = Location::factory()->create(['company_id' => $companyB->id]);
 
-    ProductQuantity::factory()->create([
-        'package_id'  => $package->id,
-        'company_id'  => $companyA->id,
-        'location_id' => $locationA->id,
-        'quantity'    => 5,
-    ]);
+        ProductQuantity::factory()->create([
+            'package_id'  => $package->id,
+            'company_id'  => $companyA->id,
+            'location_id' => $locationA->id,
+            'quantity'    => 5,
+        ]);
 
-    $quantityB = ProductQuantity::factory()->create([
-        'package_id'  => $package->id,
-        'company_id'  => $companyB->id,
-        'location_id' => $locationB->id,
-        'quantity'    => 3,
-    ]);
+        $quantityB = ProductQuantity::factory()->create([
+            'package_id'  => $package->id,
+            'company_id'  => $companyB->id,
+            'location_id' => $locationB->id,
+            'quantity'    => 3,
+        ]);
+
+        return [$package, $quantityB, $locationA];
+    });
 
     test()->actingAs($userA);
 

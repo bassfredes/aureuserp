@@ -6,6 +6,7 @@ use Webkul\Purchase\Models\OrderLine;
 use Webkul\Purchase\Models\Requisition;
 use Webkul\Purchase\Models\RequisitionLine;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../support/tests/Helpers/TestBootstrapHelper.php';
 
@@ -38,75 +39,92 @@ function forceCompanyId(string $table, int $id, int $companyId): void
     DB::table($table)->where('id', $id)->update(['company_id' => $companyId]);
 }
 
+// None of these tests authenticate — OrderLine/RequisitionLine::created()
+// reads their parent Order/Requisition (strict_company), so every query
+// here needs an explicit system context instead of relying on the no-user
+// implicit bypass (ADR 0007). Wrapping the whole body (fixtures, backfill,
+// and assertions) is simplest since OrderLine::find() in the assertions
+// is itself a scoped query too.
+
 it('backfills purchases_order_lines.company_id from its parent order, both null and mismatched', function () {
-    $companyA = Company::factory()->create();
-    $companyB = Company::factory()->create();
+    CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: function () {
+        $companyA = Company::factory()->create();
+        $companyB = Company::factory()->create();
 
-    $order = Order::factory()->create(['company_id' => $companyA->id]);
+        $order = Order::factory()->create(['company_id' => $companyA->id]);
 
-    $nullLine = OrderLine::factory()->create(['order_id' => $order->id]);
-    forceNullCompanyId('purchases_order_lines', $nullLine->id);
+        $nullLine = OrderLine::factory()->create(['order_id' => $order->id]);
+        forceNullCompanyId('purchases_order_lines', $nullLine->id);
 
-    $mismatchLine = OrderLine::factory()->create(['order_id' => $order->id, 'company_id' => $companyA->id]);
-    forceCompanyId('purchases_order_lines', $mismatchLine->id, $companyB->id);
+        $mismatchLine = OrderLine::factory()->create(['order_id' => $order->id, 'company_id' => $companyA->id]);
+        forceCompanyId('purchases_order_lines', $mismatchLine->id, $companyB->id);
 
-    $correctLine = OrderLine::factory()->create(['order_id' => $order->id, 'company_id' => $companyA->id]);
+        $correctLine = OrderLine::factory()->create(['order_id' => $order->id, 'company_id' => $companyA->id]);
 
-    runPurchasesLineCompanyIdBackfill();
+        runPurchasesLineCompanyIdBackfill();
 
-    expect(OrderLine::find($nullLine->id)->company_id)->toBe($companyA->id)
-        ->and(OrderLine::find($mismatchLine->id)->company_id)->toBe($companyA->id)
-        ->and(OrderLine::find($correctLine->id)->company_id)->toBe($companyA->id);
+        expect(OrderLine::find($nullLine->id)->company_id)->toBe($companyA->id)
+            ->and(OrderLine::find($mismatchLine->id)->company_id)->toBe($companyA->id)
+            ->and(OrderLine::find($correctLine->id)->company_id)->toBe($companyA->id);
+    });
 });
 
 it('backfills purchases_requisition_lines.company_id from its parent agreement, both null and mismatched', function () {
-    $companyA = Company::factory()->create();
-    $companyB = Company::factory()->create();
+    CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: function () {
+        $companyA = Company::factory()->create();
+        $companyB = Company::factory()->create();
 
-    $agreement = Requisition::factory()->create(['company_id' => $companyA->id]);
+        $agreement = Requisition::factory()->create(['company_id' => $companyA->id]);
 
-    $nullLine = RequisitionLine::factory()->create(['requisition_id' => $agreement->id]);
-    forceNullCompanyId('purchases_requisition_lines', $nullLine->id);
+        $nullLine = RequisitionLine::factory()->create(['requisition_id' => $agreement->id]);
+        forceNullCompanyId('purchases_requisition_lines', $nullLine->id);
 
-    $mismatchLine = RequisitionLine::factory()->create(['requisition_id' => $agreement->id, 'company_id' => $companyA->id]);
-    forceCompanyId('purchases_requisition_lines', $mismatchLine->id, $companyB->id);
+        $mismatchLine = RequisitionLine::factory()->create(['requisition_id' => $agreement->id, 'company_id' => $companyA->id]);
+        forceCompanyId('purchases_requisition_lines', $mismatchLine->id, $companyB->id);
 
-    runPurchasesLineCompanyIdBackfill();
+        runPurchasesLineCompanyIdBackfill();
 
-    expect(RequisitionLine::find($nullLine->id)->company_id)->toBe($companyA->id)
-        ->and(RequisitionLine::find($mismatchLine->id)->company_id)->toBe($companyA->id);
+        expect(RequisitionLine::find($nullLine->id)->company_id)->toBe($companyA->id)
+            ->and(RequisitionLine::find($mismatchLine->id)->company_id)->toBe($companyA->id);
+    });
 });
 
 it('is idempotent: running the backfill twice does not change already-correct rows', function () {
-    $companyA = Company::factory()->create();
-    $order = Order::factory()->create(['company_id' => $companyA->id]);
-    $line = OrderLine::factory()->create(['order_id' => $order->id]);
-    forceNullCompanyId('purchases_order_lines', $line->id);
+    CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: function () {
+        $companyA = Company::factory()->create();
+        $order = Order::factory()->create(['company_id' => $companyA->id]);
+        $line = OrderLine::factory()->create(['order_id' => $order->id]);
+        forceNullCompanyId('purchases_order_lines', $line->id);
 
-    runPurchasesLineCompanyIdBackfill();
-    $afterFirstRun = OrderLine::find($line->id)->company_id;
+        runPurchasesLineCompanyIdBackfill();
+        $afterFirstRun = OrderLine::find($line->id)->company_id;
 
-    runPurchasesLineCompanyIdBackfill();
-    $afterSecondRun = OrderLine::find($line->id)->company_id;
+        runPurchasesLineCompanyIdBackfill();
+        $afterSecondRun = OrderLine::find($line->id)->company_id;
 
-    expect($afterFirstRun)->toBe($companyA->id)
-        ->and($afterSecondRun)->toBe($companyA->id);
+        expect($afterFirstRun)->toBe($companyA->id)
+            ->and($afterSecondRun)->toBe($companyA->id);
+    });
 });
 
 it('defaults a new OrderLine to its order company_id when the factory does not override it', function () {
-    $company = Company::factory()->create();
-    $order = Order::factory()->create(['company_id' => $company->id]);
+    CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: function () {
+        $company = Company::factory()->create();
+        $order = Order::factory()->create(['company_id' => $company->id]);
 
-    $line = OrderLine::factory()->create(['order_id' => $order->id]);
+        $line = OrderLine::factory()->create(['order_id' => $order->id]);
 
-    expect($line->company_id)->toBe($company->id);
+        expect($line->company_id)->toBe($company->id);
+    });
 });
 
 it('defaults a new RequisitionLine to its agreement company_id when the factory does not override it', function () {
-    $company = Company::factory()->create();
-    $agreement = Requisition::factory()->create(['company_id' => $company->id]);
+    CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: function () {
+        $company = Company::factory()->create();
+        $agreement = Requisition::factory()->create(['company_id' => $company->id]);
 
-    $line = RequisitionLine::factory()->create(['requisition_id' => $agreement->id]);
+        $line = RequisitionLine::factory()->create(['requisition_id' => $agreement->id]);
 
-    expect($line->company_id)->toBe($company->id);
+        expect($line->company_id)->toBe($company->id);
+    });
 });

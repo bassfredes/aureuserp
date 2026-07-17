@@ -4,6 +4,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Webkul\Inventory\Models\Lot;
 use Webkul\Inventory\Models\Move;
 use Webkul\Inventory\Models\MoveLine;
+use Webkul\Inventory\Models\Operation;
 use Webkul\Inventory\Models\OrderPoint;
 use Webkul\Inventory\Models\ProductQuantity;
 use Webkul\Inventory\Models\PutawayRule;
@@ -12,6 +13,8 @@ use Webkul\Product\Models\Packaging;
 use Webkul\Product\Models\Product;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\UOM;
+use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -28,12 +31,19 @@ afterEach(fn () => SecurityHelper::restoreUserEvents());
 it('allows a Move for company A referencing a Product from company A', function () {
     $companyA = Company::factory()->create();
 
-    $product = Product::factory()->create(['company_id' => $companyA->id]);
+    // No acting user anywhere in this test — Move::factory() itself
+    // creates a related Operation internally (MoveFactory's operation_id
+    // default), and Operation::updateName() reads a strict_company
+    // relation, so this needs an explicit system context instead of the
+    // no-user implicit bypass (ADR 0007).
+    $move = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: function () use ($companyA) {
+        $product = Product::factory()->create(['company_id' => $companyA->id]);
 
-    $move = Move::factory()->create([
-        'company_id' => $companyA->id,
-        'product_id' => $product->id,
-    ]);
+        return Move::factory()->create([
+            'company_id' => $companyA->id,
+            'product_id' => $product->id,
+        ]);
+    });
 
     expect($move->exists)->toBeTrue();
 });
@@ -59,14 +69,16 @@ it('forbids a Move for company A referencing a Product from company B, even for 
 it('allows a Move for company A referencing a Packaging from company A', function () {
     $companyA = Company::factory()->create();
 
-    $product = Product::factory()->create(['company_id' => $companyA->id]);
-    $packaging = Packaging::factory()->create(['product_id' => $product->id, 'company_id' => $companyA->id]);
+    $move = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: function () use ($companyA) {
+        $product = Product::factory()->create(['company_id' => $companyA->id]);
+        $packaging = Packaging::factory()->create(['product_id' => $product->id, 'company_id' => $companyA->id]);
 
-    $move = Move::factory()->create([
-        'company_id'           => $companyA->id,
-        'product_id'           => $product->id,
-        'product_packaging_id' => $packaging->id,
-    ]);
+        return Move::factory()->create([
+            'company_id'           => $companyA->id,
+            'product_id'           => $product->id,
+            'product_packaging_id' => $packaging->id,
+        ]);
+    });
 
     expect($move->exists)->toBeTrue();
 });
@@ -140,7 +152,7 @@ it('forbids a Move with an explicit company_id for company B when its Operation 
     $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
     test()->actingAs($user);
 
-    $operation = \Webkul\Inventory\Models\Operation::factory()->create(['company_id' => $companyA->id]);
+    $operation = Operation::factory()->create(['company_id' => $companyA->id]);
     $productB = Product::factory()->create(['company_id' => $companyB->id]);
 
     expect(fn () => Move::factory()->create([
@@ -160,7 +172,7 @@ it('derives a Move.company_id from its Operation when omitted, not from the acti
     $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
     test()->actingAs($user);
 
-    $operation = \Webkul\Inventory\Models\Operation::factory()->create(['company_id' => $companyA->id]);
+    $operation = Operation::factory()->create(['company_id' => $companyA->id]);
     $productA = Product::factory()->create(['company_id' => $companyA->id]);
 
     $move = new Move(['product_id' => $productA->id, 'uom_id' => $productA->uom_id]);
@@ -178,8 +190,8 @@ it('forbids moving a Move to a different-company Operation while keeping the sam
     $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
     test()->actingAs($user);
 
-    $operationA = \Webkul\Inventory\Models\Operation::factory()->create(['company_id' => $companyA->id]);
-    $operationB = \Webkul\Inventory\Models\Operation::factory()->create(['company_id' => $companyB->id]);
+    $operationA = Operation::factory()->create(['company_id' => $companyA->id]);
+    $operationB = Operation::factory()->create(['company_id' => $companyB->id]);
     $productA = Product::factory()->create(['company_id' => $companyA->id]);
 
     $move = Move::factory()->create([
@@ -231,7 +243,7 @@ it('forbids changing a MoveLine\'s product_id to a Product from a different comp
     // saving() hook, which runs before both creating() and updating())
     // would otherwise throw its own unrelated UOM-category mismatch
     // exception first and mask the company guard this test is after.
-    $uom = \Webkul\Support\Models\UOM::query()->value('id') ?? \Webkul\Support\Models\UOM::factory()->create()->id;
+    $uom = UOM::query()->value('id') ?? UOM::factory()->create()->id;
     $productA = Product::factory()->create(['company_id' => $companyA->id, 'uom_id' => $uom]);
     $productB = Product::factory()->create(['company_id' => $companyB->id, 'uom_id' => $uom]);
     // The parent Move's own uom_id must also match: MoveLine::created()
@@ -258,7 +270,7 @@ it('forbids a MoveLine with an explicit company_id for company B when its Move b
     $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
     test()->actingAs($user);
 
-    $uom = \Webkul\Support\Models\UOM::query()->value('id') ?? \Webkul\Support\Models\UOM::factory()->create()->id;
+    $uom = UOM::query()->value('id') ?? UOM::factory()->create()->id;
     $productA = Product::factory()->create(['company_id' => $companyA->id, 'uom_id' => $uom]);
     $productB = Product::factory()->create(['company_id' => $companyB->id, 'uom_id' => $uom]);
     $parentMove = Move::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id, 'uom_id' => $uom]);
@@ -281,7 +293,7 @@ it('derives a MoveLine.company_id from its parent Move when omitted, not from th
     $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
     test()->actingAs($user);
 
-    $uom = \Webkul\Support\Models\UOM::query()->value('id') ?? \Webkul\Support\Models\UOM::factory()->create()->id;
+    $uom = UOM::query()->value('id') ?? UOM::factory()->create()->id;
     $productA = Product::factory()->create(['company_id' => $companyA->id, 'uom_id' => $uom]);
     $parentMove = Move::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id, 'uom_id' => $uom]);
 
@@ -300,7 +312,7 @@ it('forbids moving a MoveLine to a different-company Move while keeping the same
     $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
     test()->actingAs($user);
 
-    $uom = \Webkul\Support\Models\UOM::query()->value('id') ?? \Webkul\Support\Models\UOM::factory()->create()->id;
+    $uom = UOM::query()->value('id') ?? UOM::factory()->create()->id;
     $productA = Product::factory()->create(['company_id' => $companyA->id, 'uom_id' => $uom]);
     $productB = Product::factory()->create(['company_id' => $companyB->id, 'uom_id' => $uom]);
     $parentMoveA = Move::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id, 'uom_id' => $uom]);

@@ -9,6 +9,7 @@ use Webkul\Security\Enums\PermissionType;
 use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -68,37 +69,50 @@ it('requires authentication to create a route', function () {
 });
 
 it('requires authentication to show a route', function () {
-    $route = Route::factory()->create();
+    // No acting user in this test (it proves the 401) — Route's factory
+    // can cascade into creating a Warehouse, whose creation reads the
+    // shared Vendors/Customers Location rows (company_or_shared), so this
+    // needs an explicit system context instead of the no-user implicit
+    // bypass (ADR 0007).
+    $route = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: fn () => Route::factory()->create());
 
     $this->getJson(inventoryRouteRoute('show', $route))
         ->assertUnauthorized();
 });
 
 it('requires authentication to update a route', function () {
-    $route = Route::factory()->create();
+    $route = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: fn () => Route::factory()->create());
 
     $this->patchJson(inventoryRouteRoute('update', $route), [])
         ->assertUnauthorized();
 });
 
 it('requires authentication to delete a route', function () {
-    $route = Route::factory()->create();
+    $route = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: fn () => Route::factory()->create());
 
     $this->deleteJson(inventoryRouteRoute('destroy', $route))
         ->assertUnauthorized();
 });
 
 it('requires authentication to restore a route', function () {
-    $route = Route::factory()->create();
-    $route->delete();
+    $route = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: function () {
+        $route = Route::factory()->create();
+        $route->delete();
+
+        return $route;
+    });
 
     $this->postJson(inventoryRouteRoute('restore', $route))
         ->assertUnauthorized();
 });
 
 it('requires authentication to force-delete a route', function () {
-    $route = Route::factory()->create();
-    $route->delete();
+    $route = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: function () {
+        $route = Route::factory()->create();
+        $route->delete();
+
+        return $route;
+    });
 
     $this->deleteJson(inventoryRouteRoute('force-destroy', $route))
         ->assertUnauthorized();
@@ -445,7 +459,7 @@ it('forbids a user from company A creating a route in company B', function () {
 it('forbids a user authorized in A+B from associating a route of A with a warehouse of B', function () {
     $companyA = Company::factory()->create();
     $companyB = Company::factory()->create();
-    $warehouseB = Warehouse::factory()->create(['company_id' => $companyB->id]);
+    $warehouseB = CompanyContext::runForCompany($companyB->id, reason: 'test fixture setup', caller: __FILE__, callback: fn () => Warehouse::factory()->create(['company_id' => $companyB->id]));
 
     $user = actingAsScopedRouteUser($companyA, ['create_inventory_route']);
     $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);

@@ -49,17 +49,24 @@ function purchaseOrderLineRoute(string $action, mixed $order, mixed $line = null
 
 function createPurchaseOrderWithLines(int $lineCount = 2): Order
 {
-    $order = Order::factory()->create();
+    // Called both before and after actingAs() across this file's tests
+    // (including the "requires authentication" cases, which call it with
+    // no acting user at all) — OrderLine::created() reads $this->order
+    // (strict_company), so this needs an explicit system context rather
+    // than relying on the no-user implicit bypass (ADR 0007).
+    return TestBootstrapHelper::withSystemContextIfNoUser(function () use ($lineCount) {
+        $order = Order::factory()->create();
 
-    OrderLine::factory()->count($lineCount)->create([
-        'order_id'    => $order->id,
-        'company_id'  => $order->company_id,
-        'currency_id' => $order->currency_id,
-        'partner_id'  => $order->partner_id,
-        'state'       => $order->state,
-    ]);
+        OrderLine::factory()->count($lineCount)->create([
+            'order_id'    => $order->id,
+            'company_id'  => $order->company_id,
+            'currency_id' => $order->currency_id,
+            'partner_id'  => $order->partner_id,
+            'state'       => $order->state,
+        ]);
 
-    return $order->refresh();
+        return $order->refresh();
+    });
 }
 
 it('requires authentication to list purchase order lines', function () {

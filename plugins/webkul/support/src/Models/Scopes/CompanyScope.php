@@ -8,7 +8,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Scope;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Webkul\Support\Enums\CompanyContextMode;
 use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
+use Webkul\Support\Services\CompanyContext;
 
 class CompanyScope implements Scope
 {
@@ -51,39 +53,72 @@ class CompanyScope implements Scope
     }
 
     /**
-     * Filter the query to only the companies the authenticated user is
-     * allowed to operate on (default company + explicitly allowed companies).
+     * Precedence (ADR 0007, "Transición e integración futura con
+     * CompanyScope"):
      *
-     * No authenticated actor at all (console, queue, seeders, installer):
-     * no filtering is applied — there is no user to scope against. An
-     * authenticated actor with no company association (no default_company_id
-     * and no allowedCompanies() rows, or one that doesn't support company
-     * membership at all — see actorSupportsCompanyMembership()) is a
-     * different case and is NOT left unfiltered: it fails closed to
-     * `1 = 0` below, seeing nothing by default.
+     * 1. Authenticated user           → allowedCompanyIds() filter, unchanged.
+     * 2. No user + CompanyContext::current():
+     *    - company                    → exact filter on that one company.
+     *    - all_companies | bootstrap  → no filter, explicit system bypass.
+     * 3. No user + no active context  → fail closed, `1 = 0`.
+     *
+     * Point 3 replaces the pre-PR-2B behavior (`if (! $user) { return; }`,
+     * unfiltered). Every no-user consumer that legitimately needs to read
+     * these models must now open a CompanyContext explicitly — an absent
+     * context is no longer implicit global access.
      */
     public function apply(Builder $builder, Model $model): void
     {
         $user = Auth::user();
 
-        if (! $user) {
+        if ($user) {
+            $companyIds = static::allowedCompanyIds($user);
+
+            // An authenticated user with no company association sees nothing
+            // by default (fail closed) — the only sanctioned way to see
+            // across companies is the explicit, audited
+            // HasCompanyScope::forAllCompanies(), not an implicit exception
+            // baked into this scope. This check stays ahead of the
+            // shared-rows branch below: a companyless user must not see
+            // shared rows either, only forAllCompanies() bypasses isolation.
+            if ($companyIds->isEmpty()) {
+                $builder->whereRaw('1 = 0');
+
+                return;
+            }
+
+            static::applyCompanyFilter($builder, $model, $companyIds);
+
             return;
         }
 
-        $companyIds = static::allowedCompanyIds($user);
+        $context = CompanyContext::current();
 
-        // An authenticated user with no company association sees nothing by
-        // default (fail closed) — the only sanctioned way to see across
-        // companies is the explicit, audited HasCompanyScope::forAllCompanies(),
-        // not an implicit exception baked into this scope. This check stays
-        // ahead of the shared-rows branch below: a companyless user must not
-        // see shared rows either, only forAllCompanies() bypasses isolation.
-        if ($companyIds->isEmpty()) {
-            $builder->whereRaw('1 = 0');
+        if ($context?->mode === CompanyContextMode::COMPANY) {
+            static::applyCompanyFilter($builder, $model, collect([$context->companyId]));
 
             return;
         }
 
+        // all_companies / bootstrap: explicit, audited system-wide bypass —
+        // no filter at all, same as forAllCompanies() but for a no-user
+        // process instead of a super_admin actor.
+        if ($context?->mode === CompanyContextMode::ALL_COMPANIES || $context?->mode === CompanyContextMode::BOOTSTRAP) {
+            return;
+        }
+
+        // No user, no context: fail closed. Sees nothing by default.
+        $builder->whereRaw('1 = 0');
+    }
+
+    /**
+     * Shared by the authenticated-user branch (possibly several allowed
+     * companies) and the company-mode system-context branch (always
+     * exactly one) — both apply the same strict_company/company_or_shared
+     * distinction, just over a different-sized set of ids.
+     */
+    private static function applyCompanyFilter(Builder $builder, Model $model, Collection $companyIds): void
+    {
         $column = $model->qualifyColumn('company_id');
 
         // strict_company (default): company_id IN (allowed companies) only.
