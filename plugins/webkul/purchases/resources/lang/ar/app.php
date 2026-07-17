@@ -33,4 +33,22 @@ return [
         'terms-and-conditions' => 'الشروط والأحكام:',
         'additional-terms' => 'شروط إضافية:',
     ],
+
+    'quotation-response' => [
+        'title' => 'طلب عرض سعر',
+        'confirm' => [
+            'heading' => 'تأكيد ردك',
+            'body' => 'أنت على وشك الرد على طلب عرض السعر :order من :vendor. انقر على الزر أدناه للتأكيد.',
+            'accept-button' => 'تأكيد القبول',
+            'decline-button' => 'تأكيد الرفض',
+        ],
+        'messages' => [
+            'accepted' => 'تم قبول طلب عرض السعر.',
+            'declined' => 'تم رفض طلب عرض السعر.',
+            'already-recorded' => 'تم تسجيل ردك مسبقاً.',
+            'conflict' => 'هذا الرد غير متوافق مع الحالة الحالية للطلب.',
+            'link-invalid' => 'هذا الرابط غير صالح أو منتهي الصلاحية.',
+            'order-unavailable' => 'طلب عرض السعر هذا غير متاح.',
+        ],
+    ],
 ];

@@ -4,6 +4,8 @@ namespace Webkul\Purchase;
 
 use Filament\Panel;
 use Illuminate\Foundation\AliasLoader;
+use Illuminate\Http\Request;
+use Illuminate\Routing\Exceptions\InvalidSignatureException;
 use Illuminate\Support\Facades\Event;
 use Livewire\Livewire;
 use Webkul\Inventory\Events\OperationBackOrdered;
@@ -81,6 +83,31 @@ class PurchaseServiceProvider extends PackageServiceProvider
         // \Webkul\Account\Models\Move::observe(\Webkul\Purchase\Observers\AccountMoveObserver::class);
 
         $this->contributeProductSchema();
+
+        $this->renderExpiredQuotationResponseLinks();
+    }
+
+    /**
+     * Scoped to this plugin's own signed route only (Intelligent-Integration-Suite#138,
+     * PR 1) — does not touch the app's shared exception handling in
+     * bootstrap/app.php, so it can't affect signed links from any other
+     * plugin.
+     */
+    protected function renderExpiredQuotationResponseLinks(): void
+    {
+        $this->app->make(\Illuminate\Contracts\Debug\ExceptionHandler::class)->renderable(
+            function (InvalidSignatureException $e, Request $request) {
+                if ($request->routeIs('purchases.quotations.respond*')) {
+                    return response()->view('purchases::quotation-response.result', [
+                        'status'     => 403,
+                        'outcome'    => 'link_invalid',
+                        'action'     => $request->route('action'),
+                        'order'      => null,
+                        'idempotent' => false,
+                    ], 403);
+                }
+            }
+        );
     }
 
     protected function contributeProductSchema(): void
@@ -105,5 +132,7 @@ class PurchaseServiceProvider extends PackageServiceProvider
         $loader->alias('purchase_order', PurchaseOrderFacade::class);
 
         $this->app->singleton('purchase_order', PurchaseOrder::class);
+
+        $this->mergeConfigFrom(__DIR__.'/../config/purchases.php', 'purchases');
     }
 }
