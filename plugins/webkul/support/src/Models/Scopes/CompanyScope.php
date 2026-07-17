@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Scope;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use LogicException;
 use Webkul\Support\Enums\CompanyContextMode;
 use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
 use Webkul\Support\Services\CompanyContext;
@@ -70,6 +71,18 @@ class CompanyScope implements Scope
     public function apply(Builder $builder, Model $model): void
     {
         $user = Auth::user();
+
+        // CompanyContext::run() already refuses to open a context for an
+        // authenticated actor, but that only guards the moment the context
+        // is opened — if a callback authenticates a user WHILE its context
+        // is still active (e.g. an unexpected Auth::login() deeper in the
+        // call stack), the two must never silently coexist. The precedence
+        // matrix (ADR 0007) declares an authenticated actor with any active
+        // system context an invalid state, not "user wins" — fail loud
+        // here instead of silently prioritizing the user.
+        if ($user && CompanyContext::current()) {
+            throw new LogicException('An authenticated user is active while a CompanyContext is still open — these are mutually exclusive (ADR 0007).');
+        }
 
         if ($user) {
             $companyIds = static::allowedCompanyIds($user);

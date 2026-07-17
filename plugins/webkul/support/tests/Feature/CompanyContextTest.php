@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Webkul\Purchase\Models\Order;
 use Webkul\Security\Models\User;
 use Webkul\Support\Enums\CompanyContextMode;
 use Webkul\Support\Models\Company;
@@ -10,7 +11,10 @@ use Webkul\Support\Services\CompanyContext;
 require_once __DIR__.'/../Helpers/TestBootstrapHelper.php';
 
 beforeEach(function () {
-    TestBootstrapHelper::ensureERPInstalled();
+    // ensurePluginInstalled('purchases') installs the base ERP too, and
+    // gives us a real HasCompanyScope model (Order) for the mutual-
+    // exclusion invariant test below.
+    TestBootstrapHelper::ensurePluginInstalled('purchases');
     Auth::logout();
 });
 
@@ -117,25 +121,50 @@ it('throws when opening all_companies while a company context is already active'
     });
 });
 
-it('reuses the active context on a reentrant call for the exact same mode and company (nested bootstrap install)', function () {
-    $depthSeen = [];
-
-    CompanyContext::runForBootstrap(reason: 'outer', caller: 'test', callback: function () use (&$depthSeen) {
-        $depthSeen[] = CompanyContext::current();
-
-        // Simulates a plugin install command recursively installing a
-        // dependency's own install command in the same process (PR 2B) —
-        // the inner call must reuse the outer context, not throw.
-        CompanyContext::runForBootstrap(reason: 'inner (dependency install)', caller: 'test', callback: function () use (&$depthSeen) {
-            $depthSeen[] = CompanyContext::current();
-        });
-
-        expect(CompanyContext::current())->not->toBeNull();
+it('throws when opening the exact same mode and company while one is already active — no reentrancy', function () {
+    CompanyContext::runForBootstrap(reason: 'outer', caller: 'test', callback: function () {
+        expect(fn () => CompanyContext::runForBootstrap(reason: 'inner', caller: 'test', callback: fn () => null))
+            ->toThrow(LogicException::class);
     });
 
-    expect(CompanyContext::current())->toBeNull()
-        ->and($depthSeen[0]->mode)->toBe(CompanyContextMode::BOOTSTRAP)
-        ->and($depthSeen[1]->mode)->toBe(CompanyContextMode::BOOTSTRAP);
+    expect(CompanyContext::current())->toBeNull();
+});
+
+it('rejects an explicitly empty correlation_id', function () {
+    expect(fn () => CompanyContext::runForAllCompanies(reason: 'test', caller: 'test', callback: fn () => null, correlationId: ''))
+        ->toThrow(LogicException::class);
+
+    expect(fn () => CompanyContext::runForAllCompanies(reason: 'test', caller: 'test', callback: fn () => null, correlationId: '   '))
+        ->toThrow(LogicException::class);
+});
+
+it('autogenerates a correlation_id when none is given', function () {
+    $seen = null;
+
+    CompanyContext::runForAllCompanies(reason: 'test', caller: 'test', callback: function () use (&$seen) {
+        $seen = CompanyContext::current();
+    });
+
+    expect($seen->correlationId)->not->toBeEmpty();
+});
+
+it('fails closed via CompanyScope when an authenticated user and an active context coexist', function () {
+    // CompanyContext::run() already refuses to OPEN a context for an
+    // authenticated actor; this proves the complementary case — a user
+    // that becomes authenticated WHILE a context opened before them is
+    // still active must not be silently prioritized (ADR 0007 declares
+    // this combination mutually exclusive, not "user wins").
+    $company = Company::factory()->create();
+    $order = Order::factory()->create(['company_id' => $company->id]);
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $company->id]));
+
+    CompanyContext::runForCompany($company->id, reason: 'test', caller: 'test', callback: function () use ($user, $order) {
+        Auth::setUser($user);
+
+        expect(fn () => Order::query()->find($order->id))->toThrow(LogicException::class);
+
+        Auth::logout();
+    });
 });
 
 it('requireCompanyId returns the company id only in company mode', function () {

@@ -45,23 +45,12 @@ class InstallERP extends Command
      */
     public function handle()
     {
-        if (
-            $this->isAlreadyInstalled()
-            && ! $this->option('force')
-        ) {
-            if (! $this->handleReinstallation()) {
-                $this->info('Installation cancelled.');
-
-                return;
-            }
-        }
-
-        $this->info('🚀 Starting ERP System Installation...');
-
-        // Migrations, seeders and admin-user creation run with no
-        // authenticated actor — CompanyScope now fails closed (1=0) for
-        // any HasCompanyScope model query without one (ADR 0007), so the
-        // whole install flow needs an explicit bootstrap context. Nested
+        // The whole flow — including a confirmed reinstall's migrate:fresh,
+        // every migration/seeder, admin-user creation, and the
+        // aureus.installed event — runs with no authenticated actor.
+        // CompanyScope now fails closed (1=0) for any HasCompanyScope model
+        // query without one (ADR 0007), so all of it needs to sit inside a
+        // single bootstrap context, not just the seeding steps. Nested
         // seeders/installers invoked in-process (Artisan::call(),
         // $this->call()) share this same context, they don't need their
         // own.
@@ -69,6 +58,19 @@ class InstallERP extends Command
             reason: 'erp:install fresh installation',
             caller: static::class,
             callback: function () {
+                if (
+                    $this->isAlreadyInstalled()
+                    && ! $this->option('force')
+                ) {
+                    if (! $this->handleReinstallation()) {
+                        $this->info('Installation cancelled.');
+
+                        return;
+                    }
+                }
+
+                $this->info('🚀 Starting ERP System Installation...');
+
                 $this->runMigrations();
 
                 $this->generateRolesAndPermissions();
@@ -78,14 +80,14 @@ class InstallERP extends Command
                 $this->runSeeder();
 
                 $this->createAdminUser();
+
+                $this->markAsInstalled();
+
+                Event::dispatch('aureus.installed');
+
+                $this->info('🎉 ERP System installation completed successfully!');
             },
         );
-
-        $this->markAsInstalled();
-
-        Event::dispatch('aureus.installed');
-
-        $this->info('🎉 ERP System installation completed successfully!');
     }
 
     /**
@@ -241,7 +243,14 @@ class InstallERP extends Command
     {
         $this->info('👤 Creating an Admin user...');
 
-        $defaultCompany = Company::first();
+        // No stable business key to look up by here — CompanySeeder always
+        // deletes every existing company row and inserts exactly one
+        // (Intelligent-Integration-Suite#138, ADR 0007 forbids picking an
+        // arbitrary company in a system process). Company::first() would
+        // silently pick "whichever" if that invariant ever broke; sole()
+        // asserts the cardinality explicitly and throws instead of
+        // guessing.
+        $defaultCompany = Company::sole();
 
         $userModel = app(Utils::getAuthProviderFQCN());
 
