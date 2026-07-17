@@ -8,6 +8,7 @@ use Webkul\Sale\Models\Order;
 use Webkul\Sale\Models\OrderLine;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -28,14 +29,19 @@ afterEach(fn () => SecurityHelper::restoreUserEvents());
 it('allows an OrderLine for company A referencing a Product from company A', function () {
     $companyA = Company::factory()->create();
 
-    $order = Order::factory()->create(['company_id' => $companyA->id]);
-    $product = Product::factory()->create(['company_id' => $companyA->id]);
+    // No acting user anywhere in this test — OrderLine::created() reads
+    // $this->order (strict_company), so it needs an explicit system
+    // context instead of relying on the no-user implicit bypass (ADR 0007).
+    $line = CompanyContext::runForCompany($companyA->id, reason: 'test fixture setup', caller: __FILE__, callback: function () use ($companyA) {
+        $order = Order::factory()->create(['company_id' => $companyA->id]);
+        $product = Product::factory()->create(['company_id' => $companyA->id]);
 
-    $line = OrderLine::factory()->create([
-        'order_id'   => $order->id,
-        'company_id' => $companyA->id,
-        'product_id' => $product->id,
-    ]);
+        return OrderLine::factory()->create([
+            'order_id'   => $order->id,
+            'company_id' => $companyA->id,
+            'product_id' => $product->id,
+        ]);
+    });
 
     expect($line->exists)->toBeTrue();
 });
@@ -63,16 +69,18 @@ it('forbids an OrderLine for company A referencing a Product from company B, eve
 it('allows an OrderLine for company A referencing a Packaging from company A', function () {
     $companyA = Company::factory()->create();
 
-    $order = Order::factory()->create(['company_id' => $companyA->id]);
-    $product = Product::factory()->create(['company_id' => $companyA->id]);
-    $packaging = Packaging::factory()->create(['product_id' => $product->id, 'company_id' => $companyA->id]);
+    $line = CompanyContext::runForCompany($companyA->id, reason: 'test fixture setup', caller: __FILE__, callback: function () use ($companyA) {
+        $order = Order::factory()->create(['company_id' => $companyA->id]);
+        $product = Product::factory()->create(['company_id' => $companyA->id]);
+        $packaging = Packaging::factory()->create(['product_id' => $product->id, 'company_id' => $companyA->id]);
 
-    $line = OrderLine::factory()->create([
-        'order_id'              => $order->id,
-        'company_id'            => $companyA->id,
-        'product_id'            => $product->id,
-        'product_packaging_id'  => $packaging->id,
-    ]);
+        return OrderLine::factory()->create([
+            'order_id'             => $order->id,
+            'company_id'           => $companyA->id,
+            'product_id'           => $product->id,
+            'product_packaging_id' => $packaging->id,
+        ]);
+    });
 
     expect($line->exists)->toBeTrue();
 });

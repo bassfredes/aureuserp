@@ -14,6 +14,7 @@ use Webkul\Security\Enums\PermissionType;
 use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -69,7 +70,11 @@ it('requires authentication to list quantities', function () {
 });
 
 it('requires authentication to show a quantity', function () {
-    $quantity = ProductQuantity::factory()->create();
+    // No acting user in this test (it proves the 401) —
+    // ProductQuantity::getUomAttribute() reads $this->product->uom
+    // (strict_company), so it needs an explicit system context instead of
+    // the no-user implicit bypass (ADR 0007).
+    $quantity = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: fn () => ProductQuantity::factory()->create());
 
     $this->getJson(inventoryQuantityRoute('show', $quantity))
         ->assertUnauthorized();

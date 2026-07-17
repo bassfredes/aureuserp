@@ -1,0 +1,261 @@
+<?php
+
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Webkul\Purchase\Models\Order;
+use Webkul\Security\Models\User;
+use Webkul\Support\Enums\CompanyContextMode;
+use Webkul\Support\Models\Company;
+use Webkul\Support\Services\CompanyContext;
+
+require_once __DIR__.'/../Helpers/TestBootstrapHelper.php';
+
+beforeEach(function () {
+    // ensurePluginInstalled('purchases') installs the base ERP too, and
+    // gives us a real HasCompanyScope model (Order) for the mutual-
+    // exclusion invariant test below.
+    TestBootstrapHelper::ensurePluginInstalled('purchases');
+    Auth::logout();
+});
+
+it('has no active context by default', function () {
+    expect(CompanyContext::current())->toBeNull();
+});
+
+it('runForCompany exposes the company mode and id only during the callback', function () {
+    $company = Company::factory()->create();
+
+    $seen = null;
+
+    $result = CompanyContext::runForCompany($company->id, reason: 'test', caller: 'test', callback: function () use (&$seen) {
+        $seen = CompanyContext::current();
+
+        return 'done';
+    });
+
+    expect($result)->toBe('done')
+        ->and($seen->mode)->toBe(CompanyContextMode::COMPANY)
+        ->and($seen->companyId)->toBe($company->id)
+        ->and(CompanyContext::current())->toBeNull();
+});
+
+it('runForCompany throws for a company that does not exist', function () {
+    expect(fn () => CompanyContext::runForCompany(999999, reason: 'test', caller: 'test', callback: fn () => null))
+        ->toThrow(LogicException::class);
+
+    expect(CompanyContext::current())->toBeNull();
+});
+
+it('runForCompany throws for a soft-deleted company', function () {
+    $company = Company::factory()->create();
+    $company->delete();
+
+    expect(fn () => CompanyContext::runForCompany($company->id, reason: 'test', caller: 'test', callback: fn () => null))
+        ->toThrow(LogicException::class);
+});
+
+it('runForAllCompanies exposes the all_companies mode with no company id', function () {
+    $seen = null;
+
+    CompanyContext::runForAllCompanies(reason: 'test', caller: 'test', callback: function () use (&$seen) {
+        $seen = CompanyContext::current();
+    });
+
+    expect($seen->mode)->toBe(CompanyContextMode::ALL_COMPANIES)
+        ->and($seen->companyId)->toBeNull()
+        ->and(CompanyContext::current())->toBeNull();
+});
+
+it('runForBootstrap exposes the bootstrap mode with no company id', function () {
+    $seen = null;
+
+    CompanyContext::runForBootstrap(reason: 'test', caller: 'test', callback: function () use (&$seen) {
+        $seen = CompanyContext::current();
+    });
+
+    expect($seen->mode)->toBe(CompanyContextMode::BOOTSTRAP)
+        ->and($seen->companyId)->toBeNull();
+});
+
+it('restores the previous (empty) state after the callback throws', function () {
+    expect(fn () => CompanyContext::runForAllCompanies(reason: 'test', caller: 'test', callback: function () {
+        throw new RuntimeException('boom');
+    }))->toThrow(RuntimeException::class);
+
+    expect(CompanyContext::current())->toBeNull();
+});
+
+it('refuses to open a context for an authenticated actor', function () {
+    $user = User::withoutEvents(fn () => User::factory()->create());
+
+    Auth::setUser($user);
+
+    expect(fn () => CompanyContext::runForAllCompanies(reason: 'test', caller: 'test', callback: fn () => null))
+        ->toThrow(LogicException::class);
+});
+
+it('requires a non-empty reason and caller', function () {
+    expect(fn () => CompanyContext::runForAllCompanies(reason: '', caller: 'test', callback: fn () => null))
+        ->toThrow(LogicException::class);
+
+    expect(fn () => CompanyContext::runForAllCompanies(reason: 'test', caller: '', callback: fn () => null))
+        ->toThrow(LogicException::class);
+});
+
+it('throws when opening a different context while one is already active', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    CompanyContext::runForCompany($companyA->id, reason: 'outer', caller: 'test', callback: function () use ($companyB) {
+        expect(fn () => CompanyContext::runForCompany($companyB->id, reason: 'inner', caller: 'test', callback: fn () => null))
+            ->toThrow(LogicException::class);
+    });
+});
+
+it('throws when opening all_companies while a company context is already active', function () {
+    $company = Company::factory()->create();
+
+    CompanyContext::runForCompany($company->id, reason: 'outer', caller: 'test', callback: function () {
+        expect(fn () => CompanyContext::runForAllCompanies(reason: 'inner', caller: 'test', callback: fn () => null))
+            ->toThrow(LogicException::class);
+    });
+});
+
+it('throws when opening the exact same mode and company while one is already active — no reentrancy', function () {
+    CompanyContext::runForBootstrap(reason: 'outer', caller: 'test', callback: function () {
+        expect(fn () => CompanyContext::runForBootstrap(reason: 'inner', caller: 'test', callback: fn () => null))
+            ->toThrow(LogicException::class);
+    });
+
+    expect(CompanyContext::current())->toBeNull();
+});
+
+it('rejects an explicitly empty correlation_id', function () {
+    expect(fn () => CompanyContext::runForAllCompanies(reason: 'test', caller: 'test', callback: fn () => null, correlationId: ''))
+        ->toThrow(LogicException::class);
+
+    expect(fn () => CompanyContext::runForAllCompanies(reason: 'test', caller: 'test', callback: fn () => null, correlationId: '   '))
+        ->toThrow(LogicException::class);
+});
+
+it('autogenerates a correlation_id when none is given', function () {
+    $seen = null;
+
+    CompanyContext::runForAllCompanies(reason: 'test', caller: 'test', callback: function () use (&$seen) {
+        $seen = CompanyContext::current();
+    });
+
+    expect($seen->correlationId)->not->toBeEmpty();
+});
+
+it('logs out a user the callback authenticated, even when nothing scoped is ever queried', function () {
+    // The CompanyScope guard only fires when a scoped query actually runs
+    // — a callback that calls Auth::setUser() and returns without
+    // querying anything would otherwise leave that actor authenticated
+    // for whatever runs next in this process (e.g. a reused queue
+    // worker). CompanyContext itself, not a downstream query, must never
+    // let that leak past its own boundary.
+    $user = User::withoutEvents(fn () => User::factory()->create());
+
+    CompanyContext::runForAllCompanies(reason: 'test', caller: 'test', callback: function () use ($user) {
+        Auth::setUser($user);
+
+        expect(Auth::user())->not->toBeNull();
+    });
+
+    expect(Auth::user())->toBeNull();
+});
+
+it('fails closed via CompanyScope when an authenticated user and an active context coexist', function () {
+    // CompanyContext::run() already refuses to OPEN a context for an
+    // authenticated actor; this proves the complementary case — a user
+    // that becomes authenticated WHILE a context opened before them is
+    // still active must not be silently prioritized (ADR 0007 declares
+    // this combination mutually exclusive, not "user wins").
+    $company = Company::factory()->create();
+    $order = Order::factory()->create(['company_id' => $company->id]);
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $company->id]));
+
+    CompanyContext::runForCompany($company->id, reason: 'test', caller: 'test', callback: function () use ($user, $order) {
+        Auth::setUser($user);
+
+        expect(fn () => Order::query()->find($order->id))->toThrow(LogicException::class);
+
+        Auth::logout();
+    });
+});
+
+it('requireCompanyId returns the company id only in company mode', function () {
+    $company = Company::factory()->create();
+
+    $seen = null;
+
+    CompanyContext::runForCompany($company->id, reason: 'test', caller: 'test', callback: function () use (&$seen) {
+        $seen = CompanyContext::requireCompanyId();
+    });
+
+    expect($seen)->toBe($company->id);
+});
+
+it('requireCompanyId throws outside any active context', function () {
+    expect(fn () => CompanyContext::requireCompanyId())->toThrow(LogicException::class);
+});
+
+it('requireCompanyId throws in all_companies mode', function () {
+    CompanyContext::runForAllCompanies(reason: 'test', caller: 'test', callback: function () {
+        expect(fn () => CompanyContext::requireCompanyId())->toThrow(LogicException::class);
+    });
+});
+
+it('requireCompanyId throws in bootstrap mode', function () {
+    CompanyContext::runForBootstrap(reason: 'test', caller: 'test', callback: function () {
+        expect(fn () => CompanyContext::requireCompanyId())->toThrow(LogicException::class);
+    });
+});
+
+it('logs started/completed audit events at the level matching the mode', function () {
+    // Log::spy() alone leaves Log::channel(...) resolving to null (a spy
+    // has no real return value for an unconfigured method) — andReturnSelf()
+    // keeps the ->channel(...)->info(...) chain on the same mock.
+    Log::shouldReceive('channel')->andReturnSelf();
+    Log::shouldReceive('info')
+        ->once()
+        ->withArgs(fn ($message, $context) => $message === 'company_context.started'
+            && $context['mode'] === 'company'
+            && $context['reason'] === 'audit test'
+            && $context['caller'] === 'test-caller'
+        );
+    Log::shouldReceive('info')
+        ->once()
+        ->withArgs(fn ($message, $context) => $message === 'company_context.completed' && isset($context['duration_ms']));
+
+    $company = Company::factory()->create();
+
+    CompanyContext::runForCompany($company->id, reason: 'audit test', caller: 'test-caller', callback: fn () => null);
+});
+
+it('logs all_companies and bootstrap events at warning level', function () {
+    Log::shouldReceive('channel')->andReturnSelf();
+    Log::shouldReceive('warning')
+        ->once()
+        ->withArgs(fn ($message, $context) => $message === 'company_context.started' && $context['mode'] === 'all_companies');
+    Log::shouldReceive('warning')->withArgs(fn ($message) => $message === 'company_context.completed');
+
+    CompanyContext::runForAllCompanies(reason: 'test', caller: 'test', callback: fn () => null);
+});
+
+it('logs a failed audit event with the exception class when the callback throws', function () {
+    Log::shouldReceive('channel')->andReturnSelf();
+    Log::shouldReceive('warning')->withArgs(fn ($message) => $message === 'company_context.started');
+    Log::shouldReceive('warning')
+        ->once()
+        ->withArgs(fn ($message, $context) => $message === 'company_context.failed' && $context['exception_class'] === RuntimeException::class);
+
+    try {
+        CompanyContext::runForAllCompanies(reason: 'test', caller: 'test', callback: function () {
+            throw new RuntimeException('boom');
+        });
+    } catch (RuntimeException) {
+        // expected
+    }
+});

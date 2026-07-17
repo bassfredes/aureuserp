@@ -1,6 +1,5 @@
 <?php
 
-use Illuminate\Support\Facades\Auth;
 use Webkul\Inventory\Enums\OperationState;
 use Webkul\Inventory\Models\Delivery;
 use Webkul\Inventory\Models\Operation;
@@ -62,9 +61,15 @@ function receiptPayload(array $overrides = []): array
 
 function createReceiptRecord(array $overrides = []): Receipt
 {
-    $operation = Operation::factory()->receipt()->create($overrides);
+    // Operation::updateName() reads $this->operationType->warehouse
+    // (strict_company) — this helper is called both before and after
+    // actingAs*() across this file, so it needs whichever system context
+    // applies at the moment it runs (ADR 0007).
+    return TestBootstrapHelper::withSystemContextIfNoUser(function () use ($overrides) {
+        $operation = Operation::factory()->receipt()->create($overrides);
 
-    return Receipt::query()->findOrFail($operation->id);
+        return Receipt::query()->findOrFail($operation->id);
+    });
 }
 
 it('requires authentication to list receipts', function () {

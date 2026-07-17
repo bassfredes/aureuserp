@@ -2,14 +2,20 @@
 
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Auth;
+use Webkul\Product\Models\Attribute;
+use Webkul\Product\Models\AttributeOption;
+use Webkul\Product\Models\Packaging;
 use Webkul\Product\Models\PriceList;
 use Webkul\Product\Models\PriceRule;
 use Webkul\Product\Models\PriceRuleItem;
 use Webkul\Product\Models\Product;
+use Webkul\Product\Models\ProductAttribute;
+use Webkul\Product\Models\ProductAttributeValue;
 use Webkul\Product\Models\ProductSupplier;
 use Webkul\Security\Models\Role;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -104,27 +110,27 @@ it('keeps a generated variant in the same company as its parent product', functi
 
     $parent = Product::factory()->create(['company_id' => $companyA->id, 'is_configurable' => true]);
 
-    $attribute = \Webkul\Product\Models\Attribute::factory()->create();
-    $optionOne = \Webkul\Product\Models\AttributeOption::factory()->create(['attribute_id' => $attribute->id]);
-    $optionTwo = \Webkul\Product\Models\AttributeOption::factory()->create(['attribute_id' => $attribute->id]);
+    $attribute = Attribute::factory()->create();
+    $optionOne = AttributeOption::factory()->create(['attribute_id' => $attribute->id]);
+    $optionTwo = AttributeOption::factory()->create(['attribute_id' => $attribute->id]);
 
-    $productAttribute = \Webkul\Product\Models\ProductAttribute::factory()->create([
+    $productAttribute = ProductAttribute::factory()->create([
         'product_id'   => $parent->id,
         'attribute_id' => $attribute->id,
     ]);
 
-    \Webkul\Product\Models\ProductAttributeValue::query()->insert([
+    ProductAttributeValue::query()->insert([
         [
-            'product_id'          => $parent->id,
-            'attribute_id'        => $attribute->id,
+            'product_id'           => $parent->id,
+            'attribute_id'         => $attribute->id,
             'product_attribute_id' => $productAttribute->id,
-            'attribute_option_id' => $optionOne->id,
+            'attribute_option_id'  => $optionOne->id,
         ],
         [
-            'product_id'          => $parent->id,
-            'attribute_id'        => $attribute->id,
+            'product_id'           => $parent->id,
+            'attribute_id'         => $attribute->id,
             'product_attribute_id' => $productAttribute->id,
-            'attribute_option_id' => $optionTwo->id,
+            'attribute_option_id'  => $optionTwo->id,
         ],
     ]);
 
@@ -148,13 +154,13 @@ it('hides packagings from companies the user is not allowed to see', function ()
 
     $productA = Product::factory()->create(['company_id' => $companyA->id]);
     $productB = Product::factory()->create(['company_id' => $companyB->id]);
-    $packagingA = \Webkul\Product\Models\Packaging::factory()->create(['product_id' => $productA->id, 'company_id' => $companyA->id]);
-    $packagingB = \Webkul\Product\Models\Packaging::factory()->create(['product_id' => $productB->id, 'company_id' => $companyB->id]);
+    $packagingA = Packaging::factory()->create(['product_id' => $productA->id, 'company_id' => $companyA->id]);
+    $packagingB = Packaging::factory()->create(['product_id' => $productB->id, 'company_id' => $companyB->id]);
 
     test()->actingAs($userA);
 
-    expect(\Webkul\Product\Models\Packaging::find($packagingA->id))->not->toBeNull();
-    expect(\Webkul\Product\Models\Packaging::find($packagingB->id))->toBeNull();
+    expect(Packaging::find($packagingA->id))->not->toBeNull();
+    expect(Packaging::find($packagingB->id))->toBeNull();
 });
 
 it('hides all packagings from an authenticated user without company access', function () {
@@ -165,11 +171,11 @@ it('hides all packagings from an authenticated user without company access', fun
     ]));
 
     $product = Product::factory()->create(['company_id' => $company->id]);
-    \Webkul\Product\Models\Packaging::factory()->create(['product_id' => $product->id, 'company_id' => $company->id]);
+    Packaging::factory()->create(['product_id' => $product->id, 'company_id' => $company->id]);
 
     test()->actingAs($user);
 
-    expect(\Webkul\Product\Models\Packaging::query()->count())->toBe(0);
+    expect(Packaging::query()->count())->toBe(0);
 });
 
 // ── ProductSupplier ──────────────────────────────────────────────────────────
@@ -295,13 +301,49 @@ it('hides price lists from companies the user is not allowed to see', function (
     expect(PriceList::find($listB->id))->toBeNull();
 });
 
-it('does not filter products when there is no authenticated user', function () {
+it('fails closed on products when there is no authenticated user and no system context', function () {
     $company = Company::factory()->create();
     Product::factory()->create(['company_id' => $company->id]);
 
     Auth::logout();
 
-    expect(Product::query()->count())->toBeGreaterThanOrEqual(1);
+    expect(Product::query()->count())->toBe(0);
+});
+
+it('lets an explicit company system context see exactly that company\'s products with no authenticated user', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    Product::factory()->create(['company_id' => $companyB->id]);
+
+    Auth::logout();
+
+    $visibleIds = CompanyContext::runForCompany(
+        $companyA->id,
+        reason: 'test: company system context visibility',
+        caller: __FILE__,
+        callback: fn () => Product::query()->pluck('id'),
+    );
+
+    expect($visibleIds)->toContain($productA->id)
+        ->and($visibleIds)->toHaveCount(1);
+});
+
+it('lets an explicit all_companies system context see every product with no authenticated user', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    Product::factory()->create(['company_id' => $companyA->id]);
+    Product::factory()->create(['company_id' => $companyB->id]);
+
+    Auth::logout();
+
+    $count = CompanyContext::runForAllCompanies(
+        reason: 'test: all_companies system context visibility',
+        caller: __FILE__,
+        callback: fn () => Product::query()->count(),
+    );
+
+    expect($count)->toBeGreaterThanOrEqual(2);
 });
 
 // ── Relation invariants, enforced at the model level (review on PR #11) ────
@@ -320,7 +362,7 @@ it('forbids creating a Packaging for company A referencing a Product from compan
 
     $productB = Product::factory()->create(['company_id' => $companyB->id]);
 
-    expect(fn () => \Webkul\Product\Models\Packaging::factory()->create([
+    expect(fn () => Packaging::factory()->create([
         'product_id' => $productB->id,
         'company_id' => $companyA->id,
     ]))->toThrow(AuthorizationException::class);
@@ -338,7 +380,7 @@ it('forbids changing a Packaging to reference a Product from a different company
 
     $productA = Product::factory()->create(['company_id' => $companyA->id]);
     $productB = Product::factory()->create(['company_id' => $companyB->id]);
-    $packaging = \Webkul\Product\Models\Packaging::factory()->create([
+    $packaging = Packaging::factory()->create([
         'product_id' => $productA->id,
         'company_id' => $companyA->id,
     ]);
@@ -448,7 +490,7 @@ it('forbids changing only a Packaging\'s company_id to a company that mismatches
     test()->actingAs($user);
 
     $product = Product::factory()->create(['company_id' => $companyA->id]);
-    $packaging = \Webkul\Product\Models\Packaging::factory()->create([
+    $packaging = Packaging::factory()->create([
         'product_id' => $product->id,
         'company_id' => $companyA->id,
     ]);

@@ -2,11 +2,13 @@
 
 // apps/aureuserp/tests/Feature/Console/SeedGoldStandardDatasetCommandTest.php
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Schema;
 use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\Warehouse;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../plugins/webkul/support/tests/Helpers/TestBootstrapHelper.php';
 
@@ -39,7 +41,20 @@ require_once __DIR__.'/../../../plugins/webkul/support/tests/Helpers/TestBootstr
 uses()->group('gold-standard-dataset');
 
 beforeEach(function () {
-    if (! Schema::hasTable('inventories_locations') || ! Location::query()->exists()) {
+    // No hay usuario autenticado ni contexto de sistema en este punto (el
+    // propio comando bajo prueba es quien abre uno via Auth::setUser(),
+    // mas abajo en cada test) — CompanyScope ahora falla cerrado sin
+    // contexto (ADR 0007), asi que esta verificacion de precondicion (no
+    // una asercion de negocio) necesita un bypass explicito para poder ver
+    // si la base ya esta pre-sembrada, sin filtrar por compania.
+    $preSeeded = Schema::hasTable('inventories_locations')
+        && CompanyContext::runForAllCompanies(
+            reason: 'test precondition check',
+            caller: 'SeedGoldStandardDatasetCommandTest',
+            callback: fn () => Location::query()->exists(),
+        );
+
+    if (! $preSeeded) {
         $this->fail(
             'La base de test no esta pre-sembrada (faltan inventories_locations). '
             .'Este test requiere que erp:install + inventories:install ya hayan corrido, fuera de cualquier '
@@ -59,12 +74,25 @@ beforeEach(function () {
 // comando y en TestBootstrapHelper::ensureERPInstalled() para que la base de
 // test refleje la identidad real que usara la captura final (Tarea 7).
 it('resolves company from the capture user and UOM/warehouses by stable keys, idempotently', function () {
+    // No hay usuario autenticado antes de invocar el comando — este test
+    // ejercita de verdad el lookup inicial sin actor y la restauracion via
+    // Auth::logout() del propio comando (SeedGoldStandardDatasetCommand::
+    // handle()), no solo su resultado final. actingAs() se aplica recien
+    // despues, para las aserciones, reflejando la captura HTTP real que
+    // vera los mismos datos autenticada como $captureUser.
+    Auth::logout();
+
     $captureUser = User::where('email', 'admin@erp.localhost')->first();
     expect($captureUser)->not->toBeNull();
     expect($captureUser->default_company_id)->not->toBeNull();
 
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
+    expect(Auth::user())->toBeNull();
+
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
+    expect(Auth::user())->toBeNull();
+
+    test()->actingAs($captureUser);
 
     expect(UOM::where('name', 'Units')->exists())->toBeTrue();
 
@@ -84,10 +112,15 @@ it('resolves company from the capture user and UOM/warehouses by stable keys, id
 use Webkul\Product\Models\Product;
 
 it('loads exactly the 41 canonical SKUs under the capture company, with guaranteed divergent metadata', function () {
+    Auth::logout();
+
     $captureUser = User::where('email', 'admin@erp.localhost')->first();
 
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
+    expect(Auth::user())->toBeNull();
+
+    test()->actingAs($captureUser);
 
     $csvLines = file(base_path('database/data/gold-standard-products-v1.csv'));
     // PHP 8.4 deprecates $escape implicito — "" (sin escape) coincide con
@@ -118,13 +151,19 @@ it('loads exactly the 41 canonical SKUs under the capture company, with guarante
 
 use Webkul\Inventory\Models\Move;
 use Webkul\Inventory\Models\ProductQuantity;
+use Webkul\Support\Models\Company;
 
 it('reconciles exactly the four required heterogeneous quantity cases over the canonical 41 SKUs', function () {
+    Auth::logout();
+
     $captureUser = User::where('email', 'admin@erp.localhost')->first();
     $companyId = $captureUser->default_company_id;
 
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
+    expect(Auth::user())->toBeNull();
+
+    test()->actingAs($captureUser);
 
     $bodegaCentral = Warehouse::where('code', 'BODEGA-CENTRAL')->where('company_id', $companyId)->first();
     $tienda = Warehouse::where('code', 'TIENDA-STGO')->where('company_id', $companyId)->first();
@@ -164,4 +203,30 @@ it('reconciles exactly the four required heterogeneous quantity cases over the c
     $movesBefore = Move::where('company_id', $companyId)->count();
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
     expect(Move::where('company_id', $companyId)->count())->toBe($movesBefore);
+});
+
+it('restores whichever different user was authenticated before the command ran, not just logs out', function () {
+    // SeedGoldStandardDatasetCommand::handle() does
+    // `$previousUser ? Auth::setUser($previousUser) : Auth::logout();` in
+    // its finally block — the other three tests only exercise the
+    // no-previous-actor branch. A real caller invoking this command
+    // programmatically (a job, another command) while already
+    // authenticated as someone else must get that exact actor back, not
+    // be silently logged out.
+    $company = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup',
+        caller: 'SeedGoldStandardDatasetCommandTest',
+        callback: fn () => Company::query()->first(),
+    );
+
+    $previousUser = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $company->id,
+    ]));
+
+    test()->actingAs($previousUser);
+
+    $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
+
+    expect(Auth::user())->not->toBeNull()
+        ->and(Auth::id())->toBe($previousUser->id);
 });

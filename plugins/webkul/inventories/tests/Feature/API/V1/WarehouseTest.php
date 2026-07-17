@@ -10,6 +10,7 @@ use Webkul\Security\Enums\PermissionType;
 use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -75,37 +76,49 @@ it('requires authentication to create a warehouse', function () {
 });
 
 it('requires authentication to show a warehouse', function () {
-    $warehouse = Warehouse::factory()->create();
+    // No acting user in this test (it proves the 401) — Warehouse's
+    // creation cascade reads the shared Vendors/Customers Location rows
+    // (company_or_shared), so it needs an explicit system context instead
+    // of the no-user implicit bypass (ADR 0007).
+    $warehouse = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: fn () => Warehouse::factory()->create());
 
     $this->getJson(inventoryWarehouseRoute('show', $warehouse))
         ->assertUnauthorized();
 });
 
 it('requires authentication to update a warehouse', function () {
-    $warehouse = Warehouse::factory()->create();
+    $warehouse = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: fn () => Warehouse::factory()->create());
 
     $this->patchJson(inventoryWarehouseRoute('update', $warehouse), [])
         ->assertUnauthorized();
 });
 
 it('requires authentication to delete a warehouse', function () {
-    $warehouse = Warehouse::factory()->create();
+    $warehouse = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: fn () => Warehouse::factory()->create());
 
     $this->deleteJson(inventoryWarehouseRoute('destroy', $warehouse))
         ->assertUnauthorized();
 });
 
 it('requires authentication to restore a warehouse', function () {
-    $warehouse = Warehouse::factory()->create();
-    $warehouse->delete();
+    $warehouse = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: function () {
+        $warehouse = Warehouse::factory()->create();
+        $warehouse->delete();
+
+        return $warehouse;
+    });
 
     $this->postJson(inventoryWarehouseRoute('restore', $warehouse))
         ->assertUnauthorized();
 });
 
 it('requires authentication to force-delete a warehouse', function () {
-    $warehouse = Warehouse::factory()->create();
-    $warehouse->delete();
+    $warehouse = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: function () {
+        $warehouse = Warehouse::factory()->create();
+        $warehouse->delete();
+
+        return $warehouse;
+    });
 
     $this->deleteJson(inventoryWarehouseRoute('force-destroy', $warehouse))
         ->assertUnauthorized();

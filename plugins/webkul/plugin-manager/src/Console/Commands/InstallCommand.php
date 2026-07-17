@@ -12,6 +12,8 @@ use Spatie\Permission\Models\Role;
 use Throwable;
 use Webkul\PluginManager\Models\Plugin;
 use Webkul\PluginManager\Package;
+use Webkul\Support\Enums\CompanyContextMode;
+use Webkul\Support\Services\CompanyContext;
 
 class InstallCommand extends Command
 {
@@ -60,6 +62,27 @@ class InstallCommand extends Command
             return self::SUCCESS;
         }
 
+        // Migrations/seeders run with no authenticated actor — CompanyScope
+        // now fails closed (1=0) for any HasCompanyScope model query
+        // without an explicit context (ADR 0007). Dependency installs
+        // recurse into this same command in-process (directly or via
+        // $this->call($dependency.':install', ...)) while the parent
+        // plugin's own bootstrap context is still open — CompanyContext
+        // itself never tolerates nesting, so this checks first and reuses
+        // the already-open context instead of trying to open a second one.
+        if (CompanyContext::current()?->mode === CompanyContextMode::BOOTSTRAP) {
+            return $this->installPackage();
+        }
+
+        return CompanyContext::runForBootstrap(
+            reason: "{$this->package->shortName()}:install",
+            caller: static::class,
+            callback: fn () => $this->installPackage(),
+        );
+    }
+
+    protected function installPackage()
+    {
         if ($this->startWith) {
             ($this->startWith)($this);
         }
@@ -94,7 +117,7 @@ class InstallCommand extends Command
 
                 $this->newLine();
 
-                return $this->handle();
+                return $this->installPackage();
             } else {
                 $this->error('Please install the dependencies first.');
 

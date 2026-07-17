@@ -23,9 +23,10 @@ class SeedGoldStandardDatasetCommand extends Command
     protected $description = 'Seed idempotente y determinista de 41 productos y stock correlacionables con Vendure, bajo la compania del usuario de captura, para el issue #145';
 
     // Debe coincidir con ERP_ADMIN_EMAIL en capture-erp-artifacts.ts (Tarea 7):
-    // CompanyScope no filtra sin usuario autenticado (consola), pero la captura
-    // HTTP si queda scopeada a este usuario — el seed debe crear todo bajo su
-    // default_company_id o la captura vera listas vacias.
+    // este comando impersona a $captureUser via Auth::setUser() (ver handle()),
+    // asi que CompanyScope lo trata igual que un request autenticado normal —
+    // el seed debe crear todo bajo su default_company_id o la captura HTTP
+    // posterior, tambien autenticada como este usuario, vera listas vacias.
     //
     // admin@erp.localhost (no admin@example.com) es el usuario admin real que
     // ya existe en la base compartida db_aureuserp (confirmado en preflight

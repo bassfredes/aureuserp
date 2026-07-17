@@ -1,10 +1,12 @@
 <?php
 
 use Illuminate\Support\Facades\Auth;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Webkul\Sale\Models\Order;
 use Webkul\Security\Models\Role;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -52,13 +54,49 @@ it('shows orders from every company explicitly allowed to the user', function ()
         ->toEqualCanonicalizing([$orderA->id, $orderB->id]);
 });
 
-it('does not filter orders when there is no authenticated user', function () {
+it('fails closed on orders when there is no authenticated user and no system context', function () {
     $companyA = Company::factory()->create();
     Order::factory()->create(['company_id' => $companyA->id]);
 
     Auth::logout();
 
-    expect(Order::query()->count())->toBeGreaterThanOrEqual(1);
+    expect(Order::query()->count())->toBe(0);
+});
+
+it('lets an explicit company system context see exactly that company\'s orders with no authenticated user', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $orderA = Order::factory()->create(['company_id' => $companyA->id]);
+    Order::factory()->create(['company_id' => $companyB->id]);
+
+    Auth::logout();
+
+    $visibleIds = CompanyContext::runForCompany(
+        $companyA->id,
+        reason: 'test: company system context visibility',
+        caller: __FILE__,
+        callback: fn () => Order::query()->pluck('id'),
+    );
+
+    expect($visibleIds)->toContain($orderA->id)
+        ->and($visibleIds)->toHaveCount(1);
+});
+
+it('lets an explicit all_companies system context see every order with no authenticated user', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    Order::factory()->create(['company_id' => $companyA->id]);
+    Order::factory()->create(['company_id' => $companyB->id]);
+
+    Auth::logout();
+
+    $count = CompanyContext::runForAllCompanies(
+        reason: 'test: all_companies system context visibility',
+        caller: __FILE__,
+        callback: fn () => Order::query()->count(),
+    );
+
+    expect($count)->toBeGreaterThanOrEqual(2);
 });
 
 it('hides all orders from an authenticated user without company access', function () {
@@ -107,5 +145,5 @@ it('forbids a non-super_admin from bypassing company isolation', function () {
     test()->actingAs($user);
 
     expect(fn () => Order::forAllCompanies())
-        ->toThrow(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+        ->toThrow(HttpException::class);
 });
