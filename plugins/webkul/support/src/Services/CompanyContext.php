@@ -155,6 +155,19 @@ class CompanyContext
 
             throw $e;
         } finally {
+            // CompanyScope::apply() also refuses to let a user and an
+            // active context coexist, but that guard only fires if the
+            // callback goes on to run a scoped query — a callback that
+            // calls Auth::setUser() and returns without querying anything
+            // scoped would otherwise leave that actor authenticated for
+            // whatever runs next in this process (e.g. a reused queue
+            // worker). The context owner, not a downstream query, is
+            // responsible for never letting that leak past its own
+            // boundary.
+            if (Auth::user()) {
+                Auth::logout();
+            }
+
             static::$current = null;
         }
     }

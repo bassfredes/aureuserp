@@ -148,6 +148,24 @@ it('autogenerates a correlation_id when none is given', function () {
     expect($seen->correlationId)->not->toBeEmpty();
 });
 
+it('logs out a user the callback authenticated, even when nothing scoped is ever queried', function () {
+    // The CompanyScope guard only fires when a scoped query actually runs
+    // — a callback that calls Auth::setUser() and returns without
+    // querying anything would otherwise leave that actor authenticated
+    // for whatever runs next in this process (e.g. a reused queue
+    // worker). CompanyContext itself, not a downstream query, must never
+    // let that leak past its own boundary.
+    $user = User::withoutEvents(fn () => User::factory()->create());
+
+    CompanyContext::runForAllCompanies(reason: 'test', caller: 'test', callback: function () use ($user) {
+        Auth::setUser($user);
+
+        expect(Auth::user())->not->toBeNull();
+    });
+
+    expect(Auth::user())->toBeNull();
+});
+
 it('fails closed via CompanyScope when an authenticated user and an active context coexist', function () {
     // CompanyContext::run() already refuses to OPEN a context for an
     // authenticated actor; this proves the complementary case — a user
