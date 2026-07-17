@@ -33,4 +33,22 @@ return [
         'terms-and-conditions' => 'Terms & Conditions:',
         'additional-terms' => 'Additional Terms:',
     ],
+
+    'quotation-response' => [
+        'title' => 'Request for Quotation',
+        'confirm' => [
+            'heading' => 'Confirm your response',
+            'body' => 'You are about to respond to request for quotation :order from :vendor. Click the button below to confirm.',
+            'accept-button' => 'Confirm acceptance',
+            'decline-button' => 'Confirm decline',
+        ],
+        'messages' => [
+            'accepted' => 'The RFQ has been accepted.',
+            'declined' => 'The RFQ has been declined.',
+            'already-recorded' => 'Your response has already been recorded.',
+            'conflict' => 'This response is not compatible with the current state of the request.',
+            'link-invalid' => 'This link is invalid or has expired.',
+            'order-unavailable' => 'This request for quotation is not available.',
+        ],
+    ],
 ];

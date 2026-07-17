@@ -58,12 +58,17 @@ class SendEmailAction extends Action
                     ->default(function () use ($record) {
                         $userName = Auth::user()->name;
 
-                        $acceptRespondUrl = URL::signedRoute('purchases.quotations.respond', [
+                        // No authoritative RFQ expiry date exists on the Order
+                        // model — the configured TTL is the only validity
+                        // window applied (Intelligent-Integration-Suite#138, PR 1).
+                        $expiresAt = now()->addMinutes((int) config('purchases.quotation_response_ttl_minutes'));
+
+                        $acceptRespondUrl = URL::temporarySignedRoute('purchases.quotations.respond', $expiresAt, [
                             'order'  => $record->id,
                             'action' => 'accept',
                         ]);
 
-                        $declineRespondUrl = URL::signedRoute('purchases.quotations.respond', [
+                        $declineRespondUrl = URL::temporarySignedRoute('purchases.quotations.respond', $expiresAt, [
                             'order'  => $record->id,
                             'action' => 'decline',
                         ]);

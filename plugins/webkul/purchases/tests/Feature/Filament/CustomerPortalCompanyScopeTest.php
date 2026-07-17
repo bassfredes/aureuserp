@@ -103,23 +103,38 @@ it('preserves internal user A/B company isolation alongside the customer-guard b
     expect(Order::find($orderB->id))->toBeNull();
 });
 
-it('lets the signed RespondQuotation flow update mail_reception_confirmed without an authenticated actor', function () {
+/**
+ * As of Intelligent-Integration-Suite#138 PR 1, the signed GET only
+ * renders a confirmation page — it no longer mutates the order. The
+ * actual accept/decline write happens on POST to the same signed URL.
+ * Both still work with no authenticated actor, bypassing CompanyScope
+ * only for the exact signed order id (see QuotationResponseService).
+ */
+it('lets the signed RespondQuotation GET render without mutating, and POST update mail_reception_confirmed, with no authenticated actor', function () {
     $company = Company::factory()->create();
     $vendor = Partner::factory()->create();
 
     $order = Order::factory()->create([
         'company_id' => $company->id,
         'partner_id' => $vendor->id,
+        'state'      => \Webkul\Purchase\Enums\OrderState::SENT,
     ]);
 
     Auth::logout();
 
-    $signedUrl = URL::signedRoute('purchases.quotations.respond', [
+    // Real links are always temporary now (review round 2, #138 PR 1) —
+    // a permanent signedRoute() is rejected outright before reaching this
+    // flow at all.
+    $signedUrl = URL::temporarySignedRoute('purchases.quotations.respond', now()->addHour(), [
         'order'  => $order->id,
         'action' => 'accept',
     ]);
 
     test()->get($signedUrl)->assertOk();
+
+    expect($order->fresh()->mail_reception_confirmed)->toBeFalse();
+
+    test()->post($signedUrl)->assertOk();
 
     expect($order->fresh()->mail_reception_confirmed)->toBeTrue();
 });

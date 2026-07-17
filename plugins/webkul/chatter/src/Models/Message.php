@@ -80,6 +80,14 @@ class Message extends Model
 
         if ($user) {
             static::creating(function ($data) use ($user) {
+                // Do not overwrite a causer already set explicitly (e.g. a
+                // Partner acting as the causer of an unauthenticated
+                // capability response, D5b/#138) — only fill it in when
+                // the caller left it blank.
+                if ($data->causer_type && $data->causer_id) {
+                    return;
+                }
+
                 DB::transaction(function () use ($data, $user) {
                     $data->causer_type = $user->getMorphClass();
                     $data->causer_id = $user->id;
@@ -87,6 +95,10 @@ class Message extends Model
             });
 
             static::updating(function ($data) use ($user) {
+                if ($data->causer_type && $data->causer_id) {
+                    return;
+                }
+
                 $data->causer_type = $user->getMorphClass();
                 $data->causer_id = $user->id;
             });
