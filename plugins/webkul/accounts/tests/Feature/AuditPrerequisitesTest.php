@@ -60,5 +60,13 @@ it('resolves BankStatementLine to its real migrated table and can be queried', f
     $line->statement_id = $statement->id;
     $line->save();
 
-    expect(BankStatementLine::query()->whereKey($line->id)->exists())->toBeTrue();
+    // BankStatementLine now carries HasCompanyScope (#138 audit follow-up)
+    // — with no acting user and no active CompanyContext, CompanyScope
+    // fails closed (ADR 0007), so this system-context read needs the same
+    // helper other no-user fixture reads already use.
+    $exists = TestBootstrapHelper::withSystemContextIfNoUser(
+        fn () => BankStatementLine::query()->whereKey($line->id)->exists()
+    );
+
+    expect($exists)->toBeTrue();
 });

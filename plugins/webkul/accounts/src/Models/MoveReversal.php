@@ -7,9 +7,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class MoveReversal extends Model
 {
+    use HasCompanyScope;
+
     protected $table = 'accounts_accounts_move_reversals';
 
     protected $fillable = [

@@ -2,6 +2,7 @@
 
 namespace Webkul\Manufacturing\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -17,11 +18,21 @@ use Webkul\Manufacturing\Enums\BillOfMaterialType;
 use Webkul\Product\Enums\ProductType;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
-class BillOfMaterial extends Model
+/**
+ * `company_id IS NULL` is a deliberate "global template" BOM, usable by any
+ * company — bomFindFilters() below already matches null-company BOMs
+ * alongside a specific company's own (`whereNull('company_id')->orWhere(...)`),
+ * predating this scope. IncludesSharedCompanyRows keeps that visible under
+ * CompanyScope instead of hiding it (ADR 0007, "company_or_shared").
+ */
+class BillOfMaterial extends Model implements IncludesSharedCompanyRows
 {
-    use HasFactory, SoftDeletes;
+    use HasCompanyScope, HasFactory, SoftDeletes, ValidatesRelatedCompanyScope;
 
     protected $table = 'manufacturing_bills_of_materials';
 
@@ -234,6 +245,30 @@ class BillOfMaterial extends Model
         return BillOfMaterialFactory::new();
     }
 
+    /**
+     * Shared (company_id IS NULL) rows are deliberate global templates
+     * (ADR 0007, "company_or_shared"), not incomplete data. Same guard
+     * pattern as Location: blocks any authenticated non-super_admin from
+     * creating or mutating one; no authenticated user (console, queue,
+     * seeders, installer) is a system context and stays unrestricted.
+     */
+    protected static function guardSharedRowMutation(bool $isNullCompany): void
+    {
+        if (! $isNullCompany) {
+            return;
+        }
+
+        if (! Auth::check()) {
+            return;
+        }
+
+        if (static::actingUserIsSuperAdmin()) {
+            return;
+        }
+
+        throw new AuthorizationException('Global BillOfMaterial templates (company_id is null) can only be created or modified by a super_admin or a system process.');
+    }
+
     protected static function boot(): void
     {
         parent::boot();
@@ -245,6 +280,22 @@ class BillOfMaterial extends Model
 
             $billOfMaterial->company_id ??= $authUser?->default_company_id;
 
+            // Checked after defaulting: a row still without a company_id at
+            // this point (no explicit value, no default from the acting
+            // user) is a deliberate global template, not a normal creation
+            // relying on the default above.
+            static::guardSharedRowMutation($billOfMaterial->company_id === null);
+
+            // A specific-company BOM referencing a Product from a different
+            // company is a relation-integrity gap CompanyScope's read
+            // isolation doesn't cover on its own (#138, same pattern D5b
+            // closed for sales/purchases/inventories, aureuserp#137). A
+            // null-company (global template) BOM has no company to check
+            // the Product against.
+            if ($billOfMaterial->company_id !== null) {
+                static::assertRelatedBelongsToCompany($billOfMaterial->product_id, Product::class, 'Product', $billOfMaterial->company_id);
+            }
+
             $billOfMaterial->type ??= BillOfMaterialType::NORMAL;
 
             $billOfMaterial->ready_to_produce ??= BillOfMaterialReadyToProduce::ALL_AVAILABLE;
@@ -254,6 +305,22 @@ class BillOfMaterial extends Model
             $billOfMaterial->produce_delay ??= 0;
 
             $billOfMaterial->days_to_prepare_mo ??= 0;
+        });
+
+        static::updating(function (self $billOfMaterial): void {
+            static::guardSharedRowMutation($billOfMaterial->getOriginal('company_id') === null);
+
+            if (($billOfMaterial->isDirty('product_id') || $billOfMaterial->isDirty('company_id')) && $billOfMaterial->company_id !== null) {
+                static::assertRelatedBelongsToCompany($billOfMaterial->product_id, Product::class, 'Product', $billOfMaterial->company_id);
+            }
+        });
+
+        static::deleting(function (self $billOfMaterial): void {
+            static::guardSharedRowMutation($billOfMaterial->company_id === null);
+        });
+
+        static::restoring(function (self $billOfMaterial): void {
+            static::guardSharedRowMutation($billOfMaterial->company_id === null);
         });
     }
 

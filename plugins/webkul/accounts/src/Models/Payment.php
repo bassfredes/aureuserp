@@ -23,10 +23,11 @@ use Webkul\Payment\Models\PaymentTransaction;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class Payment extends Model
 {
-    use HasChatter, HasFactory, HasLogActivity;
+    use HasChatter, HasCompanyScope, HasFactory, HasLogActivity;
 
     public const ACTIVITY_PLAN_PLUGIN = 'accounts';
 

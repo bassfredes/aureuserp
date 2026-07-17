@@ -56,9 +56,13 @@ function creditNoteRoute(string $action, mixed $creditNote = null): string
     return $creditNote ? route($name, $creditNote) : route($name);
 }
 
-function makeCreditNoteLinePayload(array $overrides = []): array
+function makeCreditNoteLinePayload(int $companyId, array $overrides = []): array
 {
-    $product = Product::factory()->withAccounts()->create(['is_configurable' => false]);
+    // Product::factory() defaults to its own random company — matching it
+    // to the credit note's own company is required since MoveLine now
+    // enforces relation integrity against a mismatched Product company
+    // (#138, D5b pattern, aureuserp#137), not just read isolation.
+    $product = Product::factory()->withAccounts()->create(['is_configurable' => false, 'company_id' => $companyId]);
     $uom = UOM::factory()->create();
 
     return array_merge([
@@ -87,7 +91,7 @@ function creditNotePayload(int $lineCount = 1, array $overrides = []): array
         'invoice_date'     => now()->format('Y-m-d'),
         'invoice_date_due' => now()->addDays(30)->format('Y-m-d'),
         'invoice_lines'    => collect(range(1, $lineCount))
-            ->map(fn () => makeCreditNoteLinePayload())
+            ->map(fn () => makeCreditNoteLinePayload($company->id))
             ->all(),
     ];
 

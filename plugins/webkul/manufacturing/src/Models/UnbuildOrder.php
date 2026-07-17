@@ -12,10 +12,12 @@ use Webkul\Manufacturing\Enums\UnbuildOrderState;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class UnbuildOrder extends Model
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory, ValidatesRelatedCompanyScope;
 
     protected $table = 'manufacturing_unbuild_orders';
 
@@ -104,6 +106,28 @@ class UnbuildOrder extends Model
             $unbuildOrder->creator_id ??= $authUser?->id;
             $unbuildOrder->company_id ??= $authUser?->default_company_id;
             $unbuildOrder->state ??= UnbuildOrderState::DRAFT;
+        });
+
+        static::saving(function (self $unbuildOrder): void {
+            // Same relation-integrity gap closed for Order/MoveLine/BOM
+            // (#138, D5b pattern, aureuserp#137): read isolation alone
+            // doesn't stop a user in company A+B from pointing an unbuild
+            // order in A at a Product, BillOfMaterial, or manufacturing
+            // Order from B. A null-company BOM is a global template (ADR
+            // 0007) and has no company to check against.
+            if ($unbuildOrder->isDirty(['product_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($unbuildOrder->product_id, Product::class, 'Product', $unbuildOrder->company_id);
+            }
+
+            if ($unbuildOrder->bill_of_material_id && $unbuildOrder->isDirty(['bill_of_material_id', 'company_id'])) {
+                if ($unbuildOrder->billOfMaterial?->company_id !== null) {
+                    static::assertRelatedBelongsToCompany($unbuildOrder->bill_of_material_id, BillOfMaterial::class, 'Bill Of Material', $unbuildOrder->company_id);
+                }
+            }
+
+            if ($unbuildOrder->manufacturing_order_id && $unbuildOrder->isDirty(['manufacturing_order_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($unbuildOrder->manufacturing_order_id, Order::class, 'Manufacturing Order', $unbuildOrder->company_id);
+            }
         });
     }
 }

@@ -10,11 +10,18 @@ use Illuminate\Support\Facades\Auth;
 use Webkul\Product\Models\ProductAttributeValue;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
-class BillOfMaterialByproduct extends Model
+/**
+ * Derives company_id from its parent BillOfMaterial (never the acting
+ * user's default) — same reasoning as BillOfMaterialLine.
+ */
+class BillOfMaterialByproduct extends Model implements IncludesSharedCompanyRows
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory, ValidatesRelatedCompanyScope;
 
     protected $table = 'manufacturing_bill_of_material_byproducts';
 
@@ -75,10 +82,15 @@ class BillOfMaterialByproduct extends Model
         parent::boot();
 
         static::creating(function (self $byproduct): void {
-            $authUser = Auth::user();
+            $byproduct->creator_id ??= Auth::id();
+        });
 
-            $byproduct->creator_id ??= $authUser?->id;
-            $byproduct->company_id ??= $byproduct->company_id ?? $authUser?->default_company_id;
+        static::saving(function (self $byproduct): void {
+            $byproduct->company_id = $byproduct->billOfMaterial?->company_id;
+
+            if ($byproduct->company_id !== null) {
+                static::assertRelatedBelongsToCompany($byproduct->product_id, Product::class, 'Product', $byproduct->company_id);
+            }
         });
     }
 }

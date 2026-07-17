@@ -8,9 +8,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class WorkCenterProductivityLog extends Model
 {
+    use HasCompanyScope, ValidatesRelatedCompanyScope;
+
     protected $table = 'manufacturing_work_center_productivity_logs';
 
     protected $fillable = [
@@ -79,13 +83,22 @@ class WorkCenterProductivityLog extends Model
 
             $productivityLog->assigned_user_id ??= $user?->id;
 
-            $productivityLog->company_id ??= $user?->default_company_id;
-
             $productivityLog->description ??= __('manufacturing::system.work-center-productivity-log.time-tracking', ['name' => $user->name]);
 
             $productivityLog->loss_type ??= $productivityLog->loss->loss_type ?? 'other';
 
             $productivityLog->work_center_id ??= $productivityLog->workOrder->work_center_id ?? null;
+
+            // The log's own company must always match its WorkCenter (the
+            // real authoritative parent for company purposes, since
+            // WorkOrder itself has no company_id column) rather than the
+            // acting user's default (#138, D5b pattern, aureuserp#137).
+            $productivityLog->company_id = static::resolveEffectiveCompanyId(
+                $productivityLog->work_center_id,
+                WorkCenter::class,
+                $productivityLog->company_id,
+                'Work Center'
+            ) ?? $user?->default_company_id;
         });
 
         static::created(function (self $productivityLog): void {

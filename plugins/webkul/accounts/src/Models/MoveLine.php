@@ -2,6 +2,7 @@
 
 namespace Webkul\Account\Models;
 
+use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -9,6 +10,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Spatie\EloquentSortable\Sortable;
 use Spatie\EloquentSortable\SortableTrait;
+use Webkul\Account\Database\Factories\MoveLineFactory;
 use Webkul\Account\Enums\AccountType;
 use Webkul\Account\Enums\DisplayType;
 use Webkul\Account\Enums\JournalType;
@@ -19,10 +21,12 @@ use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class MoveLine extends Model implements Sortable
 {
-    use HasFactory, SortableTrait;
+    use HasCompanyScope, HasFactory, SortableTrait, ValidatesRelatedCompanyScope;
 
     protected $table = 'accounts_account_move_lines';
 
@@ -249,6 +253,14 @@ class MoveLine extends Model implements Sortable
     }
 
     /**
+     * Create a new factory instance for the model.
+     */
+    protected static function newFactory(): Factory
+    {
+        return MoveLineFactory::new();
+    }
+
+    /**
      * Bootstrap any application services.
      */
     protected static function boot()
@@ -263,6 +275,13 @@ class MoveLine extends Model implements Sortable
             $moveLine->move_name = $moveLine->move->name;
 
             $moveLine->company_id = $moveLine->move->company_id;
+
+            // Read isolation (HasCompanyScope hiding another company's Product)
+            // is not the same guarantee as relation integrity — a user allowed
+            // in company A+B could otherwise reference a Product from B on a
+            // line whose Move belongs to A (#138, same gap D5b already closed
+            // for sales/purchases/inventories aureuserp#137).
+            static::assertRelatedBelongsToCompany($moveLine->product_id, Product::class, 'Product', $moveLine->company_id);
 
             $moveLine->parent_state = $moveLine->move->state;
 

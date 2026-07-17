@@ -12,10 +12,11 @@ use Spatie\EloquentSortable\SortableTrait;
 use Webkul\Account\Database\Factories\TaxPartitionFactory;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
 
 class TaxPartition extends Model implements Sortable
 {
-    use HasFactory, SortableTrait;
+    use HasCompanyScope, HasFactory, SortableTrait;
 
     protected $table = 'accounts_tax_partition_lines';
 
@@ -130,6 +131,18 @@ class TaxPartition extends Model implements Sortable
 
         static::creating(function ($taxPartition) {
             $taxPartition->creator_id ??= Auth::id();
+        });
+
+        static::saving(function ($taxPartition) {
+            // Always synced from the parent Tax (strict_company, never
+            // null), never left unset — an unset company_id would make
+            // this row invisible to its own Tax's company under
+            // HasCompanyScope's strict whereIn, breaking
+            // validateRepartitionLines()'s own re-query right after create
+            // (#138, D5b pattern, aureuserp#137).
+            if ($taxPartition->tax_id) {
+                $taxPartition->company_id = $taxPartition->tax->company_id;
+            }
         });
     }
 

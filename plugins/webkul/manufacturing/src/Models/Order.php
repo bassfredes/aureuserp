@@ -33,10 +33,12 @@ use Webkul\Security\Models\User;
 use Webkul\Security\Traits\HasPermissionScope;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class Order extends Model
 {
-    use HasChatter, HasFactory, HasLogActivity, HasPermissionScope;
+    use HasChatter, HasCompanyScope, HasFactory, HasLogActivity, HasPermissionScope, ValidatesRelatedCompanyScope;
 
     protected $table = 'manufacturing_orders';
 
@@ -403,6 +405,23 @@ class Order extends Model
         });
 
         static::saving(function ($order) {
+            // Read isolation (HasCompanyScope hiding another company's
+            // Product/BillOfMaterial) is not the same guarantee as relation
+            // integrity — a user allowed in company A+B could otherwise set
+            // a manufacturing Order in A to reference a Product or BOM
+            // from B (#138, D5b pattern, aureuserp#137). A null-company BOM
+            // is a global template (ADR 0007) and has no company to check
+            // against.
+            if ($order->isDirty(['product_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($order->product_id, Product::class, 'Product', $order->company_id);
+            }
+
+            if ($order->bill_of_material_id && $order->isDirty(['bill_of_material_id', 'company_id'])) {
+                if ($order->billOfMaterial?->company_id !== null) {
+                    static::assertRelatedBelongsToCompany($order->bill_of_material_id, BillOfMaterial::class, 'Bill Of Material', $order->company_id);
+                }
+            }
+
             $order->computeName();
 
             $order->computeProductUOMQty();

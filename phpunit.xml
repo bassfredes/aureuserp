@@ -26,6 +26,9 @@
         <testsuite name="SupportFeature">
             <directory>plugins/webkul/support/tests/Feature</directory>
         </testsuite>
+        <testsuite name="ManufacturingFeature">
+            <directory>plugins/webkul/manufacturing/tests/Feature</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>
