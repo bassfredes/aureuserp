@@ -7,6 +7,7 @@ use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\Warehouse;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../plugins/webkul/support/tests/Helpers/TestBootstrapHelper.php';
 
@@ -39,7 +40,20 @@ require_once __DIR__.'/../../../plugins/webkul/support/tests/Helpers/TestBootstr
 uses()->group('gold-standard-dataset');
 
 beforeEach(function () {
-    if (! Schema::hasTable('inventories_locations') || ! Location::query()->exists()) {
+    // No hay usuario autenticado ni contexto de sistema en este punto (el
+    // propio comando bajo prueba es quien abre uno via Auth::setUser(),
+    // mas abajo en cada test) — CompanyScope ahora falla cerrado sin
+    // contexto (ADR 0007), asi que esta verificacion de precondicion (no
+    // una asercion de negocio) necesita un bypass explicito para poder ver
+    // si la base ya esta pre-sembrada, sin filtrar por compania.
+    $preSeeded = Schema::hasTable('inventories_locations')
+        && CompanyContext::runForAllCompanies(
+            reason: 'test precondition check',
+            caller: 'SeedGoldStandardDatasetCommandTest',
+            callback: fn () => Location::query()->exists(),
+        );
+
+    if (! $preSeeded) {
         $this->fail(
             'La base de test no esta pre-sembrada (faltan inventories_locations). '
             .'Este test requiere que erp:install + inventories:install ya hayan corrido, fuera de cualquier '
@@ -59,9 +73,18 @@ beforeEach(function () {
 // comando y en TestBootstrapHelper::ensureERPInstalled() para que la base de
 // test refleje la identidad real que usara la captura final (Tarea 7).
 it('resolves company from the capture user and UOM/warehouses by stable keys, idempotently', function () {
+    // No hay usuario autenticado en beforeEach — el comando bajo prueba
+    // impersona a $captureUser internamente y restaura el estado previo
+    // (ninguno) al salir. Las asersiones de abajo verifican exactamente lo
+    // que la captura HTTP real vera autenticada como $captureUser, asi que
+    // actuar como ese mismo usuario aqui refleja esa realidad en vez de
+    // depender del bypass sin-usuario ya cerrado (ADR 0007) — CompanyScope
+    // ahora falla cerrado sin un actor o contexto de sistema.
     $captureUser = User::where('email', 'admin@erp.localhost')->first();
     expect($captureUser)->not->toBeNull();
     expect($captureUser->default_company_id)->not->toBeNull();
+
+    test()->actingAs($captureUser);
 
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
@@ -85,6 +108,8 @@ use Webkul\Product\Models\Product;
 
 it('loads exactly the 41 canonical SKUs under the capture company, with guaranteed divergent metadata', function () {
     $captureUser = User::where('email', 'admin@erp.localhost')->first();
+
+    test()->actingAs($captureUser);
 
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
@@ -122,6 +147,8 @@ use Webkul\Inventory\Models\ProductQuantity;
 it('reconciles exactly the four required heterogeneous quantity cases over the canonical 41 SKUs', function () {
     $captureUser = User::where('email', 'admin@erp.localhost')->first();
     $companyId = $captureUser->default_company_id;
+
+    test()->actingAs($captureUser);
 
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
     $this->artisan('analysis:seed-gold-standard-dataset')->assertExitCode(0);
