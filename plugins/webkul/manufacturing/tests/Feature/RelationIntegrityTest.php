@@ -20,6 +20,7 @@ use Webkul\Manufacturing\Models\WorkOrder;
 use Webkul\Product\Models\Product;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Models\UOM;
 use Webkul\Support\Services\CompanyContext;
 
@@ -908,4 +909,224 @@ it('forbids changing an UnbuildOrder\'s company_id directly, even for a user aut
         ->toThrow(AuthorizationException::class);
 
     $this->assertDatabaseHas('manufacturing_unbuild_orders', ['id' => $unbuildOrder->id, 'company_id' => $companyA->id]);
+});
+
+// ── Write authorization applies to EVERY save, not only creation or an FK change (#138 review round 3, 2026-07-18) ──
+
+it('forbids a user in company A from updating an unrelated field on a manufacturing Order obtained from company B via an unscoped query', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    // Warehouse::create() cascades into inventories' Route model, whose
+    // own `creating()` hook dereferences Auth::user()->id unconditionally
+    // (a pre-existing, unrelated null-safety gap in that plugin, out of
+    // this PR's scope) — build this fixture under a real companyB-only
+    // actor rather than a no-user CompanyContext to avoid tripping it.
+    $userB = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyB->id]));
+    test()->actingAs($userB);
+
+    Location::factory()->create(['type' => LocationType::PRODUCTION, 'company_id' => $companyB->id]);
+    $warehouseB = Warehouse::create([
+        'name'       => 'Warehouse B',
+        'code'       => 'WHB',
+        'company_id' => $companyB->id,
+    ])->fresh();
+    $productB = Product::factory()->create(['company_id' => $companyB->id]);
+
+    $orderB = Order::factory()->create([
+        'company_id'          => $companyB->id,
+        'product_id'          => $productB->id,
+        'uom_id'              => $productB->uom_id,
+        'operation_type_id'   => $warehouseB->manu_type_id,
+        'source_location_id'  => $warehouseB->lot_stock_location_id,
+        'bill_of_material_id' => null,
+    ]);
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $orderBUnscoped = Order::withoutGlobalScope(CompanyScope::class)->findOrFail($orderB->id);
+
+    expect(fn () => $orderBUnscoped->update(['origin' => 'Renamed by A']))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('manufacturing_orders', ['id' => $orderB->id, 'origin' => 'Renamed by A']);
+});
+
+it('forbids a user in company A from updating an unrelated field on an UnbuildOrder obtained from company B via an unscoped query', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $unbuildOrderB = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — UnbuildOrder in company B',
+        caller: __FILE__,
+        callback: function () use ($companyB) {
+            $productB = Product::factory()->create(['company_id' => $companyB->id]);
+
+            return UnbuildOrder::factory()->create([
+                'company_id'          => $companyB->id,
+                'product_id'          => $productB->id,
+                'bill_of_material_id' => null,
+            ]);
+        },
+    );
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $unbuildOrderBUnscoped = UnbuildOrder::withoutGlobalScope(CompanyScope::class)->findOrFail($unbuildOrderB->id);
+
+    expect(fn () => $unbuildOrderBUnscoped->update(['quantity' => 5]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('manufacturing_unbuild_orders', ['id' => $unbuildOrderB->id, 'quantity' => 5]);
+});
+
+it('forbids a user in company A from updating an unrelated field on a WorkCenter obtained from company B via an unscoped query', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $workCenterB = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — WorkCenter in company B',
+        caller: __FILE__,
+        callback: fn () => WorkCenter::factory()->create(['company_id' => $companyB->id]),
+    );
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $workCenterBUnscoped = WorkCenter::withoutGlobalScope(CompanyScope::class)->findOrFail($workCenterB->id);
+
+    expect(fn () => $workCenterBUnscoped->update(['note' => 'Renamed by A']))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('manufacturing_work_centers', ['id' => $workCenterB->id, 'note' => 'Renamed by A']);
+});
+
+it('forbids a user in company A from updating an unrelated field on an Operation whose BillOfMaterial belongs to company B', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $operation = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — Operation in company B',
+        caller: __FILE__,
+        callback: function () use ($companyB) {
+            $productB = Product::factory()->create(['company_id' => $companyB->id]);
+            $bomB = BillOfMaterial::factory()->create(['company_id' => $companyB->id, 'product_id' => $productB->id]);
+            $workCenterB = WorkCenter::factory()->create(['company_id' => $companyB->id]);
+
+            return Operation::create([
+                'name'                => 'Cut',
+                'bill_of_material_id' => $bomB->id,
+                'work_center_id'      => $workCenterB->id,
+            ]);
+        },
+    );
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    // Operation has no CompanyScope of its own — fetchable directly.
+    expect(fn () => $operation->update(['name' => 'Renamed by A']))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('manufacturing_operations', ['id' => $operation->id, 'name' => 'Renamed by A']);
+});
+
+it('forbids a user in company A from updating an unrelated field on a WorkCenterCapacity whose WorkCenter belongs to company B', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $capacity = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — WorkCenterCapacity in company B',
+        caller: __FILE__,
+        callback: function () use ($companyB) {
+            $workCenterB = WorkCenter::factory()->create(['company_id' => $companyB->id]);
+            $productB = Product::factory()->create(['company_id' => $companyB->id]);
+
+            return WorkCenterCapacity::create([
+                'work_center_id' => $workCenterB->id,
+                'product_id'     => $productB->id,
+            ]);
+        },
+    );
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    expect(fn () => $capacity->update(['capacity' => 99]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('manufacturing_work_center_capacities', ['id' => $capacity->id, 'capacity' => 99]);
+});
+
+it('forbids a user in company A from updating an unrelated field on a WorkOrder whose manufacturing Order belongs to company B', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    // See the manufacturing Order test above — Warehouse::create() needs a
+    // real authenticated actor, not a no-user CompanyContext, to avoid
+    // tripping an unrelated null-safety gap in inventories' Route model.
+    $userB = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyB->id]));
+    test()->actingAs($userB);
+
+    Location::factory()->create(['type' => LocationType::PRODUCTION, 'company_id' => $companyB->id]);
+    $warehouseB = Warehouse::create([
+        'name'       => 'Warehouse B',
+        'code'       => 'WHB2',
+        'company_id' => $companyB->id,
+    ])->fresh();
+    $productB = Product::factory()->create(['company_id' => $companyB->id]);
+
+    $orderB = Order::factory()->create([
+        'company_id'          => $companyB->id,
+        'product_id'          => $productB->id,
+        'uom_id'              => $productB->uom_id,
+        'operation_type_id'   => $warehouseB->manu_type_id,
+        'source_location_id'  => $warehouseB->lot_stock_location_id,
+        'bill_of_material_id' => null,
+    ]);
+
+    $workCenterB = WorkCenter::factory()->create(['company_id' => $companyB->id]);
+
+    $workOrder = WorkOrder::create([
+        'name'                   => 'Assemble',
+        'manufacturing_order_id' => $orderB->id,
+        'work_center_id'         => $workCenterB->id,
+        'product_id'             => $productB->id,
+        'uom_id'                 => $productB->uom_id,
+        'operation_id'           => null,
+    ]);
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    expect(fn () => $workOrder->update(['barcode' => 'RENAMED-BY-A']))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('manufacturing_work_orders', ['id' => $workOrder->id, 'barcode' => 'RENAMED-BY-A']);
+});
+
+it('allows creating a WorkCenter under CompanyContext::runForAllCompanies with an explicit company_id', function () {
+    $company = Company::factory()->create();
+
+    $workCenter = CompanyContext::runForAllCompanies(
+        reason: 'test: write positive under all_companies',
+        caller: __FILE__,
+        callback: fn () => WorkCenter::factory()->create(['company_id' => $company->id]),
+    );
+
+    expect($workCenter->company_id)->toBe($company->id);
+});
+
+it('allows creating a WorkCenter under CompanyContext::runForBootstrap with an explicit company_id', function () {
+    $company = Company::factory()->create();
+
+    $workCenter = CompanyContext::runForBootstrap(
+        reason: 'test: write positive under bootstrap',
+        caller: __FILE__,
+        callback: fn () => WorkCenter::factory()->create(['company_id' => $company->id]),
+    );
+
+    expect($workCenter->company_id)->toBe($company->id);
 });

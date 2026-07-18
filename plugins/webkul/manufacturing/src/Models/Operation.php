@@ -178,14 +178,23 @@ class Operation extends Model implements Sortable
             $operation->creator_id ??= Auth::id();
             $operation->worksheet_type ??= OperationWorksheetType::TEXT;
             $operation->time_mode ??= OperationTimeMode::MANUAL;
-
-            static::assertWorkCenterMatchesBillOfMaterial($operation->bill_of_material_id, $operation->work_center_id);
         });
 
-        static::updating(function (self $operation): void {
-            if ($operation->isDirty(['bill_of_material_id', 'work_center_id'])) {
+        static::saving(function (self $operation): void {
+            // Full check (resolve BOM company, authorize it, AND assert
+            // work_center_id is compatible) on create or whenever either FK
+            // changes. Otherwise — an update to an unrelated field, FKs
+            // unchanged — still re-authorize the BOM's company on every
+            // save: an actor who obtained a cross-company Operation via an
+            // unscoped query must not be able to write any other field on
+            // it (#138 review round 3, 2026-07-18).
+            if (! $operation->exists || $operation->isDirty(['bill_of_material_id', 'work_center_id'])) {
                 static::assertWorkCenterMatchesBillOfMaterial($operation->bill_of_material_id, $operation->work_center_id);
+
+                return;
             }
+
+            static::resolveEffectiveCompanyIdOrFail($operation->bill_of_material_id, BillOfMaterial::class, null, 'Bill Of Material');
         });
     }
 

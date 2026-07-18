@@ -106,24 +106,39 @@ class UnbuildOrder extends Model
             $authUser = Auth::user();
 
             $unbuildOrder->creator_id ??= $authUser?->id;
-            $unbuildOrder->company_id ??= $authUser?->default_company_id;
             $unbuildOrder->state ??= UnbuildOrderState::DRAFT;
 
-            if ($unbuildOrder->company_id === null) {
-                throw new AuthorizationException('UnbuildOrder requires a company_id and none could be resolved from the acting user.');
-            }
-
-            CompanyScope::assertCanWriteCompany((int) $unbuildOrder->company_id);
+            // company_id itself is resolved and authorized in the earlier-
+            // firing `saving` listener below (#138 review round 3,
+            // 2026-07-18).
         });
 
         static::saving(function (self $unbuildOrder): void {
-            // Standalone strict owner: once persisted, company_id can never
-            // change. Checked first, before relation-integrity validation
-            // below, so a rejected company change never partially
-            // validates product/BOM/order consistency against the
-            // attempted new company (#138 review round 2, 2026-07-18).
-            if ($unbuildOrder->exists && $unbuildOrder->isDirty('company_id')) {
-                throw new AuthorizationException('Changing the company of this record is forbidden — archive it and create a new one instead.');
+            // Standalone strict owner: resolve + authorize on create,
+            // enforce immutability + re-authorize on every update — not
+            // only when company_id itself changed. Checked first, before
+            // relation-integrity validation below, so a rejected company
+            // change never partially validates product/BOM/order
+            // consistency against the attempted new company, and so an
+            // actor who obtained a cross-company row via an unscoped query
+            // can't slip an unrelated-field update through (#138 review
+            // round 2 + round 3, 2026-07-18).
+            if (! $unbuildOrder->exists) {
+                $unbuildOrder->company_id ??= Auth::user()?->default_company_id;
+
+                if ($unbuildOrder->company_id === null) {
+                    throw new AuthorizationException('UnbuildOrder requires a company_id and none could be resolved from the acting user.');
+                }
+
+                CompanyScope::assertCanWriteCompany((int) $unbuildOrder->company_id);
+            } else {
+                $originalCompanyId = $unbuildOrder->getOriginal('company_id');
+
+                if ($originalCompanyId !== null && (int) $originalCompanyId !== (int) $unbuildOrder->company_id) {
+                    throw new AuthorizationException('Changing the company of this record is forbidden — archive it and create a new one instead.');
+                }
+
+                CompanyScope::assertCanWriteCompany((int) ($originalCompanyId ?? $unbuildOrder->company_id));
             }
 
             // Same relation-integrity gap closed for Order/MoveLine/BOM

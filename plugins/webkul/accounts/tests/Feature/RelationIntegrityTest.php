@@ -11,17 +11,20 @@ use Webkul\Account\Models\FiscalPositionAccount;
 use Webkul\Account\Models\Journal;
 use Webkul\Account\Models\Move;
 use Webkul\Account\Models\MoveLine;
+use Webkul\Account\Models\MoveReversal;
 use Webkul\Account\Models\PartialReconcile;
 use Webkul\Account\Models\Partner;
 use Webkul\Account\Models\Payment;
 use Webkul\Account\Models\PaymentMethod;
 use Webkul\Account\Models\PaymentMethodLine;
+use Webkul\Account\Models\PaymentRegister;
 use Webkul\Account\Models\Product;
 use Webkul\Account\Models\Tax;
 use Webkul\Account\Models\TaxPartition;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../support/tests/Helpers/SecurityHelper.php';
@@ -524,4 +527,283 @@ it('forbids moving a Journal-anchored BankStatement to another company by reassi
         ->toThrow(AuthorizationException::class);
 
     $this->assertDatabaseHas('accounts_bank_statements', ['id' => $statement->id, 'journal_id' => $journalA->id, 'company_id' => $companyA->id]);
+});
+
+// ── Write authorization applies to EVERY save, not only creation or a company_id change (#138 review round 3, 2026-07-18) ──
+
+it('forbids a user in company A from updating an unrelated field on a Journal obtained from company B via an unscoped query', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    // Seeded under a system context — this Journal must exist in B
+    // regardless of who can currently see it; the point of this test is
+    // what happens when an actor from A gets hold of it anyway (e.g. via
+    // an unscoped query, a bug elsewhere, or an internal service).
+    $journalB = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — Journal in company B',
+        caller: __FILE__,
+        callback: fn () => Journal::factory()->create(['company_id' => $companyB->id]),
+    );
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $journalBUnscoped = Journal::withoutGlobalScope(CompanyScope::class)->findOrFail($journalB->id);
+
+    expect(fn () => $journalBUnscoped->update(['name' => 'Renamed by A']))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('accounts_journals', ['id' => $journalB->id, 'name' => 'Renamed by A']);
+});
+
+it('allows creating a Journal under CompanyContext::runForAllCompanies with an explicit company_id', function () {
+    $company = Company::factory()->create();
+
+    $journal = CompanyContext::runForAllCompanies(
+        reason: 'test: write positive under all_companies',
+        caller: __FILE__,
+        callback: fn () => Journal::factory()->create(['company_id' => $company->id]),
+    );
+
+    expect($journal->company_id)->toBe($company->id);
+});
+
+it('allows creating a Journal under CompanyContext::runForBootstrap with an explicit company_id', function () {
+    $company = Company::factory()->create();
+
+    $journal = CompanyContext::runForBootstrap(
+        reason: 'test: write positive under bootstrap',
+        caller: __FILE__,
+        callback: fn () => Journal::factory()->create(['company_id' => $company->id]),
+    );
+
+    expect($journal->company_id)->toBe($company->id);
+});
+
+// ── Journal: ensureEnabledForCompany() runs on saved, after successful persistence (#138 review round 3, 2026-07-18) ──
+
+it('rejects an unauthorized Journal creation without attaching its Account to the pivot', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $account = Account::factory()->create();
+
+    expect(fn () => Journal::factory()->create([
+        'company_id'         => $companyB->id,
+        'default_account_id' => $account->id,
+    ]))->toThrow(AuthorizationException::class);
+
+    expect($account->companies()->where('companies.id', $companyB->id)->exists())->toBeFalse();
+});
+
+it('attaches the default Account to the correct company when creating a Journal without an explicit company_id', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $account = Account::factory()->create();
+
+    $journal = Journal::factory()->create([
+        'company_id'         => null,
+        'default_account_id' => $account->id,
+    ]);
+
+    expect($journal->company_id)->toBe($companyA->id)
+        ->and($account->companies()->where('companies.id', $companyA->id)->exists())->toBeTrue();
+});
+
+// ── MoveReversal: full strict contract, standalone (no Journal) included (#138 review round 3, 2026-07-18) ──
+
+it('resolves a standalone MoveReversal (no Journal) company_id from the acting user when omitted', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $reversal = MoveReversal::create(['reason' => 'test', 'date' => now()]);
+
+    expect($reversal->company_id)->toBe($companyA->id);
+});
+
+it('forbids a user in company A from creating a standalone MoveReversal directly under company B', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    expect(fn () => MoveReversal::create(['reason' => 'test', 'date' => now(), 'company_id' => $companyB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('accounts_accounts_move_reversals', ['company_id' => $companyB->id]);
+});
+
+it('fails closed when creating a standalone MoveReversal with no authenticated user and no active CompanyContext', function () {
+    $company = Company::factory()->create();
+
+    expect(fn () => MoveReversal::create(['reason' => 'test', 'date' => now(), 'company_id' => $company->id]))
+        ->toThrow(AuthorizationException::class);
+});
+
+it('forbids changing a MoveReversal company_id directly, even for a user authorized in both companies', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $reversal = MoveReversal::create(['reason' => 'test', 'date' => now(), 'company_id' => $companyA->id]);
+
+    expect(fn () => $reversal->update(['company_id' => $companyB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('accounts_accounts_move_reversals', ['id' => $reversal->id, 'company_id' => $companyA->id]);
+});
+
+it('forbids attaching a Move from a different company to a MoveReversal, before the pivot is written', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    // Seeded before actingAs() — CompanyContext refuses to open while a
+    // user is already authenticated.
+    $moveB = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — Move in company B',
+        caller: __FILE__,
+        callback: fn () => Move::factory()->create(['company_id' => $companyB->id]),
+    );
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $reversal = MoveReversal::create(['reason' => 'test', 'date' => now(), 'company_id' => $companyA->id]);
+
+    expect(fn () => $reversal->attachMove($moveB))
+        ->toThrow(AuthorizationException::class);
+
+    expect($reversal->moves()->count())->toBe(0);
+});
+
+it('allows attaching a Move from the same company to a MoveReversal', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $reversal = MoveReversal::create(['reason' => 'test', 'date' => now(), 'company_id' => $companyA->id]);
+    $moveA = Move::factory()->create(['company_id' => $companyA->id]);
+
+    $reversal->attachMove($moveA);
+
+    expect($reversal->moves()->count())->toBe(1);
+});
+
+// ── PaymentRegister: full strict contract, lines pivot guarded at write time (#138 review round 3, 2026-07-18) ──
+
+it('forbids a user in company A from creating a PaymentRegister anchored to a Journal in company B', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $journalB = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — Journal in company B',
+        caller: __FILE__,
+        callback: fn () => Journal::factory()->create(['company_id' => $companyB->id]),
+    );
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    expect(fn () => PaymentRegister::create([
+        'journal_id'   => $journalB->id,
+        'payment_type' => PaymentType::RECEIVE,
+        'partner_type' => 'customer',
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('accounts_payment_registers', ['journal_id' => $journalB->id]);
+});
+
+it('forbids syncing MoveLines spanning more than one company to a PaymentRegister, before the pivot is written', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $moveB = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — Move in company B',
+        caller: __FILE__,
+        callback: fn () => Move::factory()->create(['company_id' => $companyB->id]),
+    );
+    $lineB = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — MoveLine in company B',
+        caller: __FILE__,
+        callback: fn () => MoveLine::factory()->create(['move_id' => $moveB->id]),
+    );
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $journalA = Journal::factory()->create(['company_id' => $companyA->id]);
+
+    $paymentRegister = PaymentRegister::create([
+        'journal_id'   => $journalA->id,
+        'payment_type' => PaymentType::RECEIVE,
+        'partner_type' => 'customer',
+    ]);
+
+    $moveA = Move::factory()->create(['company_id' => $companyA->id]);
+    $lineA = MoveLine::factory()->create(['move_id' => $moveA->id]);
+
+    expect(fn () => $paymentRegister->syncLines([$lineA->id, $lineB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    expect($paymentRegister->lines()->count())->toBe(0);
+});
+
+it('forbids syncing a MoveLine from a different company than the PaymentRegister itself', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $moveB = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — Move in company B',
+        caller: __FILE__,
+        callback: fn () => Move::factory()->create(['company_id' => $companyB->id]),
+    );
+    $lineB = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — MoveLine in company B',
+        caller: __FILE__,
+        callback: fn () => MoveLine::factory()->create(['move_id' => $moveB->id]),
+    );
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $journalA = Journal::factory()->create(['company_id' => $companyA->id]);
+
+    $paymentRegister = PaymentRegister::create([
+        'journal_id'   => $journalA->id,
+        'payment_type' => PaymentType::RECEIVE,
+        'partner_type' => 'customer',
+    ]);
+
+    expect(fn () => $paymentRegister->syncLines([$lineB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    expect($paymentRegister->lines()->count())->toBe(0);
+});
+
+it('allows syncing MoveLines from the same company as the PaymentRegister', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $journalA = Journal::factory()->create(['company_id' => $companyA->id]);
+
+    $paymentRegister = PaymentRegister::create([
+        'journal_id'   => $journalA->id,
+        'payment_type' => PaymentType::RECEIVE,
+        'partner_type' => 'customer',
+    ]);
+
+    $moveA = Move::factory()->create(['company_id' => $companyA->id]);
+    $lineA = MoveLine::factory()->create(['move_id' => $moveA->id]);
+
+    $paymentRegister->syncLines([$lineA->id]);
+
+    expect($paymentRegister->lines()->count())->toBe(1);
 });

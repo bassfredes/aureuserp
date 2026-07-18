@@ -216,15 +216,22 @@ class Journal extends Model implements Sortable
 
         static::saving(function ($journal) {
             $journal->computeSuspenseAccountId();
+        });
 
-            // Designating an Account as this Journal's own default/
-            // suspense/profit/loss account is itself the act that enables
-            // it for the journal's company via the
-            // accounts_account_companies pivot — Account has no
-            // company_id of its own (#138 review, 2026-07-18). Unlike a
-            // MoveLine/FiscalPositionAccount referencing a pre-existing,
-            // separately-authorized Account, there is no other party's
-            // authorization to check here.
+        // Designating an Account as this Journal's own default/suspense/
+        // profit/loss account is itself the act that enables it for the
+        // journal's company via the accounts_account_companies pivot —
+        // Account has no company_id of its own (#138 review, 2026-07-18).
+        // Unlike a MoveLine/FiscalPositionAccount referencing a
+        // pre-existing, separately-authorized Account, there is no other
+        // party's authorization to check here. Runs on `saved` — after the
+        // row is actually persisted — rather than `saving`, so no pivot
+        // attach can happen ahead of a rejection for ANY reason (not just
+        // an unauthorized/immutable company_id): HasStrictCompanyId's own
+        // `saving` listener runs first and would already have thrown for
+        // that specific case, but `saved` also protects against a later,
+        // unrelated save failure (#138 review round 3, 2026-07-18).
+        static::saved(function ($journal) {
             Account::ensureEnabledForCompany($journal->default_account_id, $journal->company_id);
             Account::ensureEnabledForCompany($journal->suspense_account_id, $journal->company_id);
             Account::ensureEnabledForCompany($journal->profit_account_id, $journal->company_id);

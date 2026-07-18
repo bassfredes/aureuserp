@@ -369,14 +369,10 @@ class Order extends Model
 
             $order->creator_id ??= $authUser?->id;
 
-            $order->company_id ??= $authUser?->default_company_id;
-
-            if ($order->company_id === null) {
-                throw new AuthorizationException('Order requires a company_id and none could be resolved from the acting user.');
-            }
-
-            CompanyScope::assertCanWriteCompany((int) $order->company_id);
-
+            // company_id itself is resolved and authorized in the earlier-
+            // firing `saving` listener below (#138 review round 3,
+            // 2026-07-18) — it must already be set by the time this runs,
+            // since computeProductionLocationId() below reads it.
             $order->computeState();
 
             $order->priority ??= ManufacturingOrderPriority::NORMAL;
@@ -413,12 +409,15 @@ class Order extends Model
         });
 
         static::saving(function ($order) {
-            // Standalone strict owner: once persisted, company_id can never
-            // change — matches HasStrictCompanyId's own policy. Checked
-            // first, before any relation-integrity validation below, so a
-            // rejected company change never partially validates
-            // product/BOM consistency against the attempted new company
-            // (#138 review round 2, 2026-07-18).
+            // Standalone strict owner: resolve + authorize on create,
+            // enforce immutability + re-authorize on every update — not
+            // only when company_id itself changed. Checked first, before
+            // any relation-integrity validation below, so a rejected
+            // company change never partially validates product/BOM
+            // consistency against the attempted new company, and so an
+            // actor who obtained a cross-company Order via an unscoped
+            // query can't slip an unrelated-field update through (#138
+            // review round 2 + round 3, 2026-07-18).
             //
             // getOriginal(), not isDirty(): this model's own `created` hook
             // below calls `$order->update(['name' => ...])` as a nested
@@ -428,10 +427,22 @@ class Order extends Model
             // attribute including company_id. Comparing against
             // getOriginal() directly (skipping when still unset/null) is
             // immune to that ordering quirk.
-            $originalCompanyId = $order->getOriginal('company_id');
+            if (! $order->exists) {
+                $order->company_id ??= Auth::user()?->default_company_id;
 
-            if ($order->exists && $originalCompanyId !== null && (int) $originalCompanyId !== (int) $order->company_id) {
-                throw new AuthorizationException('Changing the company of this record is forbidden — archive it and create a new one instead.');
+                if ($order->company_id === null) {
+                    throw new AuthorizationException('Order requires a company_id and none could be resolved from the acting user.');
+                }
+
+                CompanyScope::assertCanWriteCompany((int) $order->company_id);
+            } else {
+                $originalCompanyId = $order->getOriginal('company_id');
+
+                if ($originalCompanyId !== null && (int) $originalCompanyId !== (int) $order->company_id) {
+                    throw new AuthorizationException('Changing the company of this record is forbidden — archive it and create a new one instead.');
+                }
+
+                CompanyScope::assertCanWriteCompany((int) ($originalCompanyId ?? $order->company_id));
             }
 
             // Read isolation (HasCompanyScope hiding another company's

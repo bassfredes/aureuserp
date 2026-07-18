@@ -21,50 +21,66 @@ use Webkul\Support\Models\Scopes\CompanyScope;
  * (aureuserp#137) — since #138's review found several standalone owners
  * carrying HasCompanyScope with no equivalent model-level guarantee at all.
  *
- * The immutability guard runs on `saving` (fires before both `creating` and
- * `updating` in Eloquent's save() pipeline), not `updating` — a model's own
- * `saving` hook can otherwise run side effects (e.g. Journal attaching
- * Accounts to a new company via ensureEnabledForCompany()) before an
- * `updating`-level rejection ever fires, leaving those side effects
- * persisted despite the update itself being rejected (#138 review round 2,
- * 2026-07-18). Registering here, inside bootHasStrictCompanyId() (called
- * from parent::boot() before a model's own boot() body registers further
- * listeners), guarantees this fires first among same-named listeners.
+ * Everything — create-time default/authorize, update-time immutability, AND
+ * update-time re-authorization of the unchanged company — runs from a
+ * single `saving` listener (fires before both `creating` and `updating` in
+ * Eloquent's save() pipeline). Two independent reasons this is one listener,
+ * not split across `creating`/`updating`:
+ *
+ * 1. A model's own `saving` hook can run side effects (e.g. Journal
+ *    attaching Accounts to a company via ensureEnabledForCompany()) before
+ *    an `updating`-level rejection ever fires — registering here, inside
+ *    bootHasStrictCompanyId() (called from parent::boot() before a model's
+ *    own boot() body registers further listeners), guarantees this runs
+ *    first among same-named listeners (#138 review round 2, 2026-07-18).
+ * 2. Read isolation is not the same guarantee as write authorization: an
+ *    actor who obtains a cross-company row via an unscoped query (or any
+ *    other bypass) and updates a field that has nothing to do with
+ *    company_id — name, a status flag, a date — must still be rejected.
+ *    Gating authorization on `creating` only, or on `isDirty('company_id')`
+ *    only, misses exactly that case; every save must re-authorize the
+ *    row's effective company, changed or not (#138 review round 3,
+ *    2026-07-18).
  */
 trait HasStrictCompanyId
 {
     public static function bootHasStrictCompanyId(): void
     {
-        static::creating(function ($model): void {
-            $model->company_id ??= Auth::user()?->default_company_id;
-
-            if ($model->company_id === null) {
-                throw new AuthorizationException(static::class.' requires a company_id and none could be resolved from the acting user.');
-            }
-
-            CompanyScope::assertCanWriteCompany((int) $model->company_id);
-        });
-
         static::saving(function ($model): void {
             if (! $model->exists) {
+                $model->company_id ??= Auth::user()?->default_company_id;
+
+                if ($model->company_id === null) {
+                    throw new AuthorizationException(static::class.' requires a company_id and none could be resolved from the acting user.');
+                }
+
+                CompanyScope::assertCanWriteCompany((int) $model->company_id);
+
                 return;
             }
 
             // getOriginal(), not isDirty(): a nested save triggered from
-            // within this same model's own `created` hook (e.g. Order's
-            // `$order->update([...])` follow-up) sees exists=true but
-            // Eloquent hasn't synced $original yet at that point — every
-            // attribute reads as "dirty" relative to an empty original,
-            // producing a false positive. Comparing against getOriginal()
-            // directly (and skipping when it's still unset/null) is
-            // immune to that ordering quirk while still catching a
-            // genuine company_id change on an already-synced record
-            // (#138 review round 2, 2026-07-18).
+            // within this same model's own `created` hook sees exists=true
+            // but Eloquent hasn't synced $original yet at that point —
+            // every attribute reads as "dirty" relative to an empty
+            // original, producing a false positive. Comparing against
+            // getOriginal() directly (and skipping when it's still
+            // unset/null, i.e. this very moment) is immune to that
+            // ordering quirk while still catching a genuine company_id
+            // change on an already-synced record (#138 review round 2,
+            // 2026-07-18).
             $originalCompanyId = $model->getOriginal('company_id');
 
             if ($originalCompanyId !== null && (int) $originalCompanyId !== (int) $model->company_id) {
                 throw new AuthorizationException('Changing the company of this record is forbidden — archive it and create a new one instead.');
             }
+
+            // Re-authorize the row's effective company on every update,
+            // not only when company_id itself changed (#138 review round
+            // 3, 2026-07-18) — see rationale #2 above. Falls back to the
+            // in-memory company_id only for the nested-save case where
+            // $originalCompanyId is still unset.
+            CompanyScope::assertCanWriteCompany((int) ($originalCompanyId ?? $model->company_id));
         });
     }
 }

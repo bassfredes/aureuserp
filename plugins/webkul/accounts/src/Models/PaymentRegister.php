@@ -3,6 +3,7 @@
 namespace Webkul\Account\Models;
 
 use Exception;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -17,6 +18,7 @@ use Webkul\Partner\Models\Partner;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Traits\HasCompanyScope;
 use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
@@ -139,28 +141,104 @@ class PaymentRegister extends Model
 
             $paymentRegister->computePaymentDifferenceHandling();
 
-            // computeBatches() (called on retrieved()) already rejects a
-            // `lines` set spanning more than one company; company_id
-            // itself is otherwise derived from the batch's own lines by
-            // computeFromLines()/getValuesFromBatch() (wizard flow, not a
-            // persisted-from-scratch aggregate). This adds the one
-            // remaining hard floor: once a Journal is chosen, an explicit
-            // company_id can never contradict it (#138 review,
-            // 2026-07-18).
+            // strict_company, always non-null and always authorized on
+            // every save — not only "once a Journal is chosen" as before
+            // (#138 review round 3, 2026-07-18): a PaymentRegister created
+            // without a Journal could otherwise persist with company_id
+            // NULL, or skip authorization entirely, until some later save
+            // happened to carry a Journal.
             if ($paymentRegister->journal_id) {
-                $paymentRegister->company_id = static::resolveEffectiveCompanyIdOrFail(
+                $resolvedCompanyId = static::resolveEffectiveCompanyIdOrFail(
                     $paymentRegister->journal_id,
                     Journal::class,
                     $paymentRegister->company_id,
                     'Journal'
                 );
+
+                if ($paymentRegister->exists) {
+                    $originalCompanyId = $paymentRegister->getOriginal('company_id');
+
+                    if ($originalCompanyId !== null && (int) $originalCompanyId !== $resolvedCompanyId) {
+                        throw new AuthorizationException('Changing the company of this record is forbidden — archive it and create a new one instead.');
+                    }
+                }
+
+                $paymentRegister->company_id = $resolvedCompanyId;
+            } else {
+                if ($paymentRegister->exists && $paymentRegister->isDirty('company_id')) {
+                    throw new AuthorizationException('Changing the company of this record is forbidden — archive it and create a new one instead.');
+                }
+
+                if (! $paymentRegister->exists) {
+                    // No Journal yet — fall back to the shared company of
+                    // an already-loaded `lines` collection (e.g. the
+                    // in-memory wizard flow via setLinesAttribute()) before
+                    // falling back to the acting user's own default.
+                    if ($paymentRegister->company_id === null && $paymentRegister->relationLoaded('lines')) {
+                        $linesCompanyIds = $paymentRegister->lines->pluck('company_id')->unique()->filter();
+
+                        if ($linesCompanyIds->count() > 1) {
+                            throw new AuthorizationException("You can't create payments for entries belonging to different companies.");
+                        }
+
+                        $paymentRegister->company_id = $linesCompanyIds->first();
+                    }
+
+                    $paymentRegister->company_id ??= Auth::user()?->default_company_id;
+
+                    if ($paymentRegister->company_id === null) {
+                        throw new AuthorizationException('PaymentRegister requires a company_id (directly, via a Journal, or via its lines) and none could be resolved.');
+                    }
+                }
             }
+
+            CompanyScope::assertCanWriteCompany((int) $paymentRegister->company_id);
 
             // Account has no company_id of its own — it must instead be
             // explicitly enabled for this company via the
             // accounts_account_companies pivot (#138 review, 2026-07-18).
             Account::assertEnabledForCompany($paymentRegister->writeoff_account_id, $paymentRegister->company_id, 'Writeoff Account');
         });
+    }
+
+    /**
+     * The only sanctioned way to attach MoveLines to this register's
+     * `lines` pivot — validates every line shares a single company that
+     * matches this register's own (already strict, non-null) company
+     * before the pivot rows are ever written. computeBatches() (called on
+     * `retrieved()`) already rejects a spanning `lines` collection once
+     * loaded, but that is a read-time check, not a write-time guard — this
+     * closes the gap at the actual point the pivot is modified (#138
+     * review round 3, 2026-07-18).
+     */
+    public function syncLines(array $moveLineIds): array
+    {
+        if ($moveLineIds === []) {
+            return $this->lines()->sync($moveLineIds);
+        }
+
+        $companyIds = MoveLine::withoutGlobalScope(CompanyScope::class)
+            ->whereKey($moveLineIds)
+            ->pluck('company_id')
+            ->unique();
+
+        if ($companyIds->count() > 1) {
+            throw new AuthorizationException("You can't create payments for entries belonging to different companies.");
+        }
+
+        $linesCompanyId = $companyIds->first();
+
+        if ($linesCompanyId === null) {
+            throw new AuthorizationException('The related MoveLines have no company of their own to anchor to.');
+        }
+
+        if ($this->company_id !== null && (int) $this->company_id !== (int) $linesCompanyId) {
+            throw new AuthorizationException('The related MoveLines belong to a different company than this PaymentRegister.');
+        }
+
+        CompanyScope::assertCanWriteCompany((int) $linesCompanyId);
+
+        return $this->lines()->sync($moveLineIds);
     }
 
     public function setLinesAttribute($lines)

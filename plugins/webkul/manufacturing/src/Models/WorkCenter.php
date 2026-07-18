@@ -303,14 +303,10 @@ class WorkCenter extends Model implements Sortable
             $authUser = Auth::user();
 
             $workCenter->creator_id ??= $authUser?->id;
-            $workCenter->company_id ??= $authUser?->default_company_id;
 
-            if ($workCenter->company_id === null) {
-                throw new AuthorizationException('WorkCenter requires a company_id and none could be resolved from the acting user.');
-            }
-
-            CompanyScope::assertCanWriteCompany((int) $workCenter->company_id);
-
+            // company_id itself is resolved and authorized in the earlier-
+            // firing `saving` listener below (#138 review round 3,
+            // 2026-07-18).
             $workCenter->working_state ??= WorkCenterWorkingState::NORMAL;
             $workCenter->time_efficiency ??= 100;
             $workCenter->default_capacity ??= 1;
@@ -318,6 +314,34 @@ class WorkCenter extends Model implements Sortable
             $workCenter->setup_time ??= 0;
             $workCenter->cleanup_time ??= 0;
             $workCenter->oee_target ??= 90;
+        });
+
+        static::saving(function (self $workCenter): void {
+            if (! $workCenter->exists) {
+                $workCenter->company_id ??= Auth::user()?->default_company_id;
+
+                if ($workCenter->company_id === null) {
+                    throw new AuthorizationException('WorkCenter requires a company_id and none could be resolved from the acting user.');
+                }
+
+                CompanyScope::assertCanWriteCompany((int) $workCenter->company_id);
+
+                return;
+            }
+
+            // Unlike Order/UnbuildOrder, WorkCenter allows company_id to
+            // change when it has no dependents (see `updating` below,
+            // which authorizes the NEW target company for that case) — so
+            // here we only need to re-authorize the CURRENT, pre-change
+            // company on every update, even when company_id itself isn't
+            // dirty (#138 review round 3, 2026-07-18): an actor who
+            // obtained a cross-company WorkCenter via an unscoped query
+            // must not be able to write any other field on it either.
+            $originalCompanyId = $workCenter->getOriginal('company_id');
+
+            if ($originalCompanyId !== null) {
+                CompanyScope::assertCanWriteCompany((int) $originalCompanyId);
+            }
         });
 
         static::updating(function (self $workCenter): void {

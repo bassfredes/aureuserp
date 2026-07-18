@@ -92,7 +92,7 @@ class ReverseAction extends Action
                     'reason'     => $data['reason'],
                 ]);
 
-                $moveReversal->moves()->attach($record);
+                $moveReversal->attachMove($record);
 
                 $defaultValues = $this->prepareMoveValues($record, $moveReversal);
 
@@ -103,7 +103,7 @@ class ReverseAction extends Action
                     $defaultValues,
                     $isCancelNeeded
                 )->each(function (Move $move) use ($moveReversal) {
-                    $moveReversal->newMoves()->attach($move->id);
+                    $moveReversal->attachNewMove($move);
                 });
 
                 AccountFacade::computeAccountMove($record);

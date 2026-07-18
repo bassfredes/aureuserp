@@ -361,7 +361,7 @@ class BillController extends Controller
             DB::transaction(function () use ($paymentData, $lineIds) {
                 $paymentRegister = PaymentRegister::create($paymentData);
 
-                $paymentRegister->lines()->sync($lineIds);
+                $paymentRegister->syncLines($lineIds);
 
                 $paymentRegister->refresh();
 
@@ -412,7 +412,7 @@ class BillController extends Controller
                 'reason'     => $data['reason'],
             ]);
 
-            $moveReversal->moves()->attach($invoice);
+            $moveReversal->attachMove($invoice);
 
             $defaultValues = [
                 'reference'         => Str::limit("Reversal of: {$invoice->name}, {$moveReversal->reason}", 250),
@@ -431,7 +431,7 @@ class BillController extends Controller
                 $defaultValues,
                 $isCancelNeeded
             )->each(function ($move) use ($moveReversal) {
-                $moveReversal->newMoves()->attach($move->id);
+                $moveReversal->attachNewMove($move);
             });
 
             AccountFacade::computeAccountMove($invoice);

@@ -306,7 +306,7 @@ class PayAction extends Action
 
                     $paymentRegister = PaymentRegister::create($data);
 
-                    $paymentRegister->lines()->sync($lineIds);
+                    $paymentRegister->syncLines($lineIds);
 
                     $paymentRegister->refresh();
 

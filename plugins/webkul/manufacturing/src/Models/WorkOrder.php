@@ -286,17 +286,19 @@ class WorkOrder extends Model implements Sortable
             $workOrder->creator_id ??= Auth::id();
 
             $workOrder->state ??= WorkOrderState::PENDING;
-
-            static::assertGraphMatchesOrderCompany($workOrder);
-        });
-
-        static::updating(function (self $workOrder): void {
-            if ($workOrder->isDirty(['manufacturing_order_id', 'work_center_id', 'product_id', 'operation_id'])) {
-                static::assertGraphMatchesOrderCompany($workOrder);
-            }
         });
 
         static::saving(function ($workOrder) {
+            // Full graph check on create or whenever any of the four FKs
+            // changes; otherwise still re-authorize the manufacturing
+            // Order's company on every save, even when none of them are
+            // dirty (#138 review round 3, 2026-07-18).
+            if (! $workOrder->exists || $workOrder->isDirty(['manufacturing_order_id', 'work_center_id', 'product_id', 'operation_id'])) {
+                static::assertGraphMatchesOrderCompany($workOrder);
+            } else {
+                static::resolveEffectiveCompanyIdOrFail($workOrder->manufacturing_order_id, Order::class, null, 'Manufacturing Order');
+            }
+
             $workOrder->computeName();
 
             $workOrder->computeUOMId();

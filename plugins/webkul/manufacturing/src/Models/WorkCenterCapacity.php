@@ -58,14 +58,20 @@ class WorkCenterCapacity extends Model
             $capacity->capacity ??= 1;
             $capacity->time_start ??= 0;
             $capacity->time_stop ??= 0;
-
-            static::assertProductMatchesWorkCenter($capacity->work_center_id, $capacity->product_id);
         });
 
-        static::updating(function (self $capacity): void {
-            if ($capacity->isDirty(['work_center_id', 'product_id'])) {
+        static::saving(function (self $capacity): void {
+            // Full check on create or whenever either FK changes;
+            // otherwise still re-authorize the WorkCenter's company on
+            // every save, even when neither FK is dirty (#138 review
+            // round 3, 2026-07-18).
+            if (! $capacity->exists || $capacity->isDirty(['work_center_id', 'product_id'])) {
                 static::assertProductMatchesWorkCenter($capacity->work_center_id, $capacity->product_id);
+
+                return;
             }
+
+            static::resolveEffectiveCompanyIdOrFail($capacity->work_center_id, WorkCenter::class, null, 'Work Center');
         });
     }
 
