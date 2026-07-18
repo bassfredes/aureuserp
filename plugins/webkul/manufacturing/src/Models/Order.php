@@ -33,6 +33,7 @@ use Webkul\Product\Enums\ProductType;
 use Webkul\Security\Models\User;
 use Webkul\Security\Traits\HasPermissionScope;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Models\UOM;
 use Webkul\Support\Traits\HasCompanyScope;
 use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
@@ -374,6 +375,8 @@ class Order extends Model
                 throw new AuthorizationException('Order requires a company_id and none could be resolved from the acting user.');
             }
 
+            CompanyScope::assertCanWriteCompany((int) $order->company_id);
+
             $order->computeState();
 
             $order->priority ??= ManufacturingOrderPriority::NORMAL;
@@ -410,6 +413,27 @@ class Order extends Model
         });
 
         static::saving(function ($order) {
+            // Standalone strict owner: once persisted, company_id can never
+            // change — matches HasStrictCompanyId's own policy. Checked
+            // first, before any relation-integrity validation below, so a
+            // rejected company change never partially validates
+            // product/BOM consistency against the attempted new company
+            // (#138 review round 2, 2026-07-18).
+            //
+            // getOriginal(), not isDirty(): this model's own `created` hook
+            // below calls `$order->update(['name' => ...])` as a nested
+            // save on the same instance, immediately after insert —
+            // exists=true at that point, but Eloquent hasn't synced
+            // $original yet, so isDirty() would false-positive on every
+            // attribute including company_id. Comparing against
+            // getOriginal() directly (skipping when still unset/null) is
+            // immune to that ordering quirk.
+            $originalCompanyId = $order->getOriginal('company_id');
+
+            if ($order->exists && $originalCompanyId !== null && (int) $originalCompanyId !== (int) $order->company_id) {
+                throw new AuthorizationException('Changing the company of this record is forbidden — archive it and create a new one instead.');
+            }
+
             // Read isolation (HasCompanyScope hiding another company's
             // Product/BillOfMaterial) is not the same guarantee as relation
             // integrity — a user allowed in company A+B could otherwise set

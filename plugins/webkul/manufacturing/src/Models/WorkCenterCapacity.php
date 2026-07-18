@@ -6,9 +6,17 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Security\Models\User;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
+/**
+ * No company_id column of its own (#138 review round 2, 2026-07-18) — the
+ * WorkCenter is the authoritative anchor, and product_id must belong to
+ * that same company.
+ */
 class WorkCenterCapacity extends Model
 {
+    use ValidatesRelatedCompanyScope;
+
     protected $table = 'manufacturing_work_center_capacities';
 
     protected $fillable = [
@@ -50,6 +58,21 @@ class WorkCenterCapacity extends Model
             $capacity->capacity ??= 1;
             $capacity->time_start ??= 0;
             $capacity->time_stop ??= 0;
+
+            static::assertProductMatchesWorkCenter($capacity->work_center_id, $capacity->product_id);
         });
+
+        static::updating(function (self $capacity): void {
+            if ($capacity->isDirty(['work_center_id', 'product_id'])) {
+                static::assertProductMatchesWorkCenter($capacity->work_center_id, $capacity->product_id);
+            }
+        });
+    }
+
+    private static function assertProductMatchesWorkCenter(?int $workCenterId, ?int $productId): void
+    {
+        $workCenterCompanyId = static::resolveEffectiveCompanyIdOrFail($workCenterId, WorkCenter::class, null, 'Work Center');
+
+        static::assertRelatedBelongsToCompany($productId, Product::class, 'Product', $workCenterCompanyId);
     }
 }

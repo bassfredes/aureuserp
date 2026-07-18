@@ -2,6 +2,7 @@
 
 namespace Webkul\Manufacturing\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -97,6 +98,17 @@ class BillOfMaterialByproduct extends Model
             );
 
             static::assertRelatedBelongsToCompany($byproduct->product_id, Product::class, 'Product', $byproduct->company_id);
+
+            // operation_id must belong to THIS byproduct's own BOM — see
+            // BillOfMaterialLine's identical check for the full rationale
+            // (#138 review round 2, 2026-07-18).
+            if ($byproduct->operation_id) {
+                $operation = Operation::withTrashed()->find($byproduct->operation_id);
+
+                if (! $operation || (int) $operation->bill_of_material_id !== (int) $byproduct->bill_of_material_id) {
+                    throw new AuthorizationException('The related Operation does not belong to this Bill Of Material.');
+                }
+            }
         });
     }
 }

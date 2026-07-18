@@ -434,9 +434,15 @@ class Payment extends Model
 
         $mapping = $accountMapping[$this->partner_type];
 
+        // Account has no company_id of its own — filtering by
+        // accounts_account_companies before first() is required, or the
+        // globally-first Account of this type could belong to a different
+        // company than this Payment even when a same-company Account of
+        // the same type also exists (#138 review round 2, 2026-07-18).
         $this->destination_account_id = $this->partner?->{$mapping['partner_property']}
             ?? Account::where('account_type', $mapping['account_type'])
                 ->where('deprecated', false)
+                ->whereHas('companies', fn ($query) => $query->where('companies.id', $this->company_id))
                 ->first()
                 ?->id;
     }

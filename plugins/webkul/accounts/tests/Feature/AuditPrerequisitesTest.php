@@ -27,8 +27,12 @@ afterEach(fn () => SecurityHelper::restoreUserEvents());
 it('loads JournalAccount without a PHP fatal and keeps timestamps disabled', function () {
     expect(fn () => new ReflectionClass(JournalAccount::class))->not->toThrow(\Throwable::class);
 
-    $account = Account::factory()->create();
-    $journal = Journal::factory()->create();
+    // No acting user yet — Journal's write-authorization check needs a
+    // system context for this fixture (#138 review round 2, 2026-07-18).
+    [$account, $journal] = TestBootstrapHelper::withSystemContextIfNoUser(fn () => [
+        Account::factory()->create(),
+        Journal::factory()->create(),
+    ]);
 
     $pivot = JournalAccount::create([
         'account_id' => $account->id,
@@ -56,13 +60,20 @@ it('resolves BankStatementLine to its real migrated table and can be queried', f
     // BankStatementLine strictly derives its own company_id from this
     // statement's (#138 review, 2026-07-18) — an explicit company_id is
     // required here, unlike the rest of this file's empty create([]).
-    $statement = BankStatement::create(['company_id' => Company::factory()->create()->id]);
+    // No acting user yet — BankStatement's write-authorization check
+    // needs a system context for this fixture too (#138 review round 2,
+    // 2026-07-18).
+    [$statement, $line] = TestBootstrapHelper::withSystemContextIfNoUser(function () {
+        $statement = BankStatement::create(['company_id' => Company::factory()->create()->id]);
 
-    // BankStatementLine declares no $fillable, so mass assignment is
-    // guarded by default — set the attribute directly instead.
-    $line = new BankStatementLine;
-    $line->statement_id = $statement->id;
-    $line->save();
+        // BankStatementLine declares no $fillable, so mass assignment is
+        // guarded by default — set the attribute directly instead.
+        $line = new BankStatementLine;
+        $line->statement_id = $statement->id;
+        $line->save();
+
+        return [$statement, $line];
+    });
 
     // BankStatementLine now carries HasCompanyScope (#138 audit follow-up)
     // — with no acting user and no active CompanyContext, CompanyScope

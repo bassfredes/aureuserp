@@ -12,6 +12,7 @@ use Webkul\Manufacturing\Database\Factories\UnbuildOrderFactory;
 use Webkul\Manufacturing\Enums\UnbuildOrderState;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Models\UOM;
 use Webkul\Support\Traits\HasCompanyScope;
 use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
@@ -111,9 +112,20 @@ class UnbuildOrder extends Model
             if ($unbuildOrder->company_id === null) {
                 throw new AuthorizationException('UnbuildOrder requires a company_id and none could be resolved from the acting user.');
             }
+
+            CompanyScope::assertCanWriteCompany((int) $unbuildOrder->company_id);
         });
 
         static::saving(function (self $unbuildOrder): void {
+            // Standalone strict owner: once persisted, company_id can never
+            // change. Checked first, before relation-integrity validation
+            // below, so a rejected company change never partially
+            // validates product/BOM/order consistency against the
+            // attempted new company (#138 review round 2, 2026-07-18).
+            if ($unbuildOrder->exists && $unbuildOrder->isDirty('company_id')) {
+                throw new AuthorizationException('Changing the company of this record is forbidden — archive it and create a new one instead.');
+            }
+
             // Same relation-integrity gap closed for Order/MoveLine/BOM
             // (#138, D5b pattern, aureuserp#137): read isolation alone
             // doesn't stop a user in company A+B from pointing an unbuild

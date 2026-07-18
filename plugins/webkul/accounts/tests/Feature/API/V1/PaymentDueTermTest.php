@@ -67,14 +67,17 @@ function paymentDueTermPayload(array $overrides = []): array
 // ── Authentication ─────────────────────────────────────────────────────────────
 
 it('requires authentication to list payment due terms', function () {
-    $paymentTerm = PaymentTerm::factory()->create();
+    // No acting user yet (that's the point of this test) — PaymentTerm's
+    // write-authorization check needs a system context for this fixture,
+    // same as any other no-user setup (#138 review round 2, 2026-07-18).
+    $paymentTerm = TestBootstrapHelper::withSystemContextIfNoUser(fn () => PaymentTerm::factory()->create());
 
     $this->getJson(paymentDueTermRoute('index', $paymentTerm))
         ->assertUnauthorized();
 });
 
 it('requires authentication to create a payment due term', function () {
-    $paymentTerm = PaymentTerm::factory()->create();
+    $paymentTerm = TestBootstrapHelper::withSystemContextIfNoUser(fn () => PaymentTerm::factory()->create());
 
     $this->postJson(paymentDueTermRoute('store', $paymentTerm), [])
         ->assertUnauthorized();

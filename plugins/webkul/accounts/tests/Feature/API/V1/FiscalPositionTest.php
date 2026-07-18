@@ -117,8 +117,15 @@ it('lists fiscal positions for authorized users', function () {
 it('filters fiscal positions by name', function () {
     actingAsFiscalPositionApiUser(['view_any_account_fiscal::position']);
 
+    // Deterministic, non-matching distractor names — the endpoint's
+    // filter[name] resolves to a `LIKE %EU%` under MySQL's default
+    // case-insensitive collation, so a Faker-random distractor name could
+    // coincidentally contain "eu" (lowercase) and pass the query while
+    // failing this test's case-sensitive toContain('EU') assertion (#138
+    // review round 2, 2026-07-18).
     $fiscalPosition = FiscalPosition::factory()->create(['name' => 'EU Import Position']);
-    FiscalPosition::factory()->count(2)->create();
+    FiscalPosition::factory()->create(['name' => 'Domestic Standard Position']);
+    FiscalPosition::factory()->create(['name' => 'Overseas Flat Position']);
 
     $response = $this->getJson(fiscalPositionRoute('index').'?filter[name]=EU')
         ->assertOk();

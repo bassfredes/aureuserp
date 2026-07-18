@@ -2,6 +2,7 @@
 
 namespace Webkul\Support\Models\Scopes;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -51,6 +52,53 @@ class CompanyScope implements Scope
     private static function actorSupportsCompanyMembership(?Authenticatable $user): bool
     {
         return $user !== null && method_exists($user, 'allowedCompanies');
+    }
+
+    /**
+     * Write-side counterpart to apply()'s read filter (#138 review round 2,
+     * 2026-07-18): reads being scoped away is not the same guarantee as a
+     * write being authorized — a strict_company owner's own
+     * creating/updating hook, and resolveEffectiveCompanyIdOrFail() on a
+     * child deriving its company from a parent, must both call this before
+     * accepting an explicit or derived company_id. Same precedence as
+     * apply():
+     *
+     * 1. Authenticated user   → $companyId must be in allowedCompanyIds().
+     * 2. CompanyContext::company → $companyId must match it exactly.
+     * 3. CompanyContext::all_companies|bootstrap → explicit bypass, allowed.
+     * 4. No user, no context  → fail closed.
+     */
+    public static function assertCanWriteCompany(int $companyId): void
+    {
+        $user = Auth::user();
+
+        if ($user && CompanyContext::current()) {
+            throw new LogicException('An authenticated user is active while a CompanyContext is still open — these are mutually exclusive (ADR 0007).');
+        }
+
+        if ($user) {
+            if (! static::allowedCompanyIds($user)->contains($companyId)) {
+                throw new AuthorizationException("Writing to company id {$companyId} is not authorized for the acting user.");
+            }
+
+            return;
+        }
+
+        $context = CompanyContext::current();
+
+        if ($context?->mode === CompanyContextMode::COMPANY) {
+            if ($context->companyId !== $companyId) {
+                throw new AuthorizationException("Writing to company id {$companyId} does not match the active CompanyContext.");
+            }
+
+            return;
+        }
+
+        if ($context?->mode === CompanyContextMode::ALL_COMPANIES || $context?->mode === CompanyContextMode::BOOTSTRAP) {
+            return;
+        }
+
+        throw new AuthorizationException("Writing to company id {$companyId} is not authorized: no authenticated user and no active CompanyContext.");
     }
 
     /**

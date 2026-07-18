@@ -27,8 +27,12 @@ it('hides WorkCenters from a company the user is not allowed to see', function (
 
     $userA = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
 
-    $workCenterA = WorkCenter::factory()->create(['company_id' => $companyA->id]);
-    $workCenterB = WorkCenter::factory()->create(['company_id' => $companyB->id]);
+    // No acting user yet — WorkCenter's write-authorization check needs a
+    // system context for this fixture (#138 review round 2, 2026-07-18).
+    [$workCenterA, $workCenterB] = TestBootstrapHelper::withSystemContextIfNoUser(fn () => [
+        WorkCenter::factory()->create(['company_id' => $companyA->id]),
+        WorkCenter::factory()->create(['company_id' => $companyB->id]),
+    ]);
 
     test()->actingAs($userA);
 
@@ -44,10 +48,18 @@ it('hides BillOfMaterials from a company the user is not allowed to see', functi
 
     $userA = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
 
-    $productA = Product::factory()->create(['company_id' => $companyA->id]);
-    $productB = Product::factory()->create(['company_id' => $companyB->id]);
-    $bomA = BillOfMaterial::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id]);
-    $bomB = BillOfMaterial::factory()->create(['company_id' => $companyB->id, 'product_id' => $productB->id]);
+    // No acting user yet — BillOfMaterial's write-authorization check
+    // (via resolveEffectiveCompanyIdOrFail()) needs a system context for
+    // this fixture (#138 review round 2, 2026-07-18).
+    [$bomA, $bomB] = TestBootstrapHelper::withSystemContextIfNoUser(function () use ($companyA, $companyB) {
+        $productA = Product::factory()->create(['company_id' => $companyA->id]);
+        $productB = Product::factory()->create(['company_id' => $companyB->id]);
+
+        return [
+            BillOfMaterial::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id]),
+            BillOfMaterial::factory()->create(['company_id' => $companyB->id, 'product_id' => $productB->id]),
+        ];
+    });
 
     test()->actingAs($userA);
 
@@ -117,10 +129,17 @@ it('lets a super_admin bypass company isolation for BillOfMaterials via forAllCo
     $superAdmin = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
     $superAdmin->assignRole(Role::findOrCreate('super_admin', 'web'));
 
-    $productA = Product::factory()->create(['company_id' => $companyA->id]);
-    $productB = Product::factory()->create(['company_id' => $companyB->id]);
-    $bomA = BillOfMaterial::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id]);
-    $bomB = BillOfMaterial::factory()->create(['company_id' => $companyB->id, 'product_id' => $productB->id]);
+    // No acting user yet — same system-context requirement as above
+    // (#138 review round 2, 2026-07-18).
+    [$bomA, $bomB] = TestBootstrapHelper::withSystemContextIfNoUser(function () use ($companyA, $companyB) {
+        $productA = Product::factory()->create(['company_id' => $companyA->id]);
+        $productB = Product::factory()->create(['company_id' => $companyB->id]);
+
+        return [
+            BillOfMaterial::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id]),
+            BillOfMaterial::factory()->create(['company_id' => $companyB->id, 'product_id' => $productB->id]),
+        ];
+    });
 
     test()->actingAs($superAdmin);
 

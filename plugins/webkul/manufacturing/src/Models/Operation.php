@@ -16,10 +16,17 @@ use Webkul\Manufacturing\Enums\OperationTimeMode;
 use Webkul\Manufacturing\Enums\OperationWorksheetType;
 use Webkul\Product\Models\ProductAttributeValue;
 use Webkul\Security\Models\User;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
+/**
+ * No company_id column of its own (#138 review round 2, 2026-07-18) — its
+ * effective company is always the owning BillOfMaterial's, so relation
+ * integrity is enforced by comparing work_center_id's company against the
+ * BOM's rather than against a column on this model.
+ */
 class Operation extends Model implements Sortable
 {
-    use HasFactory, SoftDeletes, SortableTrait;
+    use HasFactory, SoftDeletes, SortableTrait, ValidatesRelatedCompanyScope;
 
     protected $table = 'manufacturing_operations';
 
@@ -171,6 +178,29 @@ class Operation extends Model implements Sortable
             $operation->creator_id ??= Auth::id();
             $operation->worksheet_type ??= OperationWorksheetType::TEXT;
             $operation->time_mode ??= OperationTimeMode::MANUAL;
+
+            static::assertWorkCenterMatchesBillOfMaterial($operation->bill_of_material_id, $operation->work_center_id);
         });
+
+        static::updating(function (self $operation): void {
+            if ($operation->isDirty(['bill_of_material_id', 'work_center_id'])) {
+                static::assertWorkCenterMatchesBillOfMaterial($operation->bill_of_material_id, $operation->work_center_id);
+            }
+        });
+    }
+
+    /**
+     * Operation has no company_id of its own — the BillOfMaterial is the
+     * authoritative anchor, and work_center_id must belong to that same
+     * company (#138 review round 2, 2026-07-18). Reusing
+     * resolveEffectiveCompanyIdOrFail() to resolve the BOM's company also
+     * gets write-authorization for free: an actor may only create/update an
+     * Operation under a BOM whose company they're authorized to write to.
+     */
+    private static function assertWorkCenterMatchesBillOfMaterial(?int $billOfMaterialId, ?int $workCenterId): void
+    {
+        $bomCompanyId = static::resolveEffectiveCompanyIdOrFail($billOfMaterialId, BillOfMaterial::class, null, 'Bill Of Material');
+
+        static::assertRelatedBelongsToCompany($workCenterId, WorkCenter::class, 'Work Center', $bomCompanyId);
     }
 }

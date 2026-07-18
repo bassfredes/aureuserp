@@ -19,6 +19,7 @@ use Webkul\Manufacturing\Enums\WorkCenterWorkingState;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Calendar;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Traits\HasCompanyScope;
 
 class WorkCenter extends Model implements Sortable
@@ -308,6 +309,8 @@ class WorkCenter extends Model implements Sortable
                 throw new AuthorizationException('WorkCenter requires a company_id and none could be resolved from the acting user.');
             }
 
+            CompanyScope::assertCanWriteCompany((int) $workCenter->company_id);
+
             $workCenter->working_state ??= WorkCenterWorkingState::NORMAL;
             $workCenter->time_efficiency ??= 100;
             $workCenter->default_capacity ??= 1;
@@ -330,6 +333,8 @@ class WorkCenter extends Model implements Sortable
             if ($hasDependents) {
                 throw new AuthorizationException('Changing the company of a WorkCenter with existing operations, work orders, productivity logs, or capacities is forbidden — archive it and create a new one instead.');
             }
+
+            CompanyScope::assertCanWriteCompany((int) $workCenter->company_id);
         });
     }
 

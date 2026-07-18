@@ -1,21 +1,27 @@
 <?php
 
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Webkul\Inventory\Enums\LocationType;
 use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\Warehouse;
 use Webkul\Manufacturing\Models\BillOfMaterial;
 use Webkul\Manufacturing\Models\BillOfMaterialByproduct;
 use Webkul\Manufacturing\Models\BillOfMaterialLine;
+use Webkul\Manufacturing\Models\Operation;
 use Webkul\Manufacturing\Models\Order;
 use Webkul\Manufacturing\Models\UnbuildOrder;
 use Webkul\Manufacturing\Models\WorkCenter;
+use Webkul\Manufacturing\Models\WorkCenterCapacity;
 use Webkul\Manufacturing\Models\WorkCenterProductivityLog;
 use Webkul\Manufacturing\Models\WorkCenterProductivityLoss;
+use Webkul\Manufacturing\Models\WorkOrder;
 use Webkul\Product\Models\Product;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -491,4 +497,415 @@ it('forbids reassigning a WorkCenterProductivityLog to a WorkCenter from a diffe
         ->toThrow(AuthorizationException::class);
 
     $this->assertDatabaseHas('manufacturing_work_center_productivity_logs', ['id' => $log->id, 'work_center_id' => $workCenterA->id]);
+});
+
+// ── CompanyScope::assertCanWriteCompany(): custom "owner" boot pattern (#138 review round 2, 2026-07-18) ──
+
+it('forbids a user in company A from creating a manufacturing Order directly under company B by knowing its id', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    expect(fn () => Order::factory()->create([
+        'company_id'          => $companyB->id,
+        'bill_of_material_id' => null,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('manufacturing_orders', ['company_id' => $companyB->id]);
+});
+
+// ── BillOfMaterial::bomFindFilters(): no shared/NULL-company fallback (#138 review round 2, 2026-07-18) ──
+
+it('does not return a legacy NULL-company BillOfMaterial row from bomFindFilters()', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $legacyBom = BillOfMaterial::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id]);
+
+    // A NULL company_id can only exist on a row inserted directly,
+    // bypassing the model layer (resolveEffectiveCompanyIdOrFail() never
+    // persists NULL going forward).
+    DB::table('manufacturing_bills_of_materials')->where('id', $legacyBom->id)->update(['company_id' => null]);
+
+    Auth::logout();
+
+    // Under an authenticated user, CompanyScope's own whereIn(company_id,
+    // allowed) already excludes NULL rows regardless of bomFindFilters()
+    // — the leak this regression targets only surfaces under
+    // all_companies/bootstrap, where CompanyScope itself applies no
+    // filter and bomFindFilters()'s own filter is the sole guard (#138
+    // review round 2, 2026-07-18).
+    $results = CompanyContext::runForAllCompanies(
+        reason: 'test: legacy NULL-company BOM row must not leak via bomFindFilters()',
+        caller: __FILE__,
+        callback: fn () => BillOfMaterial::bomFindFilters(collect([$productA]), companyId: $companyA->id)->get(),
+    );
+
+    expect($results->pluck('id'))->not->toContain($legacyBom->id);
+});
+
+// ── Operation: no company_id column — WorkCenter must match its BillOfMaterial's company (#138 review round 2, 2026-07-18) ──
+
+it('forbids an Operation linking a WorkCenter from a different company than its BillOfMaterial', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $bomA = BillOfMaterial::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id]);
+    $workCenterB = WorkCenter::factory()->create(['company_id' => $companyB->id]);
+
+    expect(fn () => Operation::create([
+        'name'                => 'Cut',
+        'bill_of_material_id' => $bomA->id,
+        'work_center_id'      => $workCenterB->id,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('manufacturing_operations', ['bill_of_material_id' => $bomA->id, 'work_center_id' => $workCenterB->id]);
+});
+
+it('forbids reassigning an Operation\'s work_center_id to a WorkCenter from a different company on update', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $bomA = BillOfMaterial::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id]);
+    $workCenterA = WorkCenter::factory()->create(['company_id' => $companyA->id]);
+    $workCenterB = WorkCenter::factory()->create(['company_id' => $companyB->id]);
+
+    $operation = Operation::create([
+        'name'                => 'Cut',
+        'bill_of_material_id' => $bomA->id,
+        'work_center_id'      => $workCenterA->id,
+    ]);
+
+    expect(fn () => $operation->update(['work_center_id' => $workCenterB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('manufacturing_operations', ['id' => $operation->id, 'work_center_id' => $workCenterA->id]);
+});
+
+// ── WorkCenterCapacity: no company_id column — Product must match its WorkCenter's company (#138 review round 2, 2026-07-18) ──
+
+it('forbids a WorkCenterCapacity linking a Product from a different company than its WorkCenter', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $workCenterA = WorkCenter::factory()->create(['company_id' => $companyA->id]);
+    $productB = Product::factory()->create(['company_id' => $companyB->id]);
+
+    expect(fn () => WorkCenterCapacity::create([
+        'work_center_id' => $workCenterA->id,
+        'product_id'     => $productB->id,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('manufacturing_work_center_capacities', ['work_center_id' => $workCenterA->id, 'product_id' => $productB->id]);
+});
+
+it('forbids reassigning a WorkCenterCapacity\'s product_id to a Product from a different company on update', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $workCenterA = WorkCenter::factory()->create(['company_id' => $companyA->id]);
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $productB = Product::factory()->create(['company_id' => $companyB->id]);
+
+    $capacity = WorkCenterCapacity::create([
+        'work_center_id' => $workCenterA->id,
+        'product_id'     => $productA->id,
+    ]);
+
+    expect(fn () => $capacity->update(['product_id' => $productB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('manufacturing_work_center_capacities', ['id' => $capacity->id, 'product_id' => $productA->id]);
+});
+
+// ── WorkOrder: no company_id column — WorkCenter/Product/Operation must match its manufacturing Order's company (#138 review round 2, 2026-07-18) ──
+
+it('forbids a WorkOrder linking a WorkCenter from a different company than its manufacturing Order', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    Location::factory()->create(['type' => LocationType::PRODUCTION, 'company_id' => $companyA->id]);
+    $warehouseA = Warehouse::create([
+        'name'       => 'Warehouse A',
+        'code'       => 'WHA',
+        'company_id' => $companyA->id,
+    ])->fresh();
+
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $orderA = Order::factory()->create([
+        'company_id'          => $companyA->id,
+        'product_id'          => $productA->id,
+        'uom_id'              => $productA->uom_id,
+        'operation_type_id'   => $warehouseA->manu_type_id,
+        'source_location_id'  => $warehouseA->lot_stock_location_id,
+        'bill_of_material_id' => null,
+    ]);
+
+    $workCenterB = WorkCenter::factory()->create(['company_id' => $companyB->id]);
+
+    expect(fn () => WorkOrder::create([
+        'name'                    => 'Assemble',
+        'manufacturing_order_id'  => $orderA->id,
+        'work_center_id'          => $workCenterB->id,
+        'product_id'              => $productA->id,
+        'uom_id'                  => $productA->uom_id,
+        'operation_id'            => null,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('manufacturing_work_orders', ['manufacturing_order_id' => $orderA->id, 'work_center_id' => $workCenterB->id]);
+});
+
+it('forbids a WorkOrder linking an Operation from a different company than its manufacturing Order', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    Location::factory()->create(['type' => LocationType::PRODUCTION, 'company_id' => $companyA->id]);
+    $warehouseA = Warehouse::create([
+        'name'       => 'Warehouse A',
+        'code'       => 'WHA',
+        'company_id' => $companyA->id,
+    ])->fresh();
+
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $orderA = Order::factory()->create([
+        'company_id'          => $companyA->id,
+        'product_id'          => $productA->id,
+        'uom_id'              => $productA->uom_id,
+        'operation_type_id'   => $warehouseA->manu_type_id,
+        'source_location_id'  => $warehouseA->lot_stock_location_id,
+        'bill_of_material_id' => null,
+    ]);
+
+    $workCenterA = WorkCenter::factory()->create(['company_id' => $companyA->id]);
+
+    $productB = Product::factory()->create(['company_id' => $companyB->id]);
+    $bomB = BillOfMaterial::factory()->create(['company_id' => $companyB->id, 'product_id' => $productB->id]);
+    $operationB = Operation::create([
+        'name'                => 'Weld',
+        'bill_of_material_id' => $bomB->id,
+        'work_center_id'      => WorkCenter::factory()->create(['company_id' => $companyB->id])->id,
+    ]);
+
+    expect(fn () => WorkOrder::create([
+        'name'                   => 'Assemble',
+        'manufacturing_order_id' => $orderA->id,
+        'work_center_id'         => $workCenterA->id,
+        'product_id'             => $productA->id,
+        'uom_id'                 => $productA->uom_id,
+        'operation_id'           => $operationB->id,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('manufacturing_work_orders', ['manufacturing_order_id' => $orderA->id, 'operation_id' => $operationB->id]);
+});
+
+it('forbids reassigning a WorkOrder\'s work_center_id to a WorkCenter from a different company on update', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    Location::factory()->create(['type' => LocationType::PRODUCTION, 'company_id' => $companyA->id]);
+    $warehouseA = Warehouse::create([
+        'name'       => 'Warehouse A',
+        'code'       => 'WHA',
+        'company_id' => $companyA->id,
+    ])->fresh();
+
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $orderA = Order::factory()->create([
+        'company_id'          => $companyA->id,
+        'product_id'          => $productA->id,
+        'uom_id'              => $productA->uom_id,
+        'operation_type_id'   => $warehouseA->manu_type_id,
+        'source_location_id'  => $warehouseA->lot_stock_location_id,
+        'bill_of_material_id' => null,
+    ]);
+
+    $workCenterA = WorkCenter::factory()->create(['company_id' => $companyA->id]);
+    $workCenterB = WorkCenter::factory()->create(['company_id' => $companyB->id]);
+
+    $workOrder = WorkOrder::create([
+        'name'                   => 'Assemble',
+        'manufacturing_order_id' => $orderA->id,
+        'work_center_id'         => $workCenterA->id,
+        'product_id'             => $productA->id,
+        'uom_id'                 => $productA->uom_id,
+        'operation_id'           => null,
+    ]);
+
+    expect(fn () => $workOrder->update(['work_center_id' => $workCenterB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('manufacturing_work_orders', ['id' => $workOrder->id, 'work_center_id' => $workCenterA->id]);
+});
+
+// ── BillOfMaterialLine / Byproduct: operation_id must belong to the SAME BillOfMaterial (#138 review round 2, 2026-07-18) ──
+
+it('forbids a BillOfMaterialLine referencing an Operation from a different BillOfMaterial, even in the same company', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $bomA = BillOfMaterial::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id]);
+    $otherBomA = BillOfMaterial::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id]);
+    $workCenterA = WorkCenter::factory()->create(['company_id' => $companyA->id]);
+
+    $operationOfOtherBom = Operation::create([
+        'name'                => 'Cut',
+        'bill_of_material_id' => $otherBomA->id,
+        'work_center_id'      => $workCenterA->id,
+    ]);
+
+    $uomId = UOM::query()->value('id') ?? UOM::factory()->create()->id;
+
+    expect(fn () => BillOfMaterialLine::create([
+        'bill_of_material_id' => $bomA->id,
+        'product_id'          => $productA->id,
+        'uom_id'              => $uomId,
+        'operation_id'        => $operationOfOtherBom->id,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('manufacturing_bill_of_material_lines', ['bill_of_material_id' => $bomA->id, 'operation_id' => $operationOfOtherBom->id]);
+});
+
+it('forbids reassigning a BillOfMaterialLine\'s operation_id to an Operation from a different BillOfMaterial on update', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $bomA = BillOfMaterial::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id]);
+    $otherBomA = BillOfMaterial::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id]);
+    $workCenterA = WorkCenter::factory()->create(['company_id' => $companyA->id]);
+
+    $operationOfOwnBom = Operation::create([
+        'name'                => 'Cut',
+        'bill_of_material_id' => $bomA->id,
+        'work_center_id'      => $workCenterA->id,
+    ]);
+
+    $operationOfOtherBom = Operation::create([
+        'name'                => 'Weld',
+        'bill_of_material_id' => $otherBomA->id,
+        'work_center_id'      => $workCenterA->id,
+    ]);
+
+    $uomId = UOM::query()->value('id') ?? UOM::factory()->create()->id;
+
+    $line = BillOfMaterialLine::create([
+        'bill_of_material_id' => $bomA->id,
+        'product_id'          => $productA->id,
+        'uom_id'              => $uomId,
+        'operation_id'        => $operationOfOwnBom->id,
+    ]);
+
+    expect(fn () => $line->update(['operation_id' => $operationOfOtherBom->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('manufacturing_bill_of_material_lines', ['id' => $line->id, 'operation_id' => $operationOfOwnBom->id]);
+});
+
+it('forbids a BillOfMaterialByproduct referencing an Operation from a different BillOfMaterial, even in the same company', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $bomA = BillOfMaterial::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id]);
+    $otherBomA = BillOfMaterial::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id]);
+    $workCenterA = WorkCenter::factory()->create(['company_id' => $companyA->id]);
+
+    $operationOfOtherBom = Operation::create([
+        'name'                => 'Cut',
+        'bill_of_material_id' => $otherBomA->id,
+        'work_center_id'      => $workCenterA->id,
+    ]);
+
+    $uomId = UOM::query()->value('id') ?? UOM::factory()->create()->id;
+
+    expect(fn () => BillOfMaterialByproduct::create([
+        'bill_of_material_id' => $bomA->id,
+        'product_id'          => $productA->id,
+        'uom_id'              => $uomId,
+        'operation_id'        => $operationOfOtherBom->id,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('manufacturing_bill_of_material_byproducts', ['bill_of_material_id' => $bomA->id, 'operation_id' => $operationOfOtherBom->id]);
+});
+
+// ── Order / UnbuildOrder: standalone strict owners, immutable company_id (#138 review round 2, 2026-07-18) ──
+
+it('forbids changing a manufacturing Order\'s company_id directly, even for a user authorized in both companies', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    Location::factory()->create(['type' => LocationType::PRODUCTION, 'company_id' => $companyA->id]);
+    $warehouseA = Warehouse::create([
+        'name'       => 'Warehouse A',
+        'code'       => 'WHA',
+        'company_id' => $companyA->id,
+    ])->fresh();
+
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $order = Order::factory()->create([
+        'company_id'          => $companyA->id,
+        'product_id'          => $productA->id,
+        'uom_id'              => $productA->uom_id,
+        'operation_type_id'   => $warehouseA->manu_type_id,
+        'source_location_id'  => $warehouseA->lot_stock_location_id,
+        'bill_of_material_id' => null,
+    ]);
+
+    expect(fn () => $order->update(['company_id' => $companyB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('manufacturing_orders', ['id' => $order->id, 'company_id' => $companyA->id]);
+});
+
+it('forbids changing an UnbuildOrder\'s company_id directly, even for a user authorized in both companies', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+    $unbuildOrder = UnbuildOrder::factory()->create([
+        'company_id'          => $companyA->id,
+        'product_id'          => $productA->id,
+        'bill_of_material_id' => null,
+    ]);
+
+    expect(fn () => $unbuildOrder->update(['company_id' => $companyB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('manufacturing_unbuild_orders', ['id' => $unbuildOrder->id, 'company_id' => $companyA->id]);
 });

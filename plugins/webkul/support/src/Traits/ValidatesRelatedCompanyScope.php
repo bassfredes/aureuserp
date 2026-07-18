@@ -132,6 +132,15 @@ trait ValidatesRelatedCompanyScope
      * resolveEffectiveCompanyId() silently keeping the child's company on a
      * missing parent let a row "move" to an arbitrary company by pointing
      * it at a nonexistent parent id).
+     *
+     * The parent is resolved with CompanyScope bypassed (by design — the
+     * child's own company must be derivable even from a parent the acting
+     * user cannot see), so the resolved company must still be
+     * write-authorized before being handed back: an actor who only knows a
+     * hidden parent's id must not be able to create a child anchored to
+     * that parent's company merely by pointing at it (#138 review round 2,
+     * 2026-07-18 — e.g. a BankStatementLine under another company's hidden
+     * BankStatement).
      */
     protected static function resolveEffectiveCompanyIdOrFail(?int $parentId, string $parentClass, ?int $childCompanyId, string $parentLabel): int
     {
@@ -158,6 +167,8 @@ trait ValidatesRelatedCompanyScope
         if ($childCompanyId !== null && (int) $childCompanyId !== (int) $parent->company_id) {
             throw new AuthorizationException("The company_id does not match the {$parentLabel}'s company.");
         }
+
+        CompanyScope::assertCanWriteCompany((int) $parent->company_id);
 
         return (int) $parent->company_id;
     }

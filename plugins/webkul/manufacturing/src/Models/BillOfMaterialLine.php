@@ -2,6 +2,7 @@
 
 namespace Webkul\Manufacturing\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -103,6 +104,19 @@ class BillOfMaterialLine extends Model
             // its BOM is a relation-integrity gap read isolation alone
             // doesn't cover (#138, D5b pattern, aureuserp#137).
             static::assertRelatedBelongsToCompany($line->product_id, Product::class, 'Product', $line->company_id);
+
+            // operation_id must belong to THIS line's own BOM, not merely
+            // to a BOM in the same company — two BOMs of the same company
+            // each define their own Operations, and this line's Operation
+            // must be one of its own BOM's (#138 review round 2,
+            // 2026-07-18).
+            if ($line->operation_id) {
+                $operation = Operation::withTrashed()->find($line->operation_id);
+
+                if (! $operation || (int) $operation->bill_of_material_id !== (int) $line->bill_of_material_id) {
+                    throw new AuthorizationException('The related Operation does not belong to this Bill Of Material.');
+                }
+            }
         });
     }
 

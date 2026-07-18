@@ -24,10 +24,12 @@ use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 /**
  * strict_company (D2): company_id is always derived from the owning
  * Product's own company_id and is never NULL — a BOM has no identity
- * independent of the Product it builds. bomFindFilters()'s own
- * `whereNull('company_id')` branch predates this decision and is now
- * defensive/dead (no row can be null-company going forward), left as-is
- * rather than touched outside this rollout's stated scope.
+ * independent of the Product it builds. bomFindFilters() filters on an
+ * exact company_id match only — a `whereNull('company_id')` branch used to
+ * exist here as a shared-fallback holdover from before D2 reverted BOM to
+ * strict_company; it was removed because it kept legacy NULL-company rows
+ * (inserted directly, bypassing the model layer) visible across every
+ * company (#138 review round 2, 2026-07-18).
  */
 class BillOfMaterial extends Model
 {
@@ -315,10 +317,7 @@ class BillOfMaterial extends Model
         $resolvedCompanyId = $companyId ?? (static::$context['company_id'] ?? null);
 
         if ($resolvedCompanyId) {
-            $query->where(function ($q) use ($resolvedCompanyId) {
-                $q->whereNull('company_id')
-                    ->orWhere('company_id', $resolvedCompanyId);
-            });
+            $query->where('company_id', $resolvedCompanyId);
         }
 
         if ($operationType) {

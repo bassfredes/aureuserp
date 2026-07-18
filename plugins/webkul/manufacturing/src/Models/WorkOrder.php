@@ -3,6 +3,7 @@
 namespace Webkul\Manufacturing\Models;
 
 use Carbon\Carbon;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -20,10 +21,16 @@ use Webkul\Manufacturing\Enums\WorkOrderState;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\CalendarLeave;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
+/**
+ * No company_id column of its own (#138 review round 2, 2026-07-18) — the
+ * manufacturing Order is the authoritative anchor; work_center_id,
+ * product_id and operation_id must all belong to that same company.
+ */
 class WorkOrder extends Model implements Sortable
 {
-    use HasFactory, SortableTrait;
+    use HasFactory, SortableTrait, ValidatesRelatedCompanyScope;
 
     protected $table = 'manufacturing_work_orders';
 
@@ -279,6 +286,14 @@ class WorkOrder extends Model implements Sortable
             $workOrder->creator_id ??= Auth::id();
 
             $workOrder->state ??= WorkOrderState::PENDING;
+
+            static::assertGraphMatchesOrderCompany($workOrder);
+        });
+
+        static::updating(function (self $workOrder): void {
+            if ($workOrder->isDirty(['manufacturing_order_id', 'work_center_id', 'product_id', 'operation_id'])) {
+                static::assertGraphMatchesOrderCompany($workOrder);
+            }
         });
 
         static::saving(function ($workOrder) {
@@ -337,6 +352,35 @@ class WorkOrder extends Model implements Sortable
     public function computeUOMId()
     {
         $this->uom_id = $this->product?->uom_id;
+    }
+
+    /**
+     * Resolves the manufacturing Order's company (always strict, never
+     * null) and asserts work_center_id, product_id and operation_id are
+     * all compatible with it. Operation has no company_id column of its
+     * own, so its effective company is derived through its BillOfMaterial
+     * rather than compared directly (#138 review round 2, 2026-07-18).
+     */
+    private static function assertGraphMatchesOrderCompany(self $workOrder): void
+    {
+        $orderCompanyId = static::resolveEffectiveCompanyIdOrFail($workOrder->manufacturing_order_id, Order::class, null, 'Manufacturing Order');
+
+        static::assertRelatedBelongsToCompany($workOrder->work_center_id, WorkCenter::class, 'Work Center', $orderCompanyId);
+        static::assertRelatedBelongsToCompany($workOrder->product_id, Product::class, 'Product', $orderCompanyId);
+
+        if ($workOrder->operation_id === null) {
+            return;
+        }
+
+        $operation = Operation::withTrashed()->find($workOrder->operation_id);
+
+        $operationCompanyId = $operation
+            ? static::resolveEffectiveCompanyIdOrFail($operation->bill_of_material_id, BillOfMaterial::class, null, 'Bill Of Material')
+            : null;
+
+        if ($operationCompanyId === null || (int) $operationCompanyId !== (int) $orderCompanyId) {
+            throw new AuthorizationException('The related Operation belongs to a different company.');
+        }
     }
 
     public function computeDuration(): void
