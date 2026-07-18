@@ -18,10 +18,11 @@ use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
 use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class PaymentRegister extends Model
 {
-    use HasCompanyScope, HasFactory;
+    use HasCompanyScope, HasFactory, ValidatesRelatedCompanyScope;
 
     protected $table = 'accounts_payment_registers';
 
@@ -137,6 +138,28 @@ class PaymentRegister extends Model
             $paymentRegister->computeGroupPayment();
 
             $paymentRegister->computePaymentDifferenceHandling();
+
+            // computeBatches() (called on retrieved()) already rejects a
+            // `lines` set spanning more than one company; company_id
+            // itself is otherwise derived from the batch's own lines by
+            // computeFromLines()/getValuesFromBatch() (wizard flow, not a
+            // persisted-from-scratch aggregate). This adds the one
+            // remaining hard floor: once a Journal is chosen, an explicit
+            // company_id can never contradict it (#138 review,
+            // 2026-07-18).
+            if ($paymentRegister->journal_id) {
+                $paymentRegister->company_id = static::resolveEffectiveCompanyIdOrFail(
+                    $paymentRegister->journal_id,
+                    Journal::class,
+                    $paymentRegister->company_id,
+                    'Journal'
+                );
+            }
+
+            // Account has no company_id of its own — it must instead be
+            // explicitly enabled for this company via the
+            // accounts_account_companies pivot (#138 review, 2026-07-18).
+            Account::assertEnabledForCompany($paymentRegister->writeoff_account_id, $paymentRegister->company_id, 'Writeoff Account');
         });
     }
 

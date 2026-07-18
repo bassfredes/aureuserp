@@ -5,6 +5,7 @@ use Webkul\Account\Models\BankStatement;
 use Webkul\Account\Models\BankStatementLine;
 use Webkul\Account\Models\Journal;
 use Webkul\Account\Models\JournalAccount;
+use Webkul\Support\Models\Company;
 
 require_once __DIR__.'/../../../support/tests/Helpers/SecurityHelper.php';
 require_once __DIR__.'/../../../support/tests/Helpers/TestBootstrapHelper.php';
@@ -52,7 +53,10 @@ it('loads JournalAccount without a PHP fatal and keeps timestamps disabled', fun
 it('resolves BankStatementLine to its real migrated table and can be queried', function () {
     expect((new BankStatementLine)->getTable())->toBe('accounts_bank_statement_lines');
 
-    $statement = BankStatement::create([]);
+    // BankStatementLine strictly derives its own company_id from this
+    // statement's (#138 review, 2026-07-18) — an explicit company_id is
+    // required here, unlike the rest of this file's empty create([]).
+    $statement = BankStatement::create(['company_id' => Company::factory()->create()->id]);
 
     // BankStatementLine declares no $fillable, so mass assignment is
     // guarded by default — set the attribute directly instead.

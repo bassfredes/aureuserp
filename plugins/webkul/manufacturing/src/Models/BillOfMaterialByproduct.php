@@ -10,16 +10,16 @@ use Illuminate\Support\Facades\Auth;
 use Webkul\Product\Models\ProductAttributeValue;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
-use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
 use Webkul\Support\Models\UOM;
 use Webkul\Support\Traits\HasCompanyScope;
 use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 /**
- * Derives company_id from its parent BillOfMaterial (never the acting
- * user's default) — same reasoning as BillOfMaterialLine.
+ * strict_company (D2): company_id is always derived from the parent
+ * BillOfMaterial (never the acting user's default) — same reasoning as
+ * BillOfMaterialLine.
  */
-class BillOfMaterialByproduct extends Model implements IncludesSharedCompanyRows
+class BillOfMaterialByproduct extends Model
 {
     use HasCompanyScope, HasFactory, ValidatesRelatedCompanyScope;
 
@@ -86,11 +86,17 @@ class BillOfMaterialByproduct extends Model implements IncludesSharedCompanyRows
         });
 
         static::saving(function (self $byproduct): void {
-            $byproduct->company_id = $byproduct->billOfMaterial?->company_id;
+            // Always re-derived from the parent BOM — see
+            // BillOfMaterialLine's identical saving() hook for the full
+            // rationale (#138 review, 2026-07-18).
+            $byproduct->company_id = static::resolveEffectiveCompanyIdOrFail(
+                $byproduct->bill_of_material_id,
+                BillOfMaterial::class,
+                $byproduct->company_id,
+                'Bill Of Material'
+            );
 
-            if ($byproduct->company_id !== null) {
-                static::assertRelatedBelongsToCompany($byproduct->product_id, Product::class, 'Product', $byproduct->company_id);
-            }
+            static::assertRelatedBelongsToCompany($byproduct->product_id, Product::class, 'Product', $byproduct->company_id);
         });
     }
 }

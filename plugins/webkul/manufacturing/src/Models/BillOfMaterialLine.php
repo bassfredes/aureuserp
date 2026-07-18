@@ -10,18 +10,16 @@ use Illuminate\Support\Facades\Auth;
 use Webkul\Product\Models\ProductAttributeValue;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
-use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
 use Webkul\Support\Models\UOM;
 use Webkul\Support\Traits\HasCompanyScope;
 use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 /**
- * Derives company_id from its parent BillOfMaterial (never the acting
- * user's default) — a line's company must always match its BOM, including
- * a null (global template) one, so it inherits the same
- * IncludesSharedCompanyRows visibility (ADR 0007).
+ * strict_company (D2): company_id is always derived from the parent
+ * BillOfMaterial (itself always non-null, never the acting user's
+ * default) — a line's company can never diverge from its BOM's.
  */
-class BillOfMaterialLine extends Model implements IncludesSharedCompanyRows
+class BillOfMaterialLine extends Model
 {
     use HasCompanyScope, HasFactory, ValidatesRelatedCompanyScope;
 
@@ -88,20 +86,23 @@ class BillOfMaterialLine extends Model implements IncludesSharedCompanyRows
         });
 
         static::saving(function (self $line): void {
-            // Always synced from the parent BOM, never independently
-            // defaulted from the acting user (a line's company can never
-            // diverge from its BillOfMaterial's, including a null/global
-            // one).
-            $line->company_id = $line->billOfMaterial?->company_id;
+            // Always re-derived from the parent BOM (never independently
+            // defaulted from the acting user, never left to drift): a
+            // missing/no-company BOM is a hard failure, and a BOM
+            // reassignment that resolves to a different company than this
+            // line's current one is rejected outright, not silently moved
+            // (#138 review, 2026-07-18).
+            $line->company_id = static::resolveEffectiveCompanyIdOrFail(
+                $line->bill_of_material_id,
+                BillOfMaterial::class,
+                $line->company_id,
+                'Bill Of Material'
+            );
 
-            // A specific-company line referencing a Product from a
-            // different company is a relation-integrity gap read isolation
-            // alone doesn't cover (#138, D5b pattern, aureuserp#137). A
-            // null-company (global template) line has no company to check
-            // the Product against.
-            if ($line->company_id !== null) {
-                static::assertRelatedBelongsToCompany($line->product_id, Product::class, 'Product', $line->company_id);
-            }
+            // A line referencing a Product from a different company than
+            // its BOM is a relation-integrity gap read isolation alone
+            // doesn't cover (#138, D5b pattern, aureuserp#137).
+            static::assertRelatedBelongsToCompany($line->product_id, Product::class, 'Product', $line->company_id);
         });
     }
 

@@ -8,10 +8,11 @@ use Illuminate\Support\Facades\Auth;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class MoveReversal extends Model
 {
-    use HasCompanyScope;
+    use HasCompanyScope, ValidatesRelatedCompanyScope;
 
     protected $table = 'accounts_accounts_move_reversals';
 
@@ -59,9 +60,29 @@ class MoveReversal extends Model
         static::creating(function ($moveReversal) {
             $authUser = Auth::user();
 
-            $moveReversal->creator_id ??= $authUser->id;
+            $moveReversal->creator_id ??= $authUser?->id;
 
             $moveReversal->company_id ??= $authUser?->default_company_id;
+        });
+
+        static::saving(function ($moveReversal) {
+            // Once a Journal is chosen for this reversal wizard, an
+            // explicit company_id can never contradict it — the acting
+            // user's default_company_id above is only a convenience
+            // default before that choice is made, never an override of it
+            // (#138 review, 2026-07-18). moves()/newMoves() are populated
+            // post-creation via a pivot (a wizard flow, not a
+            // persisted-from-scratch aggregate) and are not re-validated
+            // here — that would require hooking the controller's own
+            // attach()/sync() call sites, out of this rollout's scope.
+            if ($moveReversal->journal_id) {
+                $moveReversal->company_id = static::resolveEffectiveCompanyIdOrFail(
+                    $moveReversal->journal_id,
+                    Journal::class,
+                    $moveReversal->company_id,
+                    'Journal'
+                );
+            }
         });
     }
 }

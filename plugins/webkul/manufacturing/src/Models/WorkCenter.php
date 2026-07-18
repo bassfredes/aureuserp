@@ -3,6 +3,7 @@
 namespace Webkul\Manufacturing\Models;
 
 use Carbon\Carbon;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -302,6 +303,11 @@ class WorkCenter extends Model implements Sortable
 
             $workCenter->creator_id ??= $authUser?->id;
             $workCenter->company_id ??= $authUser?->default_company_id;
+
+            if ($workCenter->company_id === null) {
+                throw new AuthorizationException('WorkCenter requires a company_id and none could be resolved from the acting user.');
+            }
+
             $workCenter->working_state ??= WorkCenterWorkingState::NORMAL;
             $workCenter->time_efficiency ??= 100;
             $workCenter->default_capacity ??= 1;
@@ -309,6 +315,21 @@ class WorkCenter extends Model implements Sortable
             $workCenter->setup_time ??= 0;
             $workCenter->cleanup_time ??= 0;
             $workCenter->oee_target ??= 90;
+        });
+
+        static::updating(function (self $workCenter): void {
+            if (! $workCenter->isDirty('company_id')) {
+                return;
+            }
+
+            $hasDependents = $workCenter->operations()->exists()
+                || $workCenter->workOrders()->exists()
+                || $workCenter->productivityLogs()->exists()
+                || $workCenter->capacities()->exists();
+
+            if ($hasDependents) {
+                throw new AuthorizationException('Changing the company of a WorkCenter with existing operations, work orders, productivity logs, or capacities is forbidden — archive it and create a new one instead.');
+            }
         });
     }
 

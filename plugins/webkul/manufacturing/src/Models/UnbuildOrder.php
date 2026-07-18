@@ -2,6 +2,7 @@
 
 namespace Webkul\Manufacturing\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -106,6 +107,10 @@ class UnbuildOrder extends Model
             $unbuildOrder->creator_id ??= $authUser?->id;
             $unbuildOrder->company_id ??= $authUser?->default_company_id;
             $unbuildOrder->state ??= UnbuildOrderState::DRAFT;
+
+            if ($unbuildOrder->company_id === null) {
+                throw new AuthorizationException('UnbuildOrder requires a company_id and none could be resolved from the acting user.');
+            }
         });
 
         static::saving(function (self $unbuildOrder): void {
@@ -113,19 +118,22 @@ class UnbuildOrder extends Model
             // (#138, D5b pattern, aureuserp#137): read isolation alone
             // doesn't stop a user in company A+B from pointing an unbuild
             // order in A at a Product, BillOfMaterial, or manufacturing
-            // Order from B. A null-company BOM is a global template (ADR
-            // 0007) and has no company to check against.
+            // Order from B. BillOfMaterial is strict_company (D2) — always
+            // non-null — so this is unconditional; checking
+            // `$unbuildOrder->billOfMaterial?->company_id` instead would
+            // use the scoped relation, which resolves to null (skipping
+            // the guard) whenever the acting user simply can't see the
+            // referenced BOM — the exact bypass this guard exists to close
+            // (#138 review, 2026-07-18).
             if ($unbuildOrder->isDirty(['product_id', 'company_id'])) {
                 static::assertRelatedBelongsToCompany($unbuildOrder->product_id, Product::class, 'Product', $unbuildOrder->company_id);
             }
 
-            if ($unbuildOrder->bill_of_material_id && $unbuildOrder->isDirty(['bill_of_material_id', 'company_id'])) {
-                if ($unbuildOrder->billOfMaterial?->company_id !== null) {
-                    static::assertRelatedBelongsToCompany($unbuildOrder->bill_of_material_id, BillOfMaterial::class, 'Bill Of Material', $unbuildOrder->company_id);
-                }
+            if ($unbuildOrder->isDirty(['bill_of_material_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($unbuildOrder->bill_of_material_id, BillOfMaterial::class, 'Bill Of Material', $unbuildOrder->company_id);
             }
 
-            if ($unbuildOrder->manufacturing_order_id && $unbuildOrder->isDirty(['manufacturing_order_id', 'company_id'])) {
+            if ($unbuildOrder->isDirty(['manufacturing_order_id', 'company_id'])) {
                 static::assertRelatedBelongsToCompany($unbuildOrder->manufacturing_order_id, Order::class, 'Manufacturing Order', $unbuildOrder->company_id);
             }
         });

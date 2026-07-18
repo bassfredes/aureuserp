@@ -24,6 +24,28 @@ class MoveFactory extends Factory
     protected $model = Move::class;
 
     /**
+     * journal_id and company_id are two independent lazy factory
+     * references by default — a caller overriding only company_id (common
+     * throughout this plugin's own tests) leaves the Move pointing at a
+     * Journal from a different, unrelated company. That mismatch was
+     * previously harmless; MoveLine::computeAccountId() now falls back to
+     * that Journal's own default_account_id, and the account-company
+     * pivot check surfaces the pre-existing inconsistency (#138 review,
+     * 2026-07-18). Corrected after create, on the Move's own FINAL
+     * company_id, rather than in definition() — the account_id fallback
+     * only ever needs it to exist for MoveLine's own creation.
+     */
+    public function configure(): static
+    {
+        return $this->afterCreating(function (Move $move): void {
+            if ($move->journal_id && $move->journal?->company_id !== $move->company_id) {
+                $move->journal_id = Journal::factory()->create(['company_id' => $move->company_id])->id;
+                $move->saveQuietly();
+            }
+        });
+    }
+
+    /**
      * Define the model's default state.
      *
      * @return array<string, mixed>

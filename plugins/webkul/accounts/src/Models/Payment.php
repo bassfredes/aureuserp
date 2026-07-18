@@ -24,10 +24,11 @@ use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
 use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class Payment extends Model
 {
-    use HasChatter, HasCompanyScope, HasFactory, HasLogActivity;
+    use HasChatter, HasCompanyScope, HasFactory, HasLogActivity, ValidatesRelatedCompanyScope;
 
     public const ACTIVITY_PLAN_PLUGIN = 'accounts';
 
@@ -249,6 +250,12 @@ class Payment extends Model
 
             $payment->computeDestinationAccountId();
 
+            // Account has no company_id of its own — each must instead be
+            // explicitly enabled for this Payment's company via the
+            // accounts_account_companies pivot (#138 review, 2026-07-18).
+            Account::assertEnabledForCompany($payment->outstanding_account_id, $payment->company_id, 'Outstanding Account');
+            Account::assertEnabledForCompany($payment->destination_account_id, $payment->company_id, 'Destination Account');
+
             $payment->computeAmountCompanyCurrencySigned();
 
             $payment->computeReconciliationStatus();
@@ -298,11 +305,11 @@ class Payment extends Model
 
     public function computeCompanyId()
     {
-        if ($this->company_id) {
-            return;
-        }
-
-        $this->company_id = $this->journal->company_id;
+        // Always re-derived from the Journal (strict_company, never
+        // null) — the previous "only fill if empty" check let an
+        // explicit, mismatched company_id pass through unvalidated
+        // instead of being rejected (#138 review, 2026-07-18).
+        $this->company_id = static::resolveEffectiveCompanyIdOrFail($this->journal_id, Journal::class, $this->company_id, 'Journal');
     }
 
     public function computeState()

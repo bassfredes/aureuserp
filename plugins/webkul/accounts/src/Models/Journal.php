@@ -18,10 +18,11 @@ use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
 use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\HasStrictCompanyId;
 
 class Journal extends Model implements Sortable
 {
-    use HasCompanyScope, HasFactory, SortableTrait;
+    use HasCompanyScope, HasFactory, HasStrictCompanyId, SortableTrait;
 
     protected $table = 'accounts_journals';
 
@@ -215,6 +216,19 @@ class Journal extends Model implements Sortable
 
         static::saving(function ($journal) {
             $journal->computeSuspenseAccountId();
+
+            // Designating an Account as this Journal's own default/
+            // suspense/profit/loss account is itself the act that enables
+            // it for the journal's company via the
+            // accounts_account_companies pivot — Account has no
+            // company_id of its own (#138 review, 2026-07-18). Unlike a
+            // MoveLine/FiscalPositionAccount referencing a pre-existing,
+            // separately-authorized Account, there is no other party's
+            // authorization to check here.
+            Account::ensureEnabledForCompany($journal->default_account_id, $journal->company_id);
+            Account::ensureEnabledForCompany($journal->suspense_account_id, $journal->company_id);
+            Account::ensureEnabledForCompany($journal->profit_account_id, $journal->company_id);
+            Account::ensureEnabledForCompany($journal->loss_account_id, $journal->company_id);
         });
     }
 

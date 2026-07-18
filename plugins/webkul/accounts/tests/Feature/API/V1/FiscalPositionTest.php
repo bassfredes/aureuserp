@@ -152,10 +152,16 @@ it('creates a fiscal position', function () {
 it('creates a fiscal position with tax mappings', function () {
     actingAsFiscalPositionApiUser(['create_account_fiscal::position']);
 
-    $taxSource = Tax::factory()->create();
-    $taxDestination = Tax::factory()->create();
+    // FiscalPositionTax now enforces that tax_source_id/tax_destination_id
+    // belong to the same company as the FiscalPosition itself (#138
+    // review, 2026-07-18) — Tax::factory() defaults to its own random
+    // company otherwise, so it must be pinned to the same one used below.
+    $company = Company::factory()->create();
+    $taxSource = Tax::factory()->create(['company_id' => $company->id]);
+    $taxDestination = Tax::factory()->create(['company_id' => $company->id]);
 
     $payload = fiscalPositionPayload([
+        'company_id' => $company->id,
         'taxes' => [
             [
                 'tax_source_id'      => $taxSource->id,

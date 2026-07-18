@@ -1,13 +1,12 @@
 <?php
 
-use Webkul\Inventory\Models\OperationType;
+use Illuminate\Auth\Access\AuthorizationException;
 use Webkul\Manufacturing\Models\BillOfMaterial;
 use Webkul\Manufacturing\Models\WorkCenter;
 use Webkul\Product\Models\Product;
 use Webkul\Security\Models\Role;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
-use Webkul\Support\Models\UOM;
 use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../support/tests/Helpers/SecurityHelper.php';
@@ -37,9 +36,9 @@ it('hides WorkCenters from a company the user is not allowed to see', function (
     expect(WorkCenter::find($workCenterB->id))->toBeNull();
 });
 
-// ── BillOfMaterial (company_or_shared — global templates via ADR 0007) ─────
+// ── BillOfMaterial (strict_company — D2, no shared/global rows) ────────────
 
-it('shows a user their own company BillOfMaterials plus the shared/global ones', function () {
+it('hides BillOfMaterials from a company the user is not allowed to see', function () {
     $companyA = Company::factory()->create();
     $companyB = Company::factory()->create();
 
@@ -50,79 +49,65 @@ it('shows a user their own company BillOfMaterials plus the shared/global ones',
     $bomA = BillOfMaterial::factory()->create(['company_id' => $companyA->id, 'product_id' => $productA->id]);
     $bomB = BillOfMaterial::factory()->create(['company_id' => $companyB->id, 'product_id' => $productB->id]);
 
-    $globalBom = CompanyContext::runForAllCompanies(
-        reason: 'test fixture setup — global BOM template',
-        caller: __FILE__,
-        callback: fn () => BillOfMaterial::factory()->create(['company_id' => null]),
-    );
-
     test()->actingAs($userA);
 
     $visibleIds = BillOfMaterial::query()->pluck('id');
 
-    expect($visibleIds)->toContain($bomA->id, $globalBom->id);
+    expect($visibleIds)->toContain($bomA->id);
     expect($visibleIds)->not->toContain($bomB->id);
 });
 
-it('forbids a regular authenticated user from creating a global (company_id null) BillOfMaterial', function () {
-    $company = Company::factory()->create();
-    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $company->id]));
-
-    test()->actingAs($user);
-
-    expect(fn () => BillOfMaterial::factory()->create(['company_id' => null]))
-        ->toThrow(Exception::class);
-});
-
-it('forbids a regular authenticated user from modifying or deleting a global BillOfMaterial template', function () {
+it('forbids creating a BillOfMaterial for a Product that has no company of its own (D2: strict_company, company_id NULL is never persisted)', function () {
     $company = Company::factory()->create();
 
-    $globalBom = CompanyContext::runForAllCompanies(
-        reason: 'test fixture setup — global BOM template',
+    $productWithNoCompany = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — Product with no company',
         caller: __FILE__,
-        callback: fn () => BillOfMaterial::factory()->create(['company_id' => null]),
+        callback: fn () => Product::factory()->create(['company_id' => null]),
     );
 
     $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $company->id]));
     test()->actingAs($user);
 
-    expect(fn () => $globalBom->update(['code' => 'HACKED']))->toThrow(Exception::class);
-    expect(fn () => $globalBom->delete())->toThrow(Exception::class);
+    expect(fn () => BillOfMaterial::factory()->create(['company_id' => null, 'product_id' => $productWithNoCompany->id]))
+        ->toThrow(AuthorizationException::class);
 });
 
-it('lets a super_admin create and modify a global BillOfMaterial template', function () {
-    // default_company_id must stay null here: BillOfMaterial's own
-    // creating() hook does `$billOfMaterial->company_id ??= $authUser
-    // ?->default_company_id`, so a super_admin WITH a default company
-    // would have an explicit `company_id => null` silently overwritten
-    // by their own company before guardSharedRowMutation ever runs.
-    $superAdmin = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => null]));
-    $superAdmin->assignRole(Role::findOrCreate('super_admin', 'web'));
+it('derives BillOfMaterial.company_id from its Product, not the acting user\'s default', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
 
-    // Every foreign key is pre-created explicitly (no
-    // Query::value('id') ?? factory() fallback in the middle of
-    // BillOfMaterialFactory's own definition()) so this test only
-    // exercises the guard itself, not incidental nested-factory state.
-    $product = Product::factory()->create();
-    $uom = UOM::factory()->create();
-    $operationType = OperationType::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyB->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
 
-    test()->actingAs($superAdmin);
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
 
-    $globalBom = BillOfMaterial::factory()->create([
-        'company_id'        => null,
-        'product_id'        => $product->id,
-        'uom_id'            => $uom->id,
-        'operation_type_id' => $operationType->id,
-        'creator_id'        => $superAdmin->id,
-    ]);
+    $bom = BillOfMaterial::factory()->create(['company_id' => null, 'product_id' => $productA->id]);
 
-    expect($globalBom->exists)->toBeTrue()
-        ->and($globalBom->company_id)->toBeNull();
+    expect($bom->company_id)->toBe($companyA->id);
+});
 
-    $globalBom->update(['code' => 'BOM-GLOBAL']);
+it('forbids an explicit BillOfMaterial company_id that mismatches its Product\'s company', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
 
-    expect($globalBom->fresh()->code)->toBe('BOM-GLOBAL');
+    $productA = Product::factory()->create(['company_id' => $companyA->id]);
+
+    expect(fn () => BillOfMaterial::factory()->create(['company_id' => $companyB->id, 'product_id' => $productA->id]))
+        ->toThrow(AuthorizationException::class);
+});
+
+it('forbids creating a BillOfMaterial when the Product cannot be resolved', function () {
+    $company = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $company->id]));
+    test()->actingAs($user);
+
+    expect(fn () => BillOfMaterial::factory()->create(['company_id' => null, 'product_id' => 999999999]))
+        ->toThrow(AuthorizationException::class);
 });
 
 it('lets a super_admin bypass company isolation for BillOfMaterials via forAllCompanies', function () {

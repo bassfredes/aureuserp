@@ -3,6 +3,7 @@
 namespace Webkul\Manufacturing\Models;
 
 use Carbon\Carbon;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -369,6 +370,10 @@ class Order extends Model
 
             $order->company_id ??= $authUser?->default_company_id;
 
+            if ($order->company_id === null) {
+                throw new AuthorizationException('Order requires a company_id and none could be resolved from the acting user.');
+            }
+
             $order->computeState();
 
             $order->priority ??= ManufacturingOrderPriority::NORMAL;
@@ -409,17 +414,19 @@ class Order extends Model
             // Product/BillOfMaterial) is not the same guarantee as relation
             // integrity — a user allowed in company A+B could otherwise set
             // a manufacturing Order in A to reference a Product or BOM
-            // from B (#138, D5b pattern, aureuserp#137). A null-company BOM
-            // is a global template (ADR 0007) and has no company to check
-            // against.
+            // from B (#138, D5b pattern, aureuserp#137). BillOfMaterial is
+            // strict_company (D2) — always non-null — so this is now
+            // unconditional; checking `$order->billOfMaterial?->company_id`
+            // instead would use the scoped relation, which resolves to
+            // null (skipping the guard entirely) whenever the acting user
+            // simply can't see the referenced BOM — the exact bypass this
+            // guard exists to close (#138 review, 2026-07-18).
             if ($order->isDirty(['product_id', 'company_id'])) {
                 static::assertRelatedBelongsToCompany($order->product_id, Product::class, 'Product', $order->company_id);
             }
 
-            if ($order->bill_of_material_id && $order->isDirty(['bill_of_material_id', 'company_id'])) {
-                if ($order->billOfMaterial?->company_id !== null) {
-                    static::assertRelatedBelongsToCompany($order->bill_of_material_id, BillOfMaterial::class, 'Bill Of Material', $order->company_id);
-                }
+            if ($order->isDirty(['bill_of_material_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($order->bill_of_material_id, BillOfMaterial::class, 'Bill Of Material', $order->company_id);
             }
 
             $order->computeName();

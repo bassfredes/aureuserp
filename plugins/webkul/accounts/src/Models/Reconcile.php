@@ -11,10 +11,11 @@ use Spatie\EloquentSortable\SortableTrait;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\HasStrictCompanyId;
 
 class Reconcile extends Model implements Sortable
 {
-    use HasCompanyScope, HasFactory, SortableTrait;
+    use HasCompanyScope, HasFactory, HasStrictCompanyId, SortableTrait;
 
     protected $table = 'accounts_reconciles';
 

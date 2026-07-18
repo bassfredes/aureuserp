@@ -5,14 +5,12 @@ namespace Webkul\Account\Database\Factories;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Webkul\Account\Enums\DisplayType;
 use Webkul\Account\Enums\MoveState;
-use Webkul\Account\Models\Account;
 use Webkul\Account\Models\Journal;
 use Webkul\Account\Models\Move;
 use Webkul\Account\Models\MoveLine;
 use Webkul\Account\Models\Product;
 use Webkul\Partner\Models\Partner;
 use Webkul\Security\Models\User;
-use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
 use Webkul\Support\Models\UOM;
 
@@ -37,12 +35,25 @@ class MoveLineFactory extends Factory
             'sort'                     => 0,
             'move_id'                  => Move::factory(),
             'journal_id'               => Journal::factory(),
-            'company_id'               => Company::factory(),
+            // Left unset by default: the model's own saving() hook always
+            // re-derives company_id from move_id and now rejects an
+            // explicit mismatch — a random Company::factory() here would
+            // spuriously conflict with whatever Move a caller overrides
+            // move_id with (#138 review, 2026-07-18).
+            'company_id'               => null,
             'company_currency_id'      => Currency::factory(),
             'reconcile_id'             => null,
             'payment_id'               => null,
             'tax_repartition_line_id'  => null,
-            'account_id'               => Account::factory(),
+            // Left unset by default: a bare Account::factory() here has no
+            // accounts_account_companies pivot row for whatever company
+            // move_id ultimately resolves to, and the model's own
+            // saving() hook now strictly enforces that (#138 review,
+            // 2026-07-18). computeAccountId() already derives a safe
+            // fallback (the Move's Journal's own default_account_id,
+            // which the Journal factory keeps pivot-consistent) when this
+            // is left null.
+            'account_id'               => null,
             'currency_id'              => Currency::factory(),
             'partner_id'               => null,
             'group_tax_id'             => null,

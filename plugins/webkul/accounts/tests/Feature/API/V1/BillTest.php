@@ -79,6 +79,13 @@ function billPayload(int $lineCount = 1, array $overrides = []): array
     $currency = Currency::first() ?? Currency::factory()->create();
     $company = Company::factory()->create(['currency_id' => $currency->id]);
     $partner = Partner::factory()->withAccounts()->create();
+    // MoveLine's payment-term line resolves its account from the
+    // partner's own payable/receivable property, validated against the
+    // bill's own company — Account has no company_id of its own, so
+    // these must be explicitly enabled for it too (#138 review,
+    // 2026-07-18).
+    $partner->propertyAccountPayable?->companies()->syncWithoutDetaching([$company->id]);
+    $partner->propertyAccountReceivable?->companies()->syncWithoutDetaching([$company->id]);
     $journal = Journal::factory()->purchase()->create(['currency_id' => $currency->id, 'company_id' => $company->id]);
 
     if (auth()->check()) {

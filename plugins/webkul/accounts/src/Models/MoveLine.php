@@ -274,7 +274,15 @@ class MoveLine extends Model implements Sortable
         static::saving(function ($moveLine) {
             $moveLine->move_name = $moveLine->move->name;
 
-            $moveLine->company_id = $moveLine->move->company_id;
+            // Re-anchors on the CURRENT in-memory company_id (the
+            // untouched original if unset, or whatever the caller
+            // explicitly set) — a move_id reassignment that resolves to a
+            // different company than that anchor is rejected outright, not
+            // silently moved (#138 review, 2026-07-18: the previous
+            // unconditional `$moveLine->move->company_id` assignment let a
+            // move_id reassignment silently move the line to a different
+            // company instead of failing).
+            $moveLine->company_id = static::resolveEffectiveCompanyIdOrFail($moveLine->move_id, Move::class, $moveLine->company_id, 'Move');
 
             // Read isolation (HasCompanyScope hiding another company's Product)
             // is not the same guarantee as relation integrity — a user allowed
@@ -302,6 +310,11 @@ class MoveLine extends Model implements Sortable
             $moveLine->computePaymentId();
 
             $moveLine->computeAccountId();
+
+            // Account has no company_id of its own — it must instead be
+            // explicitly enabled for this line's company via the
+            // accounts_account_companies pivot (#138 review, 2026-07-18).
+            Account::assertEnabledForCompany($moveLine->account_id, $moveLine->company_id);
 
             $moveLine->computeDisplayType();
 
