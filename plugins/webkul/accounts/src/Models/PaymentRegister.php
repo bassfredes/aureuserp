@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Webkul\Account\Enums\AccountType;
 use Webkul\Account\Enums\DisplayType;
 use Webkul\Account\Enums\JournalType;
@@ -204,23 +205,44 @@ class PaymentRegister extends Model
     /**
      * The only sanctioned way to attach MoveLines to this register's
      * `lines` pivot — validates every line shares a single company that
-     * matches this register's own (already strict, non-null) company
+     * matches this register's own (already strict, non-null) company,
+     * AND that the acting user/context is authorized to write to it,
      * before the pivot rows are ever written. computeBatches() (called on
      * `retrieved()`) already rejects a spanning `lines` collection once
      * loaded, but that is a read-time check, not a write-time guard — this
-     * closes the gap at the actual point the pivot is modified (#138
-     * review round 3, 2026-07-18).
+     * closes the gap at the actual point the pivot is modified.
+     *
+     * Order matters (#138 review round 4, 2026-07-18): authorization of
+     * the register's OWN company happens first and unconditionally — even
+     * for an empty array — so an actor who obtained a cross-company
+     * register via an unscoped query can't empty its pivot either. Every
+     * requested id is then resolved unscoped and checked for exact
+     * cardinality before any company comparison, so a nonexistent id
+     * can't silently be dropped from the set being validated.
      */
     public function syncLines(array $moveLineIds): array
     {
-        if ($moveLineIds === []) {
-            return $this->lines()->sync($moveLineIds);
+        if (! $this->exists || $this->company_id === null) {
+            throw new AuthorizationException('The PaymentRegister must be persisted with a company_id before syncing lines.');
         }
 
-        $companyIds = MoveLine::withoutGlobalScope(CompanyScope::class)
-            ->whereKey($moveLineIds)
-            ->pluck('company_id')
-            ->unique();
+        CompanyScope::assertCanWriteCompany((int) $this->company_id);
+
+        $uniqueIds = array_values(array_unique($moveLineIds));
+
+        if ($uniqueIds === []) {
+            return $this->lines()->sync($uniqueIds);
+        }
+
+        $lines = MoveLine::withoutGlobalScope(CompanyScope::class)
+            ->whereKey($uniqueIds)
+            ->get(['id', 'company_id']);
+
+        if ($lines->count() !== count($uniqueIds)) {
+            throw new AuthorizationException('One or more of the related MoveLines could not be found.');
+        }
+
+        $companyIds = $lines->pluck('company_id')->unique();
 
         if ($companyIds->count() > 1) {
             throw new AuthorizationException("You can't create payments for entries belonging to different companies.");
@@ -232,13 +254,11 @@ class PaymentRegister extends Model
             throw new AuthorizationException('The related MoveLines have no company of their own to anchor to.');
         }
 
-        if ($this->company_id !== null && (int) $this->company_id !== (int) $linesCompanyId) {
+        if ((int) $this->company_id !== (int) $linesCompanyId) {
             throw new AuthorizationException('The related MoveLines belong to a different company than this PaymentRegister.');
         }
 
-        CompanyScope::assertCanWriteCompany((int) $linesCompanyId);
-
-        return $this->lines()->sync($moveLineIds);
+        return DB::transaction(fn () => $this->lines()->sync($uniqueIds));
     }
 
     public function setLinesAttribute($lines)

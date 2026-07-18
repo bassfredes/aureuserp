@@ -115,29 +115,45 @@ class MoveReversal extends Model
     /**
      * The only sanctioned way to attach a Move to this reversal's
      * `moves`/`newMoves` pivots — validates the Move belongs to this
-     * reversal's own (already strict, non-null) company before the pivot
-     * row is ever written, closing the gap a controller-level check alone
-     * would leave open for any other write path (#138 review round 3,
-     * 2026-07-18).
+     * reversal's own (already strict, non-null) company AND that the
+     * acting user/context is actually authorized to write to that
+     * company, before the pivot row is ever written. Comparing the two
+     * companies alone is not enough: an actor who obtained BOTH this
+     * MoveReversal and the Move via unscoped queries could otherwise
+     * attach them to each other purely because their (unauthorized)
+     * companies happen to match (#138 review round 4, 2026-07-18).
      */
     public function attachMove(Move $move): void
     {
-        $this->assertMoveBelongsToCompany($move, 'Move');
+        $this->assertCanAttach($move, 'Move');
 
         $this->moves()->attach($move->getKey());
     }
 
     public function attachNewMove(Move $move): void
     {
-        $this->assertMoveBelongsToCompany($move, 'New Move');
+        $this->assertCanAttach($move, 'New Move');
 
         $this->newMoves()->attach($move->getKey());
     }
 
-    private function assertMoveBelongsToCompany(Move $move, string $label): void
+    private function assertCanAttach(Move $move, string $label): void
     {
-        if ($this->company_id === null || (int) $move->company_id !== (int) $this->company_id) {
+        if (! $this->exists || $this->company_id === null) {
+            throw new AuthorizationException('The MoveReversal must be persisted with a company_id before attaching Moves to it.');
+        }
+
+        if (! $move->exists) {
+            throw new AuthorizationException("The related {$label} must be persisted before it can be attached.");
+        }
+
+        if ((int) $move->company_id !== (int) $this->company_id) {
             throw new AuthorizationException("The related {$label} belongs to a different company.");
         }
+
+        // Company match alone is not authorization — the acting user/
+        // context must actually be allowed to write to this company
+        // before the pivot is touched (#138 review round 4, 2026-07-18).
+        CompanyScope::assertCanWriteCompany((int) $this->company_id);
     }
 }

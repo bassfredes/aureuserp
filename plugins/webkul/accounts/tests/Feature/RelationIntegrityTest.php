@@ -807,3 +807,261 @@ it('allows syncing MoveLines from the same company as the PaymentRegister', func
 
     expect($paymentRegister->lines()->count())->toBe(1);
 });
+
+// ── MoveReversal pivot writes: authorize the actor, not only a company match (#138 review round 4, 2026-07-18) ──
+
+it('forbids attaching a Move to a MoveReversal when the acting user is not authorized for its company, even when both belong to company B', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    [$reversalB, $moveB] = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — MoveReversal and Move in company B',
+        caller: __FILE__,
+        callback: fn () => [
+            MoveReversal::create(['reason' => 'test', 'date' => now(), 'company_id' => $companyB->id]),
+            Move::factory()->create(['company_id' => $companyB->id]),
+        ],
+    );
+
+    $userA = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($userA);
+
+    $reversalBUnscoped = MoveReversal::withoutGlobalScope(CompanyScope::class)->findOrFail($reversalB->id);
+
+    expect(fn () => $reversalBUnscoped->attachMove($moveB))
+        ->toThrow(AuthorizationException::class);
+
+    expect($reversalBUnscoped->moves()->count())->toBe(0);
+});
+
+it('forbids attaching a new Move to a MoveReversal when the acting user is not authorized for its company', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    [$reversalB, $moveB] = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — MoveReversal and Move in company B',
+        caller: __FILE__,
+        callback: fn () => [
+            MoveReversal::create(['reason' => 'test', 'date' => now(), 'company_id' => $companyB->id]),
+            Move::factory()->create(['company_id' => $companyB->id]),
+        ],
+    );
+
+    $userA = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($userA);
+
+    $reversalBUnscoped = MoveReversal::withoutGlobalScope(CompanyScope::class)->findOrFail($reversalB->id);
+
+    expect(fn () => $reversalBUnscoped->attachNewMove($moveB))
+        ->toThrow(AuthorizationException::class);
+
+    expect($reversalBUnscoped->newMoves()->count())->toBe(0);
+});
+
+it('fails closed attaching a Move to a MoveReversal with no authenticated user and no active CompanyContext', function () {
+    $company = Company::factory()->create();
+
+    [$reversal, $move] = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — MoveReversal and Move',
+        caller: __FILE__,
+        callback: fn () => [
+            MoveReversal::create(['reason' => 'test', 'date' => now(), 'company_id' => $company->id]),
+            Move::factory()->create(['company_id' => $company->id]),
+        ],
+    );
+
+    expect(fn () => $reversal->attachMove($move))
+        ->toThrow(AuthorizationException::class);
+
+    expect($reversal->moves()->count())->toBe(0);
+});
+
+it('allows attaching a Move to a MoveReversal under CompanyContext::runForAllCompanies with matching companies', function () {
+    $company = Company::factory()->create();
+
+    // Counted inside the callback, not after — outside the context (and
+    // with no acting user), Move's own CompanyScope would fail-closed
+    // the read and always show 0 regardless of whether the attach
+    // actually persisted.
+    $movesCount = CompanyContext::runForAllCompanies(
+        reason: 'test: write positive under all_companies',
+        caller: __FILE__,
+        callback: function () use ($company) {
+            $reversal = MoveReversal::create(['reason' => 'test', 'date' => now(), 'company_id' => $company->id]);
+            $move = Move::factory()->create(['company_id' => $company->id]);
+            $reversal->attachMove($move);
+
+            return $reversal->moves()->count();
+        },
+    );
+
+    expect($movesCount)->toBe(1);
+});
+
+it('allows attaching a Move to a MoveReversal under CompanyContext::runForBootstrap with matching companies', function () {
+    $company = Company::factory()->create();
+
+    $movesCount = CompanyContext::runForBootstrap(
+        reason: 'test: write positive under bootstrap',
+        caller: __FILE__,
+        callback: function () use ($company) {
+            $reversal = MoveReversal::create(['reason' => 'test', 'date' => now(), 'company_id' => $company->id]);
+            $move = Move::factory()->create(['company_id' => $company->id]);
+            $reversal->attachMove($move);
+
+            return $reversal->moves()->count();
+        },
+    );
+
+    expect($movesCount)->toBe(1);
+});
+
+// ── PaymentRegister::syncLines(): authorize before the empty-array shortcut, exact cardinality (#138 review round 4, 2026-07-18) ──
+
+it('forbids emptying a PaymentRegister lines pivot when the acting user is not authorized for its company', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $registerB = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — PaymentRegister in company B',
+        caller: __FILE__,
+        callback: function () use ($companyB) {
+            $journalB = Journal::factory()->create(['company_id' => $companyB->id]);
+            $register = PaymentRegister::create([
+                'journal_id'   => $journalB->id,
+                'payment_type' => PaymentType::RECEIVE,
+                'partner_type' => 'customer',
+            ]);
+            $moveB = Move::factory()->create(['company_id' => $companyB->id]);
+            $lineB = MoveLine::factory()->create(['move_id' => $moveB->id]);
+            $register->syncLines([$lineB->id]);
+
+            return $register;
+        },
+    );
+
+    $userA = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($userA);
+
+    // Re-fetching via a scoped/unscoped query would trigger retrieved()
+    // -> computeBatches(), which independently throws when MoveLine's own
+    // CompanyScope hides company B's lines from this actor — unrelated to
+    // the authorization guard under test. Reuse the same in-memory
+    // instance returned from the creation callback instead.
+    expect(fn () => $registerB->syncLines([]))
+        ->toThrow(AuthorizationException::class);
+
+    expect($registerB->lines()->withoutGlobalScope(CompanyScope::class)->count())->toBe(1);
+});
+
+it('fails closed syncing an empty PaymentRegister lines pivot with no authenticated user and no active CompanyContext', function () {
+    $company = Company::factory()->create();
+
+    $register = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — PaymentRegister',
+        caller: __FILE__,
+        callback: function () use ($company) {
+            $journal = Journal::factory()->create(['company_id' => $company->id]);
+
+            return PaymentRegister::create([
+                'journal_id'   => $journal->id,
+                'payment_type' => PaymentType::RECEIVE,
+                'partner_type' => 'customer',
+            ]);
+        },
+    );
+
+    expect(fn () => $register->syncLines([]))
+        ->toThrow(AuthorizationException::class);
+});
+
+it('forbids syncing a PaymentRegister when one of the requested MoveLine ids does not exist, before the pivot is written', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $journalA = Journal::factory()->create(['company_id' => $companyA->id]);
+
+    $paymentRegister = PaymentRegister::create([
+        'journal_id'   => $journalA->id,
+        'payment_type' => PaymentType::RECEIVE,
+        'partner_type' => 'customer',
+    ]);
+
+    $moveA = Move::factory()->create(['company_id' => $companyA->id]);
+    $lineA = MoveLine::factory()->create(['move_id' => $moveA->id]);
+
+    expect(fn () => $paymentRegister->syncLines([$lineA->id, 999999999]))
+        ->toThrow(AuthorizationException::class);
+
+    expect($paymentRegister->lines()->count())->toBe(0);
+});
+
+it('allows an authorized actor to sync an empty PaymentRegister lines pivot', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $journalA = Journal::factory()->create(['company_id' => $companyA->id]);
+
+    $paymentRegister = PaymentRegister::create([
+        'journal_id'   => $journalA->id,
+        'payment_type' => PaymentType::RECEIVE,
+        'partner_type' => 'customer',
+    ]);
+
+    $paymentRegister->syncLines([]);
+
+    expect($paymentRegister->lines()->count())->toBe(0);
+});
+
+it('allows syncing a PaymentRegister lines pivot under CompanyContext::runForAllCompanies with matching companies', function () {
+    $company = Company::factory()->create();
+
+    // Counted inside the callback, not after — outside the context, both
+    // PaymentRegister's own CompanyScope (no user) and MoveLine's would
+    // fail-closed the read and always show 0 regardless of the sync.
+    $linesCount = CompanyContext::runForAllCompanies(
+        reason: 'test: write positive under all_companies',
+        caller: __FILE__,
+        callback: function () use ($company) {
+            $journal = Journal::factory()->create(['company_id' => $company->id]);
+            $register = PaymentRegister::create([
+                'journal_id'   => $journal->id,
+                'payment_type' => PaymentType::RECEIVE,
+                'partner_type' => 'customer',
+            ]);
+            $move = Move::factory()->create(['company_id' => $company->id]);
+            $line = MoveLine::factory()->create(['move_id' => $move->id]);
+            $register->syncLines([$line->id]);
+
+            return $register->lines()->count();
+        },
+    );
+
+    expect($linesCount)->toBe(1);
+});
+
+it('allows syncing a PaymentRegister lines pivot under CompanyContext::runForBootstrap with matching companies', function () {
+    $company = Company::factory()->create();
+
+    $linesCount = CompanyContext::runForBootstrap(
+        reason: 'test: write positive under bootstrap',
+        caller: __FILE__,
+        callback: function () use ($company) {
+            $journal = Journal::factory()->create(['company_id' => $company->id]);
+            $register = PaymentRegister::create([
+                'journal_id'   => $journal->id,
+                'payment_type' => PaymentType::RECEIVE,
+                'partner_type' => 'customer',
+            ]);
+            $move = Move::factory()->create(['company_id' => $company->id]);
+            $line = MoveLine::factory()->create(['move_id' => $move->id]);
+            $register->syncLines([$line->id]);
+
+            return $register->lines()->count();
+        },
+    );
+
+    expect($linesCount)->toBe(1);
+});
