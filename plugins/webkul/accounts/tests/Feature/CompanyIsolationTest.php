@@ -22,8 +22,13 @@ it('hides invoices/moves from companies the user is not allowed to see', functio
         'default_company_id' => $companyA->id,
     ]));
 
-    $moveA = Move::factory()->create(['company_id' => $companyA->id]);
-    $moveB = Move::factory()->create(['company_id' => $companyB->id]);
+    // No acting user yet — MoveFactory's own afterCreating() callback may
+    // create a Journal under the target company, which now needs a system
+    // context to be write-authorized (#138 review round 2, 2026-07-18).
+    [$moveA, $moveB] = TestBootstrapHelper::withSystemContextIfNoUser(fn () => [
+        Move::factory()->create(['company_id' => $companyA->id]),
+        Move::factory()->create(['company_id' => $companyB->id]),
+    ]);
 
     test()->actingAs($userA);
 

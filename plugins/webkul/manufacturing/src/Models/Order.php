@@ -3,6 +3,7 @@
 namespace Webkul\Manufacturing\Models;
 
 use Carbon\Carbon;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -32,11 +33,14 @@ use Webkul\Product\Enums\ProductType;
 use Webkul\Security\Models\User;
 use Webkul\Security\Traits\HasPermissionScope;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class Order extends Model
 {
-    use HasChatter, HasFactory, HasLogActivity, HasPermissionScope;
+    use HasChatter, HasCompanyScope, HasFactory, HasLogActivity, HasPermissionScope, ValidatesRelatedCompanyScope;
 
     protected $table = 'manufacturing_orders';
 
@@ -365,8 +369,10 @@ class Order extends Model
 
             $order->creator_id ??= $authUser?->id;
 
-            $order->company_id ??= $authUser?->default_company_id;
-
+            // company_id itself is resolved and authorized in the earlier-
+            // firing `saving` listener below (#138 review round 3,
+            // 2026-07-18) — it must already be set by the time this runs,
+            // since computeProductionLocationId() below reads it.
             $order->computeState();
 
             $order->priority ??= ManufacturingOrderPriority::NORMAL;
@@ -403,6 +409,61 @@ class Order extends Model
         });
 
         static::saving(function ($order) {
+            // Standalone strict owner: resolve + authorize on create,
+            // enforce immutability + re-authorize on every update — not
+            // only when company_id itself changed. Checked first, before
+            // any relation-integrity validation below, so a rejected
+            // company change never partially validates product/BOM
+            // consistency against the attempted new company, and so an
+            // actor who obtained a cross-company Order via an unscoped
+            // query can't slip an unrelated-field update through (#138
+            // review round 2 + round 3, 2026-07-18).
+            //
+            // getOriginal(), not isDirty(): this model's own `created` hook
+            // below calls `$order->update(['name' => ...])` as a nested
+            // save on the same instance, immediately after insert —
+            // exists=true at that point, but Eloquent hasn't synced
+            // $original yet, so isDirty() would false-positive on every
+            // attribute including company_id. Comparing against
+            // getOriginal() directly (skipping when still unset/null) is
+            // immune to that ordering quirk.
+            if (! $order->exists) {
+                $order->company_id ??= Auth::user()?->default_company_id;
+
+                if ($order->company_id === null) {
+                    throw new AuthorizationException('Order requires a company_id and none could be resolved from the acting user.');
+                }
+
+                CompanyScope::assertCanWriteCompany((int) $order->company_id);
+            } else {
+                $originalCompanyId = $order->getOriginal('company_id');
+
+                if ($originalCompanyId !== null && (int) $originalCompanyId !== (int) $order->company_id) {
+                    throw new AuthorizationException('Changing the company of this record is forbidden — archive it and create a new one instead.');
+                }
+
+                CompanyScope::assertCanWriteCompany((int) ($originalCompanyId ?? $order->company_id));
+            }
+
+            // Read isolation (HasCompanyScope hiding another company's
+            // Product/BillOfMaterial) is not the same guarantee as relation
+            // integrity — a user allowed in company A+B could otherwise set
+            // a manufacturing Order in A to reference a Product or BOM
+            // from B (#138, D5b pattern, aureuserp#137). BillOfMaterial is
+            // strict_company (D2) — always non-null — so this is now
+            // unconditional; checking `$order->billOfMaterial?->company_id`
+            // instead would use the scoped relation, which resolves to
+            // null (skipping the guard entirely) whenever the acting user
+            // simply can't see the referenced BOM — the exact bypass this
+            // guard exists to close (#138 review, 2026-07-18).
+            if ($order->isDirty(['product_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($order->product_id, Product::class, 'Product', $order->company_id);
+            }
+
+            if ($order->isDirty(['bill_of_material_id', 'company_id'])) {
+                static::assertRelatedBelongsToCompany($order->bill_of_material_id, BillOfMaterial::class, 'Bill Of Material', $order->company_id);
+            }
+
             $order->computeName();
 
             $order->computeProductUOMQty();

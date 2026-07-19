@@ -120,4 +120,56 @@ trait ValidatesRelatedCompanyScope
 
         return (int) $parent->company_id;
     }
+
+    /**
+     * Strict sibling of resolveEffectiveCompanyId() for children that are
+     * never parent-less and never strict_company-with-a-shared-parent:
+     * a missing/soft-deleted-and-not-withTrashed parent or a parent with no
+     * company of its own is a hard failure here, not a silent fallback to
+     * the child's own (unauthoritative) company_id. Use this for any
+     * strict_company child whose parent FK is semantically mandatory even
+     * where the DB column allows NULL (#138 review, 2026-07-18 — the plain
+     * resolveEffectiveCompanyId() silently keeping the child's company on a
+     * missing parent let a row "move" to an arbitrary company by pointing
+     * it at a nonexistent parent id).
+     *
+     * The parent is resolved with CompanyScope bypassed (by design — the
+     * child's own company must be derivable even from a parent the acting
+     * user cannot see), so the resolved company must still be
+     * write-authorized before being handed back: an actor who only knows a
+     * hidden parent's id must not be able to create a child anchored to
+     * that parent's company merely by pointing at it (#138 review round 2,
+     * 2026-07-18 — e.g. a BankStatementLine under another company's hidden
+     * BankStatement).
+     */
+    protected static function resolveEffectiveCompanyIdOrFail(?int $parentId, string $parentClass, ?int $childCompanyId, string $parentLabel): int
+    {
+        if ($parentId === null) {
+            throw new AuthorizationException("A {$parentLabel} is required to resolve the company.");
+        }
+
+        $query = $parentClass::withoutGlobalScope(CompanyScope::class);
+
+        if (in_array(\Illuminate\Database\Eloquent\SoftDeletes::class, class_uses_recursive($parentClass), true)) {
+            $query = $query->withTrashed();
+        }
+
+        $parent = $query->find($parentId);
+
+        if (! $parent) {
+            throw new AuthorizationException("The {$parentLabel} could not be found.");
+        }
+
+        if ($parent->company_id === null) {
+            throw new AuthorizationException("The {$parentLabel} has no company of its own to anchor to.");
+        }
+
+        if ($childCompanyId !== null && (int) $childCompanyId !== (int) $parent->company_id) {
+            throw new AuthorizationException("The company_id does not match the {$parentLabel}'s company.");
+        }
+
+        CompanyScope::assertCanWriteCompany((int) $parent->company_id);
+
+        return (int) $parent->company_id;
+    }
 }

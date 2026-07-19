@@ -117,8 +117,15 @@ it('lists fiscal positions for authorized users', function () {
 it('filters fiscal positions by name', function () {
     actingAsFiscalPositionApiUser(['view_any_account_fiscal::position']);
 
+    // Deterministic, non-matching distractor names — the endpoint's
+    // filter[name] resolves to a `LIKE %EU%` under MySQL's default
+    // case-insensitive collation, so a Faker-random distractor name could
+    // coincidentally contain "eu" (lowercase) and pass the query while
+    // failing this test's case-sensitive toContain('EU') assertion (#138
+    // review round 2, 2026-07-18).
     $fiscalPosition = FiscalPosition::factory()->create(['name' => 'EU Import Position']);
-    FiscalPosition::factory()->count(2)->create();
+    FiscalPosition::factory()->create(['name' => 'Domestic Standard Position']);
+    FiscalPosition::factory()->create(['name' => 'Overseas Flat Position']);
 
     $response = $this->getJson(fiscalPositionRoute('index').'?filter[name]=EU')
         ->assertOk();
@@ -152,10 +159,16 @@ it('creates a fiscal position', function () {
 it('creates a fiscal position with tax mappings', function () {
     actingAsFiscalPositionApiUser(['create_account_fiscal::position']);
 
-    $taxSource = Tax::factory()->create();
-    $taxDestination = Tax::factory()->create();
+    // FiscalPositionTax now enforces that tax_source_id/tax_destination_id
+    // belong to the same company as the FiscalPosition itself (#138
+    // review, 2026-07-18) — Tax::factory() defaults to its own random
+    // company otherwise, so it must be pinned to the same one used below.
+    $company = Company::factory()->create();
+    $taxSource = Tax::factory()->create(['company_id' => $company->id]);
+    $taxDestination = Tax::factory()->create(['company_id' => $company->id]);
 
     $payload = fiscalPositionPayload([
+        'company_id' => $company->id,
         'taxes' => [
             [
                 'tax_source_id'      => $taxSource->id,

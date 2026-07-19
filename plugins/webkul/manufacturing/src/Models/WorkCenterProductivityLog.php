@@ -8,9 +8,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class WorkCenterProductivityLog extends Model
 {
+    use HasCompanyScope, ValidatesRelatedCompanyScope;
+
     protected $table = 'manufacturing_work_center_productivity_logs';
 
     protected $fillable = [
@@ -79,13 +83,32 @@ class WorkCenterProductivityLog extends Model
 
             $productivityLog->assigned_user_id ??= $user?->id;
 
-            $productivityLog->company_id ??= $user?->default_company_id;
-
             $productivityLog->description ??= __('manufacturing::system.work-center-productivity-log.time-tracking', ['name' => $user->name]);
 
             $productivityLog->loss_type ??= $productivityLog->loss->loss_type ?? 'other';
 
             $productivityLog->work_center_id ??= $productivityLog->workOrder->work_center_id ?? null;
+        });
+
+        static::saving(function (self $productivityLog): void {
+            $productivityLog->computeDuration();
+
+            // WorkCenter is the sole authoritative parent for company
+            // purposes (WorkOrder itself has no company_id column) — a
+            // missing WorkCenter is a hard failure, never a fallback to
+            // the acting user's own default_company_id, and a
+            // work_center_id reassignment that resolves to a different
+            // company than this log's current one is rejected outright,
+            // not silently moved (#138 review, 2026-07-18: the previous
+            // `?? $user?->default_company_id` fallback ran only at create
+            // time and could paper over a missing WorkCenter; reassigning
+            // work_center_id on update was never revalidated at all).
+            $productivityLog->company_id = static::resolveEffectiveCompanyIdOrFail(
+                $productivityLog->work_center_id,
+                WorkCenter::class,
+                $productivityLog->company_id,
+                'Work Center'
+            );
         });
 
         static::created(function (self $productivityLog): void {
@@ -95,15 +118,11 @@ class WorkCenterProductivityLog extends Model
                 $workCenter->save();
             }
 
-            if ($productivityLog->duration) {
+            if ($productivityLog->work_order_id && $productivityLog->duration) {
                 $productivityLog->workOrder->computeDuration();
 
                 $productivityLog->workOrder->save();
             }
-        });
-
-        static::saving(function (self $productivityLog): void {
-            $productivityLog->computeDuration();
         });
 
         static::updated(function (self $productivityLog): void {
@@ -115,7 +134,7 @@ class WorkCenterProductivityLog extends Model
                 }
             }
 
-            if ($productivityLog->wasChanged('duration')) {
+            if ($productivityLog->work_order_id && $productivityLog->wasChanged('duration')) {
                 $productivityLog->workOrder->computeDuration();
 
                 $productivityLog->workOrder->save();
@@ -124,9 +143,11 @@ class WorkCenterProductivityLog extends Model
         });
 
         static::deleted(function (self $productivityLog): void {
-            $productivityLog->workOrder->computeDuration();
+            if ($productivityLog->work_order_id) {
+                $productivityLog->workOrder->computeDuration();
 
-            $productivityLog->workOrder->save();
+                $productivityLog->workOrder->save();
+            }
         });
     }
 

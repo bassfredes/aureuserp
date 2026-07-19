@@ -2,6 +2,7 @@
 
 namespace Webkul\Manufacturing\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,10 +12,17 @@ use Webkul\Product\Models\ProductAttributeValue;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
+/**
+ * strict_company (D2): company_id is always derived from the parent
+ * BillOfMaterial (never the acting user's default) — same reasoning as
+ * BillOfMaterialLine.
+ */
 class BillOfMaterialByproduct extends Model
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory, ValidatesRelatedCompanyScope;
 
     protected $table = 'manufacturing_bill_of_material_byproducts';
 
@@ -75,10 +83,32 @@ class BillOfMaterialByproduct extends Model
         parent::boot();
 
         static::creating(function (self $byproduct): void {
-            $authUser = Auth::user();
+            $byproduct->creator_id ??= Auth::id();
+        });
 
-            $byproduct->creator_id ??= $authUser?->id;
-            $byproduct->company_id ??= $byproduct->company_id ?? $authUser?->default_company_id;
+        static::saving(function (self $byproduct): void {
+            // Always re-derived from the parent BOM — see
+            // BillOfMaterialLine's identical saving() hook for the full
+            // rationale (#138 review, 2026-07-18).
+            $byproduct->company_id = static::resolveEffectiveCompanyIdOrFail(
+                $byproduct->bill_of_material_id,
+                BillOfMaterial::class,
+                $byproduct->company_id,
+                'Bill Of Material'
+            );
+
+            static::assertRelatedBelongsToCompany($byproduct->product_id, Product::class, 'Product', $byproduct->company_id);
+
+            // operation_id must belong to THIS byproduct's own BOM — see
+            // BillOfMaterialLine's identical check for the full rationale
+            // (#138 review round 2, 2026-07-18).
+            if ($byproduct->operation_id) {
+                $operation = Operation::withTrashed()->find($byproduct->operation_id);
+
+                if (! $operation || (int) $operation->bill_of_material_id !== (int) $byproduct->bill_of_material_id) {
+                    throw new AuthorizationException('The related Operation does not belong to this Bill Of Material.');
+                }
+            }
         });
     }
 }

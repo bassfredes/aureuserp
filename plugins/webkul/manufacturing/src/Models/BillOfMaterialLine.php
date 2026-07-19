@@ -2,6 +2,7 @@
 
 namespace Webkul\Manufacturing\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,10 +12,17 @@ use Webkul\Product\Models\ProductAttributeValue;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
+/**
+ * strict_company (D2): company_id is always derived from the parent
+ * BillOfMaterial (itself always non-null, never the acting user's
+ * default) — a line's company can never diverge from its BOM's.
+ */
 class BillOfMaterialLine extends Model
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory, ValidatesRelatedCompanyScope;
 
     protected $table = 'manufacturing_bill_of_material_lines';
 
@@ -75,10 +83,40 @@ class BillOfMaterialLine extends Model
         parent::boot();
 
         static::creating(function (self $line): void {
-            $authUser = Auth::user();
+            $line->creator_id ??= Auth::id();
+        });
 
-            $line->creator_id ??= $authUser?->id;
-            $line->company_id ??= $line->company_id ?? $authUser?->default_company_id;
+        static::saving(function (self $line): void {
+            // Always re-derived from the parent BOM (never independently
+            // defaulted from the acting user, never left to drift): a
+            // missing/no-company BOM is a hard failure, and a BOM
+            // reassignment that resolves to a different company than this
+            // line's current one is rejected outright, not silently moved
+            // (#138 review, 2026-07-18).
+            $line->company_id = static::resolveEffectiveCompanyIdOrFail(
+                $line->bill_of_material_id,
+                BillOfMaterial::class,
+                $line->company_id,
+                'Bill Of Material'
+            );
+
+            // A line referencing a Product from a different company than
+            // its BOM is a relation-integrity gap read isolation alone
+            // doesn't cover (#138, D5b pattern, aureuserp#137).
+            static::assertRelatedBelongsToCompany($line->product_id, Product::class, 'Product', $line->company_id);
+
+            // operation_id must belong to THIS line's own BOM, not merely
+            // to a BOM in the same company — two BOMs of the same company
+            // each define their own Operations, and this line's Operation
+            // must be one of its own BOM's (#138 review round 2,
+            // 2026-07-18).
+            if ($line->operation_id) {
+                $operation = Operation::withTrashed()->find($line->operation_id);
+
+                if (! $operation || (int) $operation->bill_of_material_id !== (int) $line->bill_of_material_id) {
+                    throw new AuthorizationException('The related Operation does not belong to this Bill Of Material.');
+                }
+            }
         });
     }
 

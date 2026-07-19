@@ -358,7 +358,7 @@ class RefundController extends Controller
             DB::transaction(function () use ($paymentData, $lineIds) {
                 $paymentRegister = PaymentRegister::create($paymentData);
 
-                $paymentRegister->lines()->sync($lineIds);
+                $paymentRegister->syncLines($lineIds);
 
                 $paymentRegister->refresh();
 

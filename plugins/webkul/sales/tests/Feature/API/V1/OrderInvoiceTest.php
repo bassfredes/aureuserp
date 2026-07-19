@@ -32,19 +32,26 @@ function salesOrderInvoiceRoute(string $action, mixed $order): string
 
 function createOrderWithInvoices(): array
 {
-    $order = Order::factory()->create();
+    // Called both before and after actingAs() across this file's tests —
+    // MoveFactory's own afterCreating() callback may create a Journal
+    // under the order's company, which needs a system context to be
+    // write-authorized when there's no acting user yet (#138 review
+    // round 2, 2026-07-18).
+    return TestBootstrapHelper::withSystemContextIfNoUser(function () {
+        $order = Order::factory()->create();
 
-    $customerInvoice = Move::factory()->invoice()->create([
-        'company_id' => $order->company_id,
-    ]);
+        $customerInvoice = Move::factory()->invoice()->create([
+            'company_id' => $order->company_id,
+        ]);
 
-    $vendorBill = Move::factory()->vendorBill()->create([
-        'company_id' => $order->company_id,
-    ]);
+        $vendorBill = Move::factory()->vendorBill()->create([
+            'company_id' => $order->company_id,
+        ]);
 
-    $order->accountMoves()->attach([$customerInvoice->id, $vendorBill->id]);
+        $order->accountMoves()->attach([$customerInvoice->id, $vendorBill->id]);
 
-    return [$order, $customerInvoice, $vendorBill];
+        return [$order, $customerInvoice, $vendorBill];
+    });
 }
 
 it('requires authentication to list order invoices', function () {

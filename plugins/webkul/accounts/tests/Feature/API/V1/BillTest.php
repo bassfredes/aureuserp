@@ -57,9 +57,13 @@ function billRoute(string $action, mixed $bill = null): string
     return $bill ? route($name, $bill) : route($name);
 }
 
-function makeBillLinePayload(array $overrides = []): array
+function makeBillLinePayload(int $companyId, array $overrides = []): array
 {
-    $product = Product::factory()->withAccounts()->create(['is_configurable' => false]);
+    // Product::factory() defaults to its own random company — matching it
+    // to the bill's own company is required since MoveLine now enforces
+    // relation integrity against a mismatched Product company (#138, D5b
+    // pattern, aureuserp#137), not just read isolation.
+    $product = Product::factory()->withAccounts()->create(['is_configurable' => false, 'company_id' => $companyId]);
     $uom = UOM::factory()->create();
 
     return array_merge([
@@ -75,6 +79,13 @@ function billPayload(int $lineCount = 1, array $overrides = []): array
     $currency = Currency::first() ?? Currency::factory()->create();
     $company = Company::factory()->create(['currency_id' => $currency->id]);
     $partner = Partner::factory()->withAccounts()->create();
+    // MoveLine's payment-term line resolves its account from the
+    // partner's own payable/receivable property, validated against the
+    // bill's own company — Account has no company_id of its own, so
+    // these must be explicitly enabled for it too (#138 review,
+    // 2026-07-18).
+    $partner->propertyAccountPayable?->companies()->syncWithoutDetaching([$company->id]);
+    $partner->propertyAccountReceivable?->companies()->syncWithoutDetaching([$company->id]);
     $journal = Journal::factory()->purchase()->create(['currency_id' => $currency->id, 'company_id' => $company->id]);
 
     if (auth()->check()) {
@@ -88,7 +99,7 @@ function billPayload(int $lineCount = 1, array $overrides = []): array
         'invoice_date'     => now()->format('Y-m-d'),
         'invoice_date_due' => now()->addDays(30)->format('Y-m-d'),
         'invoice_lines'    => collect(range(1, $lineCount))
-            ->map(fn () => makeBillLinePayload())
+            ->map(fn () => makeBillLinePayload($company->id))
             ->all(),
     ];
 

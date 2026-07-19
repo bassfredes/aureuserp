@@ -2,16 +2,20 @@
 
 namespace Webkul\Account\Models;
 
+use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
+use Webkul\Account\Database\Factories\PartialReconcileFactory;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Currency;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class PartialReconcile extends Model
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory, ValidatesRelatedCompanyScope;
 
     protected $table = 'accounts_partial_reconciles';
 
@@ -93,6 +97,27 @@ class PartialReconcile extends Model
             $partialReconcile->computeCreditCurrencyId();
 
             $partialReconcile->computeMaxDate();
+
+            // A reconciliation can only ever pair two MoveLines from the
+            // same company — company_id is derived from the debit line
+            // (never the acting user), the credit line must match it, and
+            // an exchange Move (if any) must belong to it too (#138
+            // review, 2026-07-18).
+            $partialReconcile->company_id = static::resolveEffectiveCompanyIdOrFail(
+                $partialReconcile->debit_move_id,
+                MoveLine::class,
+                $partialReconcile->company_id,
+                'Debit MoveLine'
+            );
+
+            static::assertRelatedBelongsToCompany($partialReconcile->credit_move_id, MoveLine::class, 'Credit MoveLine', $partialReconcile->company_id);
+
+            static::assertRelatedBelongsToCompany($partialReconcile->exchange_move_id, Move::class, 'Exchange Move', $partialReconcile->company_id);
         });
+    }
+
+    protected static function newFactory(): Factory
+    {
+        return PartialReconcileFactory::new();
     }
 }

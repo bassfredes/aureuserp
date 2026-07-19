@@ -18,10 +18,22 @@ use Webkul\Product\Enums\ProductType;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\UOM;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
+/**
+ * strict_company (D2): company_id is always derived from the owning
+ * Product's own company_id and is never NULL — a BOM has no identity
+ * independent of the Product it builds. bomFindFilters() filters on an
+ * exact company_id match only — a `whereNull('company_id')` branch used to
+ * exist here as a shared-fallback holdover from before D2 reverted BOM to
+ * strict_company; it was removed because it kept legacy NULL-company rows
+ * (inserted directly, bypassing the model layer) visible across every
+ * company (#138 review round 2, 2026-07-18).
+ */
 class BillOfMaterial extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasCompanyScope, HasFactory, SoftDeletes, ValidatesRelatedCompanyScope;
 
     protected $table = 'manufacturing_bills_of_materials';
 
@@ -239,11 +251,21 @@ class BillOfMaterial extends Model
         parent::boot();
 
         static::creating(function (self $billOfMaterial): void {
-            $authUser = Auth::user();
+            $billOfMaterial->creator_id ??= Auth::id();
 
-            $billOfMaterial->creator_id ??= $authUser?->id;
+            // strict_company (D2): company_id is always derived from the
+            // Product, never from the acting user's default and never left
+            // NULL. Fails closed if the Product doesn't exist (including
+            // soft-deleted) or has no company of its own; rejects an
+            // explicit company_id that doesn't match the Product's.
+            $billOfMaterial->company_id = static::resolveEffectiveCompanyIdOrFail(
+                $billOfMaterial->product_id,
+                Product::class,
+                $billOfMaterial->company_id,
+                'Product'
+            );
 
-            $billOfMaterial->company_id ??= $authUser?->default_company_id;
+            static::assertRelatedBelongsToCompany($billOfMaterial->operation_type_id, OperationType::class, 'Operation Type', $billOfMaterial->company_id);
 
             $billOfMaterial->type ??= BillOfMaterialType::NORMAL;
 
@@ -254,6 +276,26 @@ class BillOfMaterial extends Model
             $billOfMaterial->produce_delay ??= 0;
 
             $billOfMaterial->days_to_prepare_mo ??= 0;
+        });
+
+        static::updating(function (self $billOfMaterial): void {
+            // Re-anchors on the CURRENT in-memory company_id (the untouched
+            // original if the caller didn't change it, or whatever the
+            // caller explicitly set) — a product_id change that resolves to
+            // a different company than that anchor is rejected outright,
+            // not silently moved (#138 review, 2026-07-18).
+            if ($billOfMaterial->isDirty('product_id') || $billOfMaterial->isDirty('company_id')) {
+                $billOfMaterial->company_id = static::resolveEffectiveCompanyIdOrFail(
+                    $billOfMaterial->product_id,
+                    Product::class,
+                    $billOfMaterial->company_id,
+                    'Product'
+                );
+            }
+
+            if ($billOfMaterial->isDirty('operation_type_id') || $billOfMaterial->isDirty('company_id')) {
+                static::assertRelatedBelongsToCompany($billOfMaterial->operation_type_id, OperationType::class, 'Operation Type', $billOfMaterial->company_id);
+            }
         });
     }
 
@@ -275,10 +317,7 @@ class BillOfMaterial extends Model
         $resolvedCompanyId = $companyId ?? (static::$context['company_id'] ?? null);
 
         if ($resolvedCompanyId) {
-            $query->where(function ($q) use ($resolvedCompanyId) {
-                $q->whereNull('company_id')
-                    ->orWhere('company_id', $resolvedCompanyId);
-            });
+            $query->where('company_id', $resolvedCompanyId);
         }
 
         if ($operationType) {

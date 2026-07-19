@@ -2,6 +2,7 @@
 
 namespace Webkul\Account\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -106,6 +107,58 @@ class Account extends Model
         return $this->belongsToMany(Company::class, 'accounts_account_companies', 'account_id', 'company_id');
     }
 
+    /**
+     * Account has no company_id column of its own — its visibility is
+     * many-to-many via accounts_account_companies, not strict_company like
+     * the rest of this rollout. A financial row of company A may only
+     * reference an Account whose pivot explicitly includes A (#138 review,
+     * 2026-07-18). A null $accountId is a no-op (required-field validation
+     * is the caller's own concern); a null $companyId fails closed, since
+     * "no company to check against" can never justify skipping the check.
+     */
+    public static function assertEnabledForCompany(?int $accountId, ?int $companyId, string $label = 'Account'): void
+    {
+        if ($accountId === null) {
+            return;
+        }
+
+        if ($companyId === null) {
+            throw new AuthorizationException("The related {$label} could not be validated: no company was resolved to check it against.");
+        }
+
+        $enabled = static::query()
+            ->whereKey($accountId)
+            ->whereHas('companies', fn ($query) => $query->where('companies.id', $companyId))
+            ->exists();
+
+        if (! $enabled) {
+            throw new AuthorizationException("The related {$label} is not enabled for this company.");
+        }
+    }
+
+    /**
+     * Idempotent counterpart to assertEnabledForCompany() for the one
+     * legitimately different case: a Journal's own default/suspense/
+     * profit/loss account isn't a transaction referencing a pre-existing,
+     * separately-authorized Account (like MoveLine.account_id or
+     * FiscalPositionAccount's mapping) — designating an Account as *this
+     * journal's own* account is itself the act that enables it for the
+     * journal's company, not a precondition to reject on (#138 review,
+     * 2026-07-18). A null $accountId or $companyId is a no-op.
+     */
+    public static function ensureEnabledForCompany(?int $accountId, ?int $companyId): void
+    {
+        if ($accountId === null || $companyId === null) {
+            return;
+        }
+
+        $account = static::query()->find($accountId);
+
+        if ($account && ! $account->companies()->where('companies.id', $companyId)->exists()) {
+            $account->companies()->attach($companyId);
+        }
+    }
+
     public static function getMostFrequentAccountsForPartner(
         int $companyId,
         int $partnerId,
@@ -144,7 +197,15 @@ class Account extends Model
                         ->where('accounts_account_move_lines.partner_id', $partnerId)
                         ->whereDate('accounts_account_move_lines.date', '>=', $minDate);
                 })
-                ->where('accounts_accounts.company_id', $companyId)
+                // accounts_accounts has no company_id column of its own
+                // (#138 review, 2026-07-18) — visibility is many-to-many
+                // via accounts_account_companies instead.
+                ->whereExists(function ($existsQuery) use ($companyId) {
+                    $existsQuery->select(DB::raw(1))
+                        ->from('accounts_account_companies')
+                        ->whereColumn('accounts_account_companies.account_id', 'accounts_accounts.id')
+                        ->where('accounts_account_companies.company_id', $companyId);
+                })
                 ->where('accounts_accounts.deprecated', false);
 
             if ($group) {

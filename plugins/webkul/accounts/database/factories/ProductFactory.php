@@ -19,6 +19,25 @@ class ProductFactory extends BaseProductFactory
     protected $model = Product::class;
 
     /**
+     * Account has no company_id of its own — a Product's own income/
+     * expense accounts must be explicitly enabled for the Product's
+     * company via the accounts_account_companies pivot, since MoveLine
+     * strictly enforces that for whichever account it ultimately resolves
+     * (including a Product's own, via getAccountsFromFiscalPosition())
+     * (#138 review, 2026-07-18). Done after create, on the Product's own
+     * FINAL company_id, so it still works when a caller overrides
+     * company_id via create([...]).
+     */
+    public function configure(): static
+    {
+        return $this->afterCreating(function (Product $product): void {
+            foreach ([$product->property_account_income_id, $product->property_account_expense_id] as $accountId) {
+                Account::ensureEnabledForCompany($accountId, $product->company_id);
+            }
+        });
+    }
+
+    /**
      * Define the model's default state.
      *
      * @return array<string, mixed>

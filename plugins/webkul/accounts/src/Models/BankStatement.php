@@ -2,16 +2,20 @@
 
 namespace Webkul\Account\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class BankStatement extends Model
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory, ValidatesRelatedCompanyScope;
 
     protected $table = 'accounts_bank_statements';
 
@@ -50,6 +54,45 @@ class BankStatement extends Model
 
         static::creating(function ($bankStatement) {
             $bankStatement->creator_id ??= Auth::id();
+        });
+
+        static::saving(function ($bankStatement) {
+            // Standalone strict owner: once persisted, the effective
+            // company can never change — whether directly (no Journal) or
+            // indirectly by reassigning journal_id to a Journal of another
+            // company. Checked first, before resolving/defaulting a new
+            // company_id below, so a rejected change never leaves a
+            // partially-recomputed value in memory (#138 review round 2,
+            // 2026-07-18).
+            $originalCompanyId = $bankStatement->getOriginal('company_id');
+
+            // Journal is the authoritative anchor when set — an explicit
+            // company_id can never contradict it. Without a journal yet
+            // (draft), company_id falls back to the acting user's default
+            // but can never persist NULL (#138 review, 2026-07-18).
+            if ($bankStatement->journal_id) {
+                $resolvedCompanyId = static::resolveEffectiveCompanyIdOrFail($bankStatement->journal_id, Journal::class, $bankStatement->company_id, 'Journal');
+
+                if ($bankStatement->exists && $originalCompanyId !== null && (int) $originalCompanyId !== $resolvedCompanyId) {
+                    throw new AuthorizationException('Changing the company of this record is forbidden — archive it and create a new one instead.');
+                }
+
+                $bankStatement->company_id = $resolvedCompanyId;
+
+                return;
+            }
+
+            if ($bankStatement->exists && $bankStatement->isDirty('company_id')) {
+                throw new AuthorizationException('Changing the company of this record is forbidden — archive it and create a new one instead.');
+            }
+
+            $bankStatement->company_id ??= Auth::user()?->default_company_id;
+
+            if ($bankStatement->company_id === null) {
+                throw new AuthorizationException('BankStatement requires a company_id (directly, or via a Journal) and none could be resolved.');
+            }
+
+            CompanyScope::assertCanWriteCompany((int) $bankStatement->company_id);
         });
     }
 }

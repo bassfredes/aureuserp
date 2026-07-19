@@ -12,10 +12,12 @@ use Spatie\EloquentSortable\SortableTrait;
 use Webkul\Account\Database\Factories\TaxPartitionFactory;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class TaxPartition extends Model implements Sortable
 {
-    use HasFactory, SortableTrait;
+    use HasCompanyScope, HasFactory, SortableTrait, ValidatesRelatedCompanyScope;
 
     protected $table = 'accounts_tax_partition_lines';
 
@@ -130,6 +132,20 @@ class TaxPartition extends Model implements Sortable
 
         static::creating(function ($taxPartition) {
             $taxPartition->creator_id ??= Auth::id();
+        });
+
+        static::saving(function ($taxPartition) {
+            // Always re-derived from the parent Tax (strict_company,
+            // never null) — a missing Tax or a tax_id reassignment that
+            // resolves to a different company than this row's current one
+            // is rejected outright, not silently moved (#138 review,
+            // 2026-07-18).
+            $taxPartition->company_id = static::resolveEffectiveCompanyIdOrFail($taxPartition->tax_id, Tax::class, $taxPartition->company_id, 'Tax');
+
+            // Account has no company_id of its own — it must instead be
+            // explicitly enabled for this company via the
+            // accounts_account_companies pivot (#138 review, 2026-07-18).
+            Account::assertEnabledForCompany($taxPartition->account_id, $taxPartition->company_id);
         });
     }
 
