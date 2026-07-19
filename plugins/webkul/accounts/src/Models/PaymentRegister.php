@@ -219,14 +219,42 @@ class PaymentRegister extends Model
      * requested id is then resolved unscoped and checked for exact
      * cardinality before any company comparison, so a nonexistent id
      * can't silently be dropped from the set being validated.
+     *
+     * The register's company is re-resolved fresh from the database,
+     * unscoped, by primary key — never trusted from $this->company_id
+     * directly. An actor could otherwise obtain a cross-company register
+     * via an unscoped query, mutate company_id IN MEMORY ONLY (never
+     * persisted), and pass authorization for a company that was never
+     * actually written to that row (#138 review round 5, 2026-07-18).
+     *
+     * That re-fetch goes through the query builder (`DB::table()`), not
+     * `static::find()` — this model's own `retrieved()` hook calls
+     * computeBatches(), which throws when the CURRENT actor can't see any
+     * of this register's own (CompanyScope-hidden) lines. Hydrating a
+     * full Eloquent model here would make this authorization-only lookup
+     * itself throw an unrelated Exception instead of the intended
+     * AuthorizationException whenever the actor is exactly the
+     * unauthorized one this check exists to reject.
      */
     public function syncLines(array $moveLineIds): array
     {
-        if (! $this->exists || $this->company_id === null) {
-            throw new AuthorizationException('The PaymentRegister must be persisted with a company_id before syncing lines.');
+        if (! $this->exists) {
+            throw new AuthorizationException('The PaymentRegister must be persisted before syncing lines.');
         }
 
-        CompanyScope::assertCanWriteCompany((int) $this->company_id);
+        $persistedCompanyId = DB::table($this->getTable())->where($this->getKeyName(), $this->getKey())->value('company_id');
+
+        if ($persistedCompanyId === null) {
+            throw new AuthorizationException('The persisted PaymentRegister has no company to authorize.');
+        }
+
+        if ($this->isDirty('company_id') || (int) $this->company_id !== (int) $persistedCompanyId) {
+            throw new AuthorizationException('The in-memory PaymentRegister company does not match its persisted company.');
+        }
+
+        $persistedCompanyId = (int) $persistedCompanyId;
+
+        CompanyScope::assertCanWriteCompany($persistedCompanyId);
 
         $uniqueIds = array_values(array_unique($moveLineIds));
 
@@ -254,7 +282,7 @@ class PaymentRegister extends Model
             throw new AuthorizationException('The related MoveLines have no company of their own to anchor to.');
         }
 
-        if ((int) $this->company_id !== (int) $linesCompanyId) {
+        if ($persistedCompanyId !== (int) $linesCompanyId) {
             throw new AuthorizationException('The related MoveLines belong to a different company than this PaymentRegister.');
         }
 

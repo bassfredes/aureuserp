@@ -137,23 +137,52 @@ class MoveReversal extends Model
         $this->newMoves()->attach($move->getKey());
     }
 
+    /**
+     * Resolves BOTH sides fresh from the database, unscoped, by primary
+     * key — never trusts the in-memory company_id attribute of either
+     * object. An actor could otherwise obtain a cross-company
+     * MoveReversal and Move via unscoped queries, mutate company_id on
+     * both IN MEMORY ONLY (never persisted), and pass a naive
+     * company-match + write-authorization check while the pivot is
+     * actually written against the real, unauthorized persisted rows
+     * (#138 review round 5, 2026-07-18).
+     */
     private function assertCanAttach(Move $move, string $label): void
     {
-        if (! $this->exists || $this->company_id === null) {
-            throw new AuthorizationException('The MoveReversal must be persisted with a company_id before attaching Moves to it.');
+        if (! $this->exists) {
+            throw new AuthorizationException('The MoveReversal must be persisted before attaching Moves to it.');
         }
 
         if (! $move->exists) {
             throw new AuthorizationException("The related {$label} must be persisted before it can be attached.");
         }
 
-        if ((int) $move->company_id !== (int) $this->company_id) {
-            throw new AuthorizationException("The related {$label} belongs to a different company.");
+        $persistedReversal = static::withoutGlobalScope(CompanyScope::class)->find($this->getKey());
+        $persistedMove = Move::withoutGlobalScope(CompanyScope::class)->find($move->getKey());
+
+        if (! $persistedReversal || $persistedReversal->company_id === null) {
+            throw new AuthorizationException('The persisted MoveReversal has no company to authorize.');
+        }
+
+        if (! $persistedMove || $persistedMove->company_id === null) {
+            throw new AuthorizationException("The persisted {$label} has no company to validate.");
+        }
+
+        if ($this->isDirty('company_id') || (int) $this->company_id !== (int) $persistedReversal->company_id) {
+            throw new AuthorizationException('The in-memory MoveReversal company does not match its persisted company.');
+        }
+
+        if ($move->isDirty('company_id') || (int) $move->company_id !== (int) $persistedMove->company_id) {
+            throw new AuthorizationException("The in-memory {$label} company does not match its persisted company.");
         }
 
         // Company match alone is not authorization — the acting user/
         // context must actually be allowed to write to this company
         // before the pivot is touched (#138 review round 4, 2026-07-18).
-        CompanyScope::assertCanWriteCompany((int) $this->company_id);
+        CompanyScope::assertCanWriteCompany((int) $persistedReversal->company_id);
+
+        if ((int) $persistedMove->company_id !== (int) $persistedReversal->company_id) {
+            throw new AuthorizationException("The related {$label} belongs to a different company.");
+        }
     }
 }

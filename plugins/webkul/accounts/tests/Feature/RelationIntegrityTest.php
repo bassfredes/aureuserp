@@ -1065,3 +1065,108 @@ it('allows syncing a PaymentRegister lines pivot under CompanyContext::runForBoo
 
     expect($linesCount)->toBe(1);
 });
+
+// ── MoveReversal / PaymentRegister: reject an in-memory-only spoofed company_id, resolve the persisted one instead (#138 review round 5, 2026-07-18) ──
+
+it('forbids attachMove/attachNewMove when both the MoveReversal and Move company_id are spoofed in memory only, not persisted', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    [$reversalB, $moveB] = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — MoveReversal and Move in company B',
+        caller: __FILE__,
+        callback: fn () => [
+            MoveReversal::create(['reason' => 'test', 'date' => now(), 'company_id' => $companyB->id]),
+            Move::factory()->create(['company_id' => $companyB->id]),
+        ],
+    );
+
+    // Authorized only for A — the spoof below tries to make both rows
+    // look like A's, which this user WOULD legitimately be allowed to
+    // write to if the spoof were trusted.
+    $userA = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($userA);
+
+    $reversalBUnscoped = MoveReversal::withoutGlobalScope(CompanyScope::class)->findOrFail($reversalB->id);
+    $moveBUnscoped = Move::withoutGlobalScope(CompanyScope::class)->findOrFail($moveB->id);
+
+    // Spoofed in memory only — neither object is saved.
+    $reversalBUnscoped->company_id = $companyA->id;
+    $moveBUnscoped->company_id = $companyA->id;
+
+    expect(fn () => $reversalBUnscoped->attachMove($moveBUnscoped))
+        ->toThrow(AuthorizationException::class);
+
+    expect(fn () => $reversalBUnscoped->attachNewMove($moveBUnscoped))
+        ->toThrow(AuthorizationException::class);
+
+    expect($reversalBUnscoped->moves()->withoutGlobalScope(CompanyScope::class)->count())->toBe(0)
+        ->and($reversalBUnscoped->newMoves()->withoutGlobalScope(CompanyScope::class)->count())->toBe(0);
+});
+
+it('forbids attachMove when only the Move company_id is spoofed in memory to match an otherwise-authorized MoveReversal', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    // Seeded before actingAs() — CompanyContext refuses to open while a
+    // user is already authenticated.
+    $moveB = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — Move in company B',
+        caller: __FILE__,
+        callback: fn () => Move::factory()->create(['company_id' => $companyB->id]),
+    );
+
+    $userA = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($userA);
+
+    $reversalA = MoveReversal::create(['reason' => 'test', 'date' => now(), 'company_id' => $companyA->id]);
+
+    $moveBUnscoped = Move::withoutGlobalScope(CompanyScope::class)->findOrFail($moveB->id);
+    $moveBUnscoped->company_id = $companyA->id; // spoofed in memory only, never saved
+
+    expect(fn () => $reversalA->attachMove($moveBUnscoped))
+        ->toThrow(AuthorizationException::class);
+
+    expect($reversalA->moves()->count())->toBe(0);
+});
+
+it('forbids syncLines when the PaymentRegister company_id is spoofed in memory only, not persisted', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $registerB = CompanyContext::runForAllCompanies(
+        reason: 'test fixture setup — PaymentRegister in company B',
+        caller: __FILE__,
+        callback: function () use ($companyB) {
+            $journalB = Journal::factory()->create(['company_id' => $companyB->id]);
+
+            return PaymentRegister::create([
+                'journal_id'   => $journalB->id,
+                'payment_type' => PaymentType::RECEIVE,
+                'partner_type' => 'customer',
+            ]);
+        },
+    );
+
+    $userA = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($userA);
+
+    $moveA = Move::factory()->create(['company_id' => $companyA->id]);
+    $lineA = MoveLine::factory()->create(['move_id' => $moveA->id]);
+
+    // Reuse the same in-memory instance rather than re-fetching via a
+    // query — PaymentRegister's own retrieved() hook calls
+    // computeBatches(), which independently throws when there are no
+    // visible lines, unrelated to the guard under test. Spoofing the
+    // attribute directly still exercises exactly what syncLines() must
+    // reject: an in-memory company_id that was never actually persisted.
+    $registerB->company_id = $companyA->id;
+
+    expect(fn () => $registerB->syncLines([]))
+        ->toThrow(AuthorizationException::class);
+
+    expect(fn () => $registerB->syncLines([$lineA->id]))
+        ->toThrow(AuthorizationException::class);
+
+    expect($registerB->lines()->withoutGlobalScope(CompanyScope::class)->count())->toBe(0);
+});
