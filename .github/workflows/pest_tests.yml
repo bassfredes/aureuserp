@@ -149,3 +149,99 @@ jobs:
         run: |
           php artisan inventories:install --no-interaction
           vendor/bin/pest tests/Feature/Console/SeedGoldStandardDatasetCommandTest.php --colors=always
+
+  company_scope_global_audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    name: Company Scope Global Audit
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: aureuserp
+        ports:
+          - 3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: curl, fileinfo, gd, intl, mbstring, openssl, pdo, pdo_mysql, tokenizer, zip
+          ini-values: error_reporting=E_ALL
+          tools: composer:v2
+
+      - name: Setting Environment
+        shell: bash
+        run: |
+          cp .env.example .env
+          sed -i "s|^\(APP_ENV=\s*\).*$|\1testing|" .env
+          sed -i "s|^\(DB_CONNECTION=\s*\).*$|\1mysql|" .env
+          sed -i "s|^#\?\s*DB_HOST=.*|DB_HOST=127.0.0.1|" .env
+          sed -i "s|^#\?\s*DB_PORT=.*|DB_PORT=${{ job.services.mysql.ports[3306] }}|" .env
+          sed -i "s|^#\?\s*DB_DATABASE=.*|DB_DATABASE=aureuserp|" .env
+          sed -i "s|^#\?\s*DB_USERNAME=.*|DB_USERNAME=root|" .env
+          sed -i "s|^#\?\s*DB_PASSWORD=.*|DB_PASSWORD=root|" .env
+          app_key="base64:$(php -r 'echo base64_encode(random_bytes(32));')"
+          sed -i "s|^APP_KEY=.*|APP_KEY=${app_key}|" .env
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: ${{ runner.os }}-php-8.4-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-php-8.4-composer-
+
+      - name: Running Composer Install
+        run: composer install --no-interaction --prefer-dist --no-progress --no-ansi
+
+      # Isolated from the pest_tests job on purpose (#138, PR 4 review) — a
+      # full-plugin install sequence seeds a lot more data than the main
+      # suite expects, so this runs against its own ephemeral mysql service
+      # instead of risking a side effect on the 1577+ existing tests.
+      - name: Running AureusERP Installer
+        run: |
+          php artisan erp:install \
+            --force -n \
+            --admin-name="Audit Bot" \
+            --admin-email="audit-bot@erp.localhost" \
+            --admin-password="AuditBot123456"
+
+      - name: Installing every plugin (fresh-install checkpoint, #138)
+        run: |
+          for plugin in accounting accounts barcode blogs contacts employees full-calendar inventories invoices maintenance manufacturing payments products projects purchases recruitments sales time-off timesheets website; do
+            php artisan "${plugin}:install" -n
+          done
+
+      - name: Running global company-scope audit
+        run: |
+          php scripts/audit-company-scope.php --format=json | tee company-scope-audit.json
+          php -r '
+            $data = json_decode(file_get_contents("company-scope-audit.json"), true);
+            $summary = $data["summary"];
+            $failures = [];
+            if ($summary["table_missing"] !== 0) { $failures[] = "table_missing={$summary["table_missing"]}"; }
+            if ($summary["inspection_errors"] !== 0) { $failures[] = "inspection_errors={$summary["inspection_errors"]}"; }
+            if ($summary["manifest_violations"] !== 0) { $failures[] = "manifest_violations={$summary["manifest_violations"]}"; }
+            if ($summary["total"] < 300) { $failures[] = "total={$summary["total"]} (expected >= 300 - auto-discovery may have silently shrunk)"; }
+            if ($failures !== []) {
+                fwrite(STDERR, "Global audit gate failed: " . implode(", ", $failures) . PHP_EOL);
+                exit(1);
+            }
+            fwrite(STDERR, "Global audit gate passed: {$summary["total"]} models, {$summary["scoped"]} scoped, {$summary["classified_exceptions"]} classified exceptions, " . ($summary["real_gaps_with_company_id"] + $summary["real_gaps_without_company_id"]) . " known real gaps." . PHP_EOL);
+          '
+
+      - name: Upload company-scope audit JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: company-scope-audit-${{ github.run_id }}
+          path: company-scope-audit.json
+          retention-days: 14

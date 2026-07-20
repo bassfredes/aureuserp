@@ -5,17 +5,20 @@
 use App\Support\CompanyScopeAudit\Auditor;
 use App\Support\CompanyScopeAudit\ExceptionManifest;
 use Illuminate\Database\Eloquent\Model;
+use Webkul\Account\Models\Category as AccountCategory;
 use Webkul\Account\Models\Customer as AccountCustomer;
 use Webkul\Partner\Models\Partner;
+use Webkul\Purchase\Models\Category as PurchaseCategory;
+use Webkul\Support\Models\Currency;
 use Webkul\Support\Traits\HasCompanyScope;
 
-// Fixtures below deliberately reuse the already-migrated `accounts_journals`
-// table (company_id present, HasCompanyScope-eligible) instead of creating
-// throwaway tables — DDL inside a DatabaseTransactions-wrapped test causes
-// an implicit MySQL commit that desyncs the transaction (see the
-// TestBootstrapHelper note in SeedGoldStandardDatasetCommandTest.php for a
-// documented instance of exactly this hazard). Reading an existing table's
-// schema is side-effect-free and needs no such workaround.
+// Fixtures below deliberately reuse already-migrated tables (company_id
+// present or absent as needed) instead of creating throwaway ones — DDL
+// inside a DatabaseTransactions-wrapped test causes an implicit MySQL
+// commit that desyncs the transaction (see the TestBootstrapHelper note in
+// SeedGoldStandardDatasetCommandTest.php for a documented instance of
+// exactly this hazard). Reading an existing table's schema is
+// side-effect-free and needs no such workaround.
 
 /** A model that genuinely uses HasCompanyScope against an already-scoped table — its audited status is "scoped". */
 class AuditFixtureScopedModel extends Model
@@ -37,10 +40,29 @@ class AuditFixtureGhostModel extends Model
     protected $table = 'zzz_audit_fixture_table_never_migrated';
 }
 
+/** Existing table with no company_id column, but this FQCN is deliberately not in the manifest. */
+class AuditFixtureUnclassifiedNoCompanyModel extends Model
+{
+    protected $table = 'accounts_account_tags';
+}
+
+/** Fixture pair used to exercise alias-chain cycle detection. */
+class AuditFixtureAliasA extends Model
+{
+    protected $table = 'accounts_journals';
+}
+
+class AuditFixtureAliasB extends Model
+{
+    protected $table = 'accounts_journals';
+}
+
 function auditorManifest(array $entries): ExceptionManifest
 {
     return new ExceptionManifest($entries);
 }
+
+// --- classification / real-gap accounting ---------------------------------
 
 it('accepts a valid exception from the real, shipped manifest', function () {
     $auditor = new Auditor;
@@ -51,7 +73,8 @@ it('accepts a valid exception from the real, shipped manifest', function () {
 
     [$classified] = $auditor->classifyRows([$row], $manifest);
     expect($classified['classification'])->toBe('global_party_identity');
-    expect($auditor->isRealMissingScope($classified))->toBeFalse();
+    expect($classified['effective_status'])->toBe('classified_exception');
+    expect($auditor->isRealGap($classified))->toBeFalse();
 
     $violations = $auditor->validateManifest($manifest);
     $violationsForPartner = array_filter($violations, fn (array $v) => $v['fqcn'] === Partner::class);
@@ -67,10 +90,79 @@ it('classifies an expected alias and excludes it from the real-gap count', funct
 
     [$classified] = $auditor->classifyRows([$row], $manifest);
     expect($classified['classification'])->toBe('alias');
-    expect($auditor->isRealMissingScope($classified))->toBeFalse();
+    expect($auditor->isRealGap($classified))->toBeFalse();
 });
 
-it('flags a stale exception once the model genuinely has HasCompanyScope', function () {
+it('resolves a real multi-hop alias chain (purchases -> invoices -> accounts -> products) with no violations', function () {
+    $auditor = new Auditor;
+    $manifest = ExceptionManifest::default();
+
+    $row = $auditor->inspectClass('purchases', PurchaseCategory::class, 'fixture');
+    [$classified] = $auditor->classifyRows([$row], $manifest);
+    expect($classified['classification'])->toBe('alias');
+
+    $violations = $auditor->validateManifest($manifest);
+    $forChain = array_filter($violations, fn (array $v) => in_array($v['fqcn'], [
+        PurchaseCategory::class,
+        \Webkul\Invoice\Models\Category::class,
+        AccountCategory::class,
+        \Webkul\Product\Models\Category::class,
+    ], true));
+    expect($forChain)->toBeEmpty();
+});
+
+it('counts a not_company_scoped model with a valid global_reference exception as classified, not a gap', function () {
+    $auditor = new Auditor;
+    $manifest = ExceptionManifest::default();
+
+    $row = $auditor->inspectClass('support', Currency::class, 'fixture');
+    expect($row['status'])->toBe('not_company_scoped');
+
+    [$classified] = $auditor->classifyRows([$row], $manifest);
+    expect($classified['classification'])->toBe('global_reference');
+    expect($classified['effective_status'])->toBe('classified_exception');
+    expect($auditor->isRealGap($classified))->toBeFalse();
+});
+
+it('counts a not_company_scoped model with no manifest entry as a real gap without a company column', function () {
+    $auditor = new Auditor;
+    $manifest = auditorManifest([]);
+
+    $row = $auditor->inspectClass('fixture', AuditFixtureUnclassifiedNoCompanyModel::class, 'fixture');
+    expect($row['status'])->toBe('not_company_scoped');
+
+    [$classified] = $auditor->classifyRows([$row], $manifest);
+    expect($classified['classification'])->toBeNull();
+    expect($classified['effective_status'])->toBe('real_gap_without_company_column');
+    expect($auditor->isRealGap($classified))->toBeTrue();
+});
+
+it('counts a genuinely missing_scope model with no manifest entry as a real gap with a company column', function () {
+    $auditor = new Auditor;
+    $manifest = auditorManifest([]);
+
+    $row = $auditor->inspectClass('fixture', AuditFixtureMissingScopeModel::class, 'fixture');
+    expect($row['status'])->toBe('missing_scope');
+
+    [$classified] = $auditor->classifyRows([$row], $manifest);
+    expect($classified['classification'])->toBeNull();
+    expect($classified['effective_status'])->toBe('real_gap_company_column');
+    expect($auditor->isRealGap($classified))->toBeTrue();
+});
+
+it('reports table_missing for a model whose table is not in the migrated schema', function () {
+    $auditor = new Auditor;
+
+    $row = $auditor->inspectClass('fixture', AuditFixtureGhostModel::class, 'fixture');
+
+    expect($row['status'])->toBe('table_missing');
+    expect($row['has_company_id'])->toBeNull();
+    expect($row['uses_company_scope'])->toBeNull();
+});
+
+// --- manifest hardening -----------------------------------------------------
+
+it('flags a stale exception the moment the model uses HasCompanyScope, regardless of has_company_id', function () {
     $auditor = new Auditor;
     $manifest = auditorManifest([
         AuditFixtureScopedModel::class => [
@@ -83,11 +175,12 @@ it('flags a stale exception once the model genuinely has HasCompanyScope', funct
 
     $row = $auditor->inspectClass('fixture', AuditFixtureScopedModel::class, 'fixture');
     expect($row['status'])->toBe('scoped');
+    expect($row['has_company_id'])->toBeTrue();
+    expect($row['uses_company_scope'])->toBeTrue();
 
     $violations = $auditor->validateManifest($manifest);
-    expect($violations)->toHaveCount(1);
-    expect($violations[0]['type'])->toBe('stale_exception');
-    expect($violations[0]['fqcn'])->toBe(AuditFixtureScopedModel::class);
+    $stale = array_filter($violations, fn (array $v) => $v['type'] === 'stale_exception');
+    expect($stale)->toHaveCount(1);
 });
 
 it('flags a manifest entry whose recorded table does not match the real table', function () {
@@ -102,31 +195,8 @@ it('flags a manifest entry whose recorded table does not match the real table', 
     ]);
 
     $violations = $auditor->validateManifest($manifest);
-    expect($violations)->toHaveCount(1);
-    expect($violations[0]['type'])->toBe('table_mismatch');
-    expect($violations[0]['fqcn'])->toBe(AuditFixtureMissingScopeModel::class);
-});
-
-it('counts a genuinely missing_scope model with no manifest entry as a real gap', function () {
-    $auditor = new Auditor;
-    $manifest = auditorManifest([]);
-
-    $row = $auditor->inspectClass('fixture', AuditFixtureMissingScopeModel::class, 'fixture');
-    expect($row['status'])->toBe('missing_scope');
-
-    [$classified] = $auditor->classifyRows([$row], $manifest);
-    expect($classified['classification'])->toBeNull();
-    expect($auditor->isRealMissingScope($classified))->toBeTrue();
-});
-
-it('reports table_missing for a model whose table is not in the migrated schema', function () {
-    $auditor = new Auditor;
-
-    $row = $auditor->inspectClass('fixture', AuditFixtureGhostModel::class, 'fixture');
-
-    expect($row['status'])->toBe('table_missing');
-    expect($row['has_company_id'])->toBeNull();
-    expect($row['uses_company_scope'])->toBeNull();
+    $mismatch = array_filter($violations, fn (array $v) => $v['type'] === 'table_mismatch' && $v['fqcn'] === AuditFixtureMissingScopeModel::class);
+    expect($mismatch)->toHaveCount(1);
 });
 
 it('rejects an unknown classification value in the manifest', function () {
@@ -150,7 +220,7 @@ it('rejects a manifest entry whose class no longer exists', function () {
     $manifest = auditorManifest([
         'Webkul\\Nonexistent\\Models\\GhostClass' => [
             'table'          => 'partners_partners',
-            'classification' => 'alias',
+            'classification' => 'global_reference',
             'reason'         => 'fixture: dangling entry on purpose',
             'tracking'       => '#138',
         ],
@@ -159,4 +229,109 @@ it('rejects a manifest entry whose class no longer exists', function () {
     $violations = $auditor->validateManifest($manifest);
     expect($violations)->toHaveCount(1);
     expect($violations[0]['type'])->toBe('class_not_found');
+});
+
+it('rejects an entry missing a required shape field', function () {
+    $auditor = new Auditor;
+    $manifest = auditorManifest([
+        AuditFixtureMissingScopeModel::class => [
+            'table'          => 'accounts_journals',
+            'classification' => 'not_tenancy',
+            'reason'         => '',
+            'tracking'       => '#138',
+        ],
+    ]);
+
+    $violations = $auditor->validateManifest($manifest);
+    $shape = array_filter($violations, fn (array $v) => $v['type'] === 'invalid_shape');
+    expect($shape)->not->toBeEmpty();
+});
+
+it('rejects an alias classification with no alias_of target', function () {
+    $auditor = new Auditor;
+    $manifest = auditorManifest([
+        AuditFixtureMissingScopeModel::class => [
+            'table'          => 'accounts_journals',
+            'classification' => 'alias',
+            'reason'         => 'fixture: alias without alias_of on purpose',
+            'tracking'       => '#138',
+        ],
+    ]);
+
+    $violations = $auditor->validateManifest($manifest);
+    $shape = array_filter($violations, fn (array $v) => $v['type'] === 'invalid_shape' && str_contains($v['message'], 'alias_of'));
+    expect($shape)->not->toBeEmpty();
+});
+
+it('rejects an alias chain pointing at a target with no manifest entry and no autoloadable class', function () {
+    $auditor = new Auditor;
+    $manifest = auditorManifest([
+        AuditFixtureAliasA::class => [
+            'table'          => 'accounts_journals',
+            'classification' => 'alias',
+            'alias_of'       => 'Totally\\Nonexistent\\Namespace\\ClassX',
+            'reason'         => 'fixture: broken chain on purpose',
+            'tracking'       => '#138',
+        ],
+    ]);
+
+    $violations = $auditor->validateManifest($manifest);
+    $broken = array_filter($violations, fn (array $v) => $v['type'] === 'alias_chain_broken' && $v['fqcn'] === AuditFixtureAliasA::class);
+    expect($broken)->not->toBeEmpty();
+});
+
+it('detects an alias chain cycle between two manifest entries', function () {
+    $auditor = new Auditor;
+    $manifest = auditorManifest([
+        AuditFixtureAliasA::class => [
+            'table'          => 'accounts_journals',
+            'classification' => 'alias',
+            'alias_of'       => AuditFixtureAliasB::class,
+            'reason'         => 'fixture: cycle on purpose',
+            'tracking'       => '#138',
+        ],
+        AuditFixtureAliasB::class => [
+            'table'          => 'accounts_journals',
+            'classification' => 'alias',
+            'alias_of'       => AuditFixtureAliasA::class,
+            'reason'         => 'fixture: cycle on purpose',
+            'tracking'       => '#138',
+        ],
+    ]);
+
+    $violations = $auditor->validateManifest($manifest);
+    $cycle = array_filter($violations, fn (array $v) => $v['type'] === 'alias_chain_cycle');
+    expect($cycle)->not->toBeEmpty();
+});
+
+// --- plugin discovery --------------------------------------------------------
+
+it('discovers every plugin with a src/Models directory, deterministically sorted', function () {
+    $auditor = new Auditor;
+
+    $first = $auditor->discoverPlugins();
+    $second = $auditor->discoverPlugins();
+
+    expect($first)->toBe($second);
+    expect($first)->toBe(collect($first)->sort(SORT_STRING)->values()->all());
+    expect($first)->toContain('accounts', 'partners', 'products', 'employees');
+    expect($first)->not->toContain('barcode', 'full-calendar');
+});
+
+it('scopes inspection to only the requested plugins', function () {
+    $auditor = new Auditor;
+
+    $rows = $auditor->inspectPlugins(['partners']);
+
+    expect($rows)->not->toBeEmpty();
+    foreach ($rows as $row) {
+        expect($row['plugin'])->toBe('partners');
+    }
+});
+
+it('throws for a nonexistent explicitly requested plugin', function () {
+    $auditor = new Auditor;
+
+    expect(fn () => $auditor->inspectPlugins(['totally-not-a-plugin']))
+        ->toThrow(RuntimeException::class);
 });

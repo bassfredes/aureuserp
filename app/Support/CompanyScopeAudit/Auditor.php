@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use ReflectionClass;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
+use RuntimeException;
 use SplFileInfo;
 use Throwable;
 use Webkul\Support\Traits\HasCompanyScope;
@@ -107,6 +108,41 @@ final class Auditor
     }
 
     /**
+     * Deterministic, deduplicated, alphabetically sorted list of every
+     * plugin directory under $basePath that has a `src/Models` directory —
+     * the default audit scope when the caller doesn't pass `--plugins`.
+     * Plugins without `src/Models` (e.g. barcode, full-calendar) are
+     * silently excluded, not an error.
+     *
+     * @return list<string>
+     */
+    public function discoverPlugins(?string $basePath = null): array
+    {
+        $basePath ??= base_path('plugins/webkul');
+
+        if (! is_dir($basePath)) {
+            throw new RuntimeException("Plugins base path not found: {$basePath}");
+        }
+
+        $plugins = [];
+
+        foreach (scandir($basePath) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+
+            if (is_dir("{$basePath}/{$entry}/src/Models")) {
+                $plugins[] = $entry;
+            }
+        }
+
+        $plugins = array_values(array_unique($plugins));
+        sort($plugins, SORT_STRING);
+
+        return $plugins;
+    }
+
+    /**
      * Inspects every Eloquent model declared under a given directory.
      *
      * @return list<array{
@@ -123,7 +159,7 @@ final class Auditor
     public function inspectPath(string $pluginLabel, string $modelsPath): array
     {
         if (! is_dir($modelsPath)) {
-            throw new \RuntimeException("Models directory not found for {$pluginLabel}: {$modelsPath}");
+            throw new RuntimeException("Models directory not found for {$pluginLabel}: {$modelsPath}");
         }
 
         $rows = [];
@@ -138,7 +174,7 @@ final class Auditor
             }
 
             foreach (self::classesDeclaredInFile($file->getPathname()) as $className) {
-                $row = $this->inspectClass($pluginLabel, $className, $file->getPathname());
+                $row = $this->inspectClass($pluginLabel, $className, self::relativePath($file->getPathname()));
 
                 if ($row !== null) {
                     $rows[] = $row;
@@ -147,6 +183,18 @@ final class Auditor
         }
 
         return $rows;
+    }
+
+    /**
+     * Strips the repo root prefix from an absolute path, so committed
+     * artifacts (docs/security/*.json) are portable across machines/
+     * containers instead of baking in `/var/www/aureuserp/...`.
+     */
+    public static function relativePath(string $absolute): string
+    {
+        $root = rtrim(base_path(), '/').'/';
+
+        return str_starts_with($absolute, $root) ? substr($absolute, strlen($root)) : $absolute;
     }
 
     /**
@@ -268,7 +316,7 @@ final class Auditor
      * independently of which rows were scanned.
      *
      * @param  list<array{plugin: string, class: string, file: string, table: string|null, has_company_id: bool|null, uses_company_scope: bool|null, status: string, error: string|null}>  $rows
-     * @return list<array{plugin: string, class: string, file: string, table: string|null, has_company_id: bool|null, uses_company_scope: bool|null, status: string, error: string|null, classification: string|null}>
+     * @return list<array{plugin: string, class: string, file: string, table: string|null, has_company_id: bool|null, uses_company_scope: bool|null, status: string, error: string|null, classification: string|null, effective_status: string}>
      */
     public function classifyRows(array $rows, ExceptionManifest $manifest): array
     {
@@ -279,19 +327,49 @@ final class Auditor
                 ? $entry['classification']
                 : null;
 
+            $row['effective_status'] = $this->effectiveStatus($row);
+
             return $row;
         }, $rows);
     }
 
     /**
-     * A real, unclassified `missing_scope` finding: has company_id, does not
-     * use HasCompanyScope, and has no valid manifest entry covering it.
+     * Collapses the raw scan status + manifest classification into one of:
+     * `scoped`, `classified_exception`, `real_gap_company_column`,
+     * `real_gap_without_company_column`, `table_missing`, `inspection_error`.
      *
      * @param  array{status: string, classification: string|null}  $row
      */
-    public function isRealMissingScope(array $row): bool
+    public function effectiveStatus(array $row): string
     {
-        return $row['status'] === 'missing_scope' && $row['classification'] === null;
+        if (in_array($row['status'], ['scoped', 'table_missing', 'inspection_error'], true)) {
+            return $row['status'];
+        }
+
+        if ($row['classification'] !== null) {
+            return 'classified_exception';
+        }
+
+        return match ($row['status']) {
+            'missing_scope'      => 'real_gap_company_column',
+            'not_company_scoped' => 'real_gap_without_company_column',
+            default               => $row['status'],
+        };
+    }
+
+    /**
+     * A real, unclassified gap: either has `company_id` without
+     * `HasCompanyScope`, or has no `company_id` at all and no valid
+     * manifest entry explaining why that's fine. `parent_scoped` only
+     * counts as classified (not a gap) once it's an actual manifest entry
+     * backed by real enforcement code — declaring the classification alone
+     * never suppresses a row that isn't in the manifest.
+     *
+     * @param  array{effective_status: string}  $row
+     */
+    public function isRealGap(array $row): bool
+    {
+        return str_starts_with($row['effective_status'], 'real_gap_');
     }
 
     /**
@@ -305,83 +383,220 @@ final class Auditor
     public function validateManifest(ExceptionManifest $manifest): array
     {
         $violations = [];
+        $entries = $manifest->entries();
 
-        foreach ($manifest->entries() as $fqcn => $entry) {
-            if (! in_array($entry['classification'], ExceptionManifest::CLASSIFICATIONS, true)) {
-                $violations[] = [
-                    'fqcn'    => $fqcn,
-                    'type'    => 'invalid_classification',
-                    'message' => "Unknown classification '{$entry['classification']}' — must be one of: ".implode(', ', ExceptionManifest::CLASSIFICATIONS).'.',
-                ];
-            }
+        foreach ($entries as $fqcn => $entry) {
+            $violations = array_merge($violations, $this->validateEntryShape($fqcn, $entry));
+        }
 
-            if (! class_exists($fqcn)) {
-                $violations[] = [
-                    'fqcn'    => $fqcn,
-                    'type'    => 'class_not_found',
-                    'message' => 'Class is not autoloadable — the manifest entry is dangling and must be removed.',
-                ];
+        foreach ($entries as $fqcn => $entry) {
+            $violations = array_merge($violations, $this->validateEntryAgainstReflection($fqcn, $entry));
+        }
 
-                continue;
-            }
+        foreach (array_keys($entries) as $fqcn) {
+            $chainViolation = $this->validateAliasChain($fqcn, $entries);
 
-            try {
-                $reflection = new ReflectionClass($fqcn);
-
-                if ($reflection->isAbstract() || ! $reflection->isSubclassOf(Model::class)) {
-                    $violations[] = [
-                        'fqcn'    => $fqcn,
-                        'type'    => 'class_not_found',
-                        'message' => 'Class exists but is not a concrete Eloquent model — the manifest entry does not target an auditable class.',
-                    ];
-
-                    continue;
-                }
-
-                /** @var Model $model */
-                $model = $reflection->newInstance();
-                $table = $model->getTable();
-                $schema = $model->getConnection()->getSchemaBuilder();
-
-                if ($table !== $entry['table']) {
-                    $violations[] = [
-                        'fqcn'    => $fqcn,
-                        'type'    => 'table_mismatch',
-                        'message' => "Manifest records table '{$entry['table']}' but the model's actual table is now '{$table}'.",
-                    ];
-
-                    continue;
-                }
-
-                if (! $schema->hasTable($table)) {
-                    $violations[] = [
-                        'fqcn'    => $fqcn,
-                        'type'    => 'table_mismatch',
-                        'message' => "Table '{$table}' is not present in the migrated schema — cannot verify this entry.",
-                    ];
-
-                    continue;
-                }
-
-                $hasCompanyId = $schema->hasColumn($table, 'company_id');
-                $usesCompanyScope = in_array(HasCompanyScope::class, class_uses_recursive($fqcn), true);
-
-                if ($hasCompanyId && $usesCompanyScope) {
-                    $violations[] = [
-                        'fqcn'    => $fqcn,
-                        'type'    => 'stale_exception',
-                        'message' => 'The model now uses HasCompanyScope for real — this exception is no longer needed and must be removed so it cannot mask a future regression.',
-                    ];
-                }
-            } catch (Throwable $exception) {
-                $violations[] = [
-                    'fqcn'    => $fqcn,
-                    'type'    => 'class_not_found',
-                    'message' => 'Failed to reflect/instantiate the class: '.$exception->getMessage(),
-                ];
+            if ($chainViolation !== null) {
+                $violations[] = $chainViolation;
             }
         }
 
         return $violations;
+    }
+
+    /**
+     * @param  array{table?: mixed, classification?: mixed, reason?: mixed, tracking?: mixed, alias_of?: mixed}  $entry
+     * @return list<array{fqcn: string, type: string, message: string}>
+     */
+    private function validateEntryShape(string $fqcn, array $entry): array
+    {
+        $violations = [];
+
+        foreach (['table', 'classification', 'reason', 'tracking'] as $field) {
+            if (! isset($entry[$field]) || ! is_string($entry[$field]) || trim($entry[$field]) === '') {
+                $violations[] = [
+                    'fqcn'    => $fqcn,
+                    'type'    => 'invalid_shape',
+                    'message' => "Manifest entry is missing a non-empty '{$field}' field.",
+                ];
+            }
+        }
+
+        if (
+            isset($entry['classification'])
+            && is_string($entry['classification'])
+            && in_array($entry['classification'], ExceptionManifest::REQUIRES_ALIAS_OF, true)
+            && (! isset($entry['alias_of']) || ! is_string($entry['alias_of']) || trim($entry['alias_of']) === '')
+        ) {
+            $violations[] = [
+                'fqcn'    => $fqcn,
+                'type'    => 'invalid_shape',
+                'message' => "Classification '{$entry['classification']}' requires a non-empty 'alias_of' field naming the class it delegates to.",
+            ];
+        }
+
+        if (
+            isset($entry['classification'])
+            && is_string($entry['classification'])
+            && ! in_array($entry['classification'], ExceptionManifest::CLASSIFICATIONS, true)
+        ) {
+            $violations[] = [
+                'fqcn'    => $fqcn,
+                'type'    => 'invalid_classification',
+                'message' => "Unknown classification '{$entry['classification']}' — must be one of: ".implode(', ', ExceptionManifest::CLASSIFICATIONS).'.',
+            ];
+        }
+
+        return $violations;
+    }
+
+    /**
+     * @param  array{table: string, classification: string, reason: string, tracking: string, alias_of?: string}  $entry
+     * @return list<array{fqcn: string, type: string, message: string}>
+     */
+    private function validateEntryAgainstReflection(string $fqcn, array $entry): array
+    {
+        if (! class_exists($fqcn)) {
+            return [[
+                'fqcn'    => $fqcn,
+                'type'    => 'class_not_found',
+                'message' => 'Class is not autoloadable — the manifest entry is dangling and must be removed.',
+            ]];
+        }
+
+        try {
+            $reflection = new ReflectionClass($fqcn);
+
+            if ($reflection->isAbstract() || ! $reflection->isSubclassOf(Model::class)) {
+                return [[
+                    'fqcn'    => $fqcn,
+                    'type'    => 'class_not_found',
+                    'message' => 'Class exists but is not a concrete Eloquent model — the manifest entry does not target an auditable class.',
+                ]];
+            }
+
+            /** @var Model $model */
+            $model = $reflection->newInstance();
+            $table = $model->getTable();
+            $schema = $model->getConnection()->getSchemaBuilder();
+
+            if ($table !== $entry['table']) {
+                return [[
+                    'fqcn'    => $fqcn,
+                    'type'    => 'table_mismatch',
+                    'message' => "Manifest records table '{$entry['table']}' but the model's actual table is now '{$table}'.",
+                ]];
+            }
+
+            if (! $schema->hasTable($table)) {
+                return [[
+                    'fqcn'    => $fqcn,
+                    'type'    => 'table_mismatch',
+                    'message' => "Table '{$table}' is not present in the migrated schema — cannot verify this entry.",
+                ]];
+            }
+
+            $usesCompanyScope = in_array(HasCompanyScope::class, class_uses_recursive($fqcn), true);
+
+            if ($usesCompanyScope) {
+                return [[
+                    'fqcn'    => $fqcn,
+                    'type'    => 'stale_exception',
+                    'message' => 'The model now uses HasCompanyScope for real — this exception is no longer needed and must be removed so it cannot mask a future regression.',
+                ]];
+            }
+
+            if (
+                isset($entry['alias_of'])
+                && is_string($entry['alias_of'])
+                && $entry['alias_of'] !== ''
+                && class_exists($entry['alias_of'])
+            ) {
+                if (! is_subclass_of($fqcn, $entry['alias_of'])) {
+                    return [[
+                        'fqcn'    => $fqcn,
+                        'type'    => 'alias_chain_broken',
+                        'message' => "'{$fqcn}' does not actually extend its declared alias_of target '{$entry['alias_of']}'.",
+                    ]];
+                }
+
+                /** @var Model $aliasTarget */
+                $aliasTarget = new ($entry['alias_of'])();
+
+                if ($aliasTarget->getTable() !== $table) {
+                    return [[
+                        'fqcn'    => $fqcn,
+                        'type'    => 'alias_chain_broken',
+                        'message' => "'{$fqcn}' and its alias_of target '{$entry['alias_of']}' point at different tables.",
+                    ]];
+                }
+            }
+        } catch (Throwable $exception) {
+            return [[
+                'fqcn'    => $fqcn,
+                'type'    => 'class_not_found',
+                'message' => 'Failed to reflect/instantiate the class: '.$exception->getMessage(),
+            ]];
+        }
+
+        return [];
+    }
+
+    /**
+     * Walks an `alias` entry's `alias_of` pointers until it reaches a
+     * non-alias classification (chain terminates), a manifest entry that
+     * doesn't exist (chain broken), or revisits a class already seen in
+     * this walk (cycle).
+     *
+     * @param  array<class-string, array{table?: mixed, classification?: mixed, alias_of?: mixed}>  $entries
+     */
+    private function validateAliasChain(string $fqcn, array $entries): ?array
+    {
+        $entry = $entries[$fqcn] ?? null;
+
+        if ($entry === null || ($entry['classification'] ?? null) !== 'alias') {
+            return null;
+        }
+
+        $visited = [$fqcn => true];
+        $current = $entry['alias_of'] ?? null;
+
+        while (is_string($current) && $current !== '') {
+            if (isset($visited[$current])) {
+                return [
+                    'fqcn'    => $fqcn,
+                    'type'    => 'alias_chain_cycle',
+                    'message' => "Alias chain starting at '{$fqcn}' cycles back through '{$current}'.",
+                ];
+            }
+
+            $visited[$current] = true;
+            $next = $entries[$current] ?? null;
+
+            if ($next === null) {
+                if (class_exists($current)) {
+                    // Terminal target has no manifest entry of its own —
+                    // fine as long as it isn't itself an unclassified gap;
+                    // that's caught separately by the real-gap count, not
+                    // here (this method only validates the manifest's own
+                    // internal consistency).
+                    return null;
+                }
+
+                return [
+                    'fqcn'    => $fqcn,
+                    'type'    => 'alias_chain_broken',
+                    'message' => "Alias chain starting at '{$fqcn}' points to '{$current}', which has no manifest entry and is not an autoloadable class.",
+                ];
+            }
+
+            if (($next['classification'] ?? null) !== 'alias') {
+                return null;
+            }
+
+            $current = $next['alias_of'] ?? null;
+        }
+
+        return null;
     }
 }

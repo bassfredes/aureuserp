@@ -11,44 +11,73 @@ Auditoría ejecutada vía `php scripts/audit-company-scope.php` (PHP 8.4.23, den
 
 - `app/Support/CompanyScopeAudit/Auditor.php` — motor de inspección (extraído del script original para ser testeable en aislamiento).
 - `app/Support/CompanyScopeAudit/ExceptionManifest.php` — lector del manifest de excepciones.
-- `config/company-scope-exceptions.php` — el manifest mismo: única vía sancionada para silenciar un hallazgo `missing_scope`, por FQCN exacto (sin exclusiones por namespace/regex/nombre corto).
+- `config/company-scope-exceptions.php` — el manifest mismo: única vía sancionada para silenciar un hallazgo `missing_scope`/`not_company_scoped`, por FQCN exacto (sin exclusiones por namespace/regex/nombre corto).
+
+**Auto-discovery real**: sin `--plugins`, el script audita `plugins/webkul/*/src/Models` completo (26 plugins detectados en disco, orden determinista, excluye silenciosamente los que no tienen `src/Models` como `barcode`/`full-calendar`) — ya no un default hardcodeado de 3 plugins. `php scripts/audit-company-scope.php` sin argumentos es ahora una auditoría global real, no un falso verde parcial.
+
+**Estados por fila**: `effective_status` colapsa el escaneo crudo + la clasificación del manifest en `scoped | classified_exception | real_gap_company_column | real_gap_without_company_column | table_missing | inspection_error`. `Auditor::isRealGap()` cubre AMBOS `missing_scope` (tiene `company_id`, sin `HasCompanyScope`) y `not_company_scoped` (sin `company_id`) cuando no hay una entrada de manifest válida — antes solo el primero contaba para `--fail-on-missing`, dejando huecos como `Milestone`/pivotes/children sin `company_id` fuera del gate.
 
 El auditor valida el manifest completo en cada corrida (independiente del `--plugins` solicitado) y falla (`exit 2`) ante cualquiera de:
 
+- `invalid_shape` — falta `table`/`classification`/`reason`/`tracking` no-vacíos, o `classification: alias` sin `alias_of`.
 - `class_not_found` — la clase de una entrada ya no existe/autoload.
 - `table_mismatch` — la tabla registrada no coincide con la tabla real del modelo.
-- `invalid_classification` — la clasificación no es una de `global_party_identity|alias|global_reference|parent_scoped|not_tenancy`.
-- `stale_exception` — el modelo ya usa `HasCompanyScope` de verdad; la excepción sobra y debe eliminarse.
+- `invalid_classification` — la clasificación no es una de `global_party_identity|alias|global_reference|parent_scoped|not_tenancy|root_company_entity|multi_company_membership`.
+- `stale_exception` — el modelo ya usa `HasCompanyScope` de verdad (basta `uses_company_scope === true`, sin importar `has_company_id`); la excepción sobra y debe eliminarse.
+- `alias_chain_broken` — el `alias_of` no es realmente ancestro (`is_subclass_of`), o apunta a una clase sin entrada de manifest y no autoloadable.
+- `alias_chain_cycle` — la cadena de `alias_of` se revisita a sí misma.
 - `table_missing` / `inspection_error` (comportamiento preexistente).
 
-Un `missing_scope` real (sin entrada de manifest) solo hace fallar la corrida (`exit 1`) cuando se pasa `--fail-on-missing` — es trabajo pendiente conocido, no un auditor roto.
+Un gap real (sin entrada de manifest, `missing_scope` o `not_company_scoped`) solo hace fallar la corrida (`exit 1`) cuando se pasa `--fail-on-missing` — es trabajo pendiente conocido, no un auditor roto. Verificado explícitamente sobre la base fresh: `php scripts/audit-company-scope.php --format=json` → `exit 0` (0 table_missing, 0 inspection_errors, 0 manifest_violations, 76 gaps reales); el mismo comando `--fail-on-missing` → `exit 1` (76 gaps reales > 0).
 
-Cobertura de tests: `tests/Feature/Support/CompanyScopeAuditorTest.php` (8 casos): excepción válida, alias esperado, excepción stale, tabla incorrecta, missing real sin excepción, table_missing, clasificación inválida, clase inexistente.
+Cobertura de tests: `tests/Feature/Support/CompanyScopeAuditorTest.php` (18 casos) — excepción válida, alias esperado, cadena de alias multi-hop real, `not_company_scoped` clasificado vs no clasificado, `missing_scope` no clasificado, `table_missing`, excepción stale (por `uses_company_scope` solo), tabla incorrecta, clasificación inválida, clase inexistente, shape inválido, alias sin `alias_of`, cadena de alias rota, ciclo de alias, discovery global determinista, `--plugins` focalizado, plugin inexistente solicitado.
 
 ## Checkpoint de esquema completo (fresh install aislado)
 
 Base aislada `db_aureuserp_audit_fresh` (mismo servidor MySQL del entorno dev, base y usuario separados de `db_aureuserp`/`db_aureuserp_test`). Secuencia: `erp:install --force -n` + los 20 comandos `<plugin>:install -n` (accounting, accounts, barcode, blogs, contacts, employees, full-calendar, inventories, invoices, maintenance, manufacturing, payments, products, projects, purchases, recruitments, sales, time-off, timesheets, website) — todos exit 0.
 
-| Corrida | table_missing | inspection_error | manifest_violations | missing_scope (unclassified) | exit |
-|---|---|---|---|---|---|
-| DB dev existente (`db_aureuserp`), 26 plugins con `src/Models/` | 35 | 0 | 0 | 41 | 2 (por table_missing) |
-| DB aislada, fresh install completo | **0** | **0** | **0** | 47 | **0** |
+Corrida final, `php scripts/audit-company-scope.php --format=json` (auto-discovery, 26 plugins, sin `--plugins`) sobre la base fresh, committeada en `docs/security/company-scope-pr4-inventory.json`:
 
-El delta de 41→47 `missing_scope` se reconcilia exactamente: los 6 modelos que pasaron de `table_missing` a `missing_scope` real son `maintenance.Equipment/EquipmentCategory/MaintenanceRequest/Team` y `recruitments.Applicant/Candidate` — ya identificados como gaps reales en la matriz (secciones 1 y 5). Ningún hallazgo nuevo, ninguna sorpresa.
+```json
+{
+  "total": 304,
+  "scoped": 106,
+  "classified_exceptions": 122,
+  "real_gaps_with_company_id": 44,
+  "real_gaps_without_company_id": 32,
+  "table_missing": 0,
+  "inspection_errors": 0,
+  "manifest_violations": 0
+}
+```
+
+`exit 0` sin `--fail-on-missing`; `exit 1` con `--fail-on-missing` (76 gaps reales = 44 + 32 > 0) — verificado explícitamente, no asumido.
+
+| Corrida | table_missing | inspection_error | manifest_violations | gaps reales | exit (sin flag) | exit (`--fail-on-missing`) |
+|---|---|---|---|---|---|---|
+| DB dev existente (`db_aureuserp`), auto-discovery | 35 | 0 | 0 | — (no se completó, table_missing>0 es fatal) | 2 | 2 |
+| DB aislada, fresh install completo | **0** | **0** | **0** | 76 | **0** | **1** |
 
 ## Manifest de excepciones — resumen
 
-16 entradas, todas `partners_partners` (Partner/Customer/Vendor/Address), 0 violaciones en ambas corridas:
+122 entradas — 1 `global_party_identity` + 121 restantes (aliases + referencia global + not_tenancy + parent_scoped + las 2 nuevas categorías de la revisión), 0 violaciones (shape, tabla, clasificación, stale, cadena de alias) sobre el manifest completo:
 
-| Clasificación | Cantidad | FQCNs |
+Conteo exacto (`config/company-scope-exceptions.php`, verificado por script, no a mano):
+
+| Clasificación | Cantidad | Notas |
 |---|---|---|
 | `global_party_identity` | 1 | `Webkul\Partner\Models\Partner` (raíz canónica) |
-| `alias` | 15 | `Webkul\Contact\Models\Partner`, `Webkul\Contact\Models\Address`, `Webkul\Partner\Models\Address`, `Webkul\Accounting\Models\{Partner,Customer,Vendor}`, `Webkul\Account\Models\{Partner,Customer,Vendor}`, `Webkul\Invoice\Models\{Partner,Customer,Vendor}`, `Webkul\Purchase\Models\Partner`, `Webkul\Sale\Models\Partner`, `Webkul\Website\Models\Partner` |
-| `global_reference` | 0 | — (pendiente: Bank/Industry/Tag/Title de partners/contacts, ver sección 4 — no clasificados aún en el manifest, siguen como `not_company_scoped` informativo) |
-| `parent_scoped` | 0 | — (pendiente para próxima ronda) |
-| `not_tenancy` | 0 | — (pendiente para próxima ronda) |
+| `alias` | 45 | Partner/Customer/Vendor/Address (15 aliases del grupo original) + Currency/Bank/Industry/Tag/Title/Incoterm/CashRounding/Category/Attribute/ProcurementGroup/UTMMedium/UTMSource/EmploymentType/SkillType/`Company`(security) — cadenas multi-hop verificadas (p.ej. `sales.Category → invoices.Category → accounts.Category → products.Category`) |
+| `global_reference` | 38 | Currency, Country, State, Bank, UOM, UOMCategory, EmailTemplate, custom_fields, UTMMedium/Source/Stage, products Attribute/Category/AttributeOption/Tag, accounts Incoterm/CashRounding/Tag/PaymentMethod, inventories Tag, manufacturing WorkCenterLossType/Tag/ProductivityLoss, HR/recruitment lookup tables (EmployeeCategory, DepartureReason, EmployeeResumeLineType, EmploymentType, SkillType, SkillLevel, Skill, ApplicantCategory, Degree, RefuseReason), `maintenance.Stage` (contrato aprobado), `partners`/`contacts` Industry/Tag/Title, `projects.Tag` |
+| `parent_scoped` | 24 | Pivotes/hijos de un parent YA `HasCompanyScope` o pivote-validado, con evidencia citada (p.ej. `sales.OrderLine` vía `ValidatesRelatedCompanyScope`, `accounts_account_*` pivots vía Journal/Tax/Move ya escopados, `manufacturing_work_orders/operations/work_center_capacities` con comentario de ronda de revisión en código) |
+| `not_tenancy` | 12 | Permission, Role, Team(security), Plugin, EmailLog, Blog Category/Post/Tag, Website Page, TableView/TableViewFavorite, ActivityTypeSuggestion |
+| `root_company_entity` | 1 | `Webkul\Support\Models\Company` |
+| `multi_company_membership` | 1 | `Webkul\Security\Models\User` |
+| **Total** | **122** | |
 
-Este checkpoint solo formaliza la decisión ya cerrada de PR #17 (Partner/Customer/Vendor). Las clasificaciones `global_reference`/`parent_scoped`/`not_tenancy` para el resto de los 113 `not_company_scoped` (Bank, Country, UOM, Tag×N, etc.) quedan para cuando se autoricen los PRs de negocio correspondientes — no se backfillearon aquí para no exceder el alcance de "solo checkpoint de auditoría".
+`BankAccount` (4 clases) queda deliberadamente **fuera** del manifest — es un gap real pendiente del pivote `partners_bank_account_companies` del contrato aprobado, no una excepción. Ver sección 4.
+
+Todos los modelos hijos/pivote de un parent que **todavía no está escopado** (Employee, JobPosition, Department, Candidate, Applicant, Calendar, ActivityPlan, LeaveType, Project, Team de maintenance/sales) quedan deliberadamente fuera del manifest también — `parent_scoped` solo se usa cuando existe enforcement real y citable, nunca por adelantado.
 
 ---
 
@@ -61,14 +90,14 @@ Este checkpoint solo formaliza la decisión ya cerrada de PR #17 (Partner/Custom
 - `relational-no-company-with-pivot` — sin company_id, validado vía pivote M2M a Company.
 - `multi_company_membership` — User (default_company_id + user_allowed_companies), es la raíz que CompanyScope::allowedCompanyIds() lee.
 - `root_company_entity` — Company mismo, no se auto-escopa.
-- **real gap** — requiere acción en un próximo PR de negocio.
+- **real gap** — requiere código de negocio, autorizado a landear en esta misma rama/PR #18 una vez el checkpoint quede aprobado (no en un PR separado).
 
 ---
 
 ## 0. Dominios ya cerrados (PR #17) — verificación, sin acción
 
 71 filas dedupe a 45 tablas físicas. Todas resuelven a 4 patrones ya revisados:
-1. Taxonomía/referencia global (products_attributes, products_categories, currencies, accounts_incoterms, partners_bank_accounts, accounts_cash_roundings, accounts_account_tags, manufacturing_work_center_loss_types/tags/productivity_losses, inventories_tags).
+1. Taxonomía/referencia global (products_attributes, products_categories, currencies, accounts_incoterms, accounts_cash_roundings, accounts_account_tags, manufacturing_work_center_loss_types/tags/productivity_losses, inventories_tags). `partners_bank_accounts` fue removida de esta lista — ver sección 4, es un gap real de PR 4, no una excepción cerrada.
 2. Pivotes/hijos cuyo único FK apunta a un parent ya `HasCompanyScope` (accounts_account_* pivots, inventories_package_destinations, inventories_procurement_groups, purchases_order_groups, manufacturing_work_orders/work_center_capacities/operations — estos 3 últimos con comentario explícito "#138 review round 2, 2026-07-18" en código).
 3. `accounts_accounts` (Account) — sin company_id propio, validado vía pivote M2M `accounts_account_companies` (confirmado en `accounts/src/Models/Account.php:111,200`).
 4. Los 9 `missing_scope` de Partner/Customer/Vendor documentados en PR #17 — ahora formalizados en el manifest (junto con 7 aliases adicionales de otros plugins no cubiertos por esa auditoría más angosta, ver arriba).
@@ -153,7 +182,7 @@ Tablas compartidas cruzando plugins (un solo owner físico, resto son alias sin 
 ### Clasificación global_system_config (sin acción)
 Permission, Role (catálogo RBAC), Bank, Country, State, Currency, UOM, UOMCategory, EmailTemplate, UTMMedium, UTMSource.
 
-### Gaps reales a escopar (próximo PR de negocio)
+### Gaps reales a escopar (código de negocio, esta misma rama/PR #18)
 ActivityPlan/ActivityPlanTemplate (ver HR), Calendar, CalendarLeave (ver HR), CurrencyRate, UtmCampaign, Chatter Message/Attachment, Invitation (contrato aprobado).
 
 ---
@@ -162,9 +191,9 @@ ActivityPlan/ActivityPlanTemplate (ver HR), Calendar, CalendarLeave (ver HR), Cu
 
 `partners` = capa de modelo/schema (dueña de TODAS las migraciones); `contacts` = capa de UI (subclases de 0 lógica). Ambos plugins son necesarios, no hay duplicado a resolver.
 
-- `Partner`/`Address`/Customer/Vendor aliases → `global_party_identity`, formalizado en el manifest (16 entradas).
-- `Bank`, `Industry`, `Tag`, `Title` → `global_reference_data`, sin company_id — pendiente de entrada explícita en el manifest en la próxima ronda.
-- **`BankAccount`** (`partners_bank_accounts`) → contrato aprobado con pivote `partners_bank_account_companies`, ver "Decisiones de contrato".
+- `Partner`/`Address`/Customer/Vendor → 16 excepciones en el manifest: 1 `global_party_identity` (`Webkul\Partner\Models\Partner`, raíz canónica) + 15 `alias` (Address, y las plugin-scoped subclasses de Partner/Customer/Vendor).
+- `Bank`, `Industry`, `Tag`, `Title` → clasificadas `global_reference` en el manifest de este checkpoint (sin company_id por diseño, sin FK a una entidad tenant-owned).
+- **`BankAccount`** (`partners_bank_accounts`, 4 clases) → **gap real, deliberadamente fuera del manifest**. Contrato aprobado con pivote `partners_bank_account_companies`, ver "Decisiones de contrato" — no implementado en este checkpoint.
 
 ---
 
@@ -207,7 +236,7 @@ ActivityPlan/ActivityPlanTemplate (ver HR), Calendar, CalendarLeave (ver HR), Cu
 
 ## Decisiones de contrato aprobadas (revisión #138, comentario `5016816710`) — pendientes de implementación
 
-Estas decisiones quedaron cerradas en la revisión de este checkpoint. **Ningún código de negocio fue tocado todavía** — quedan como contrato autorizado para el próximo PR de negocio.
+Estas decisiones quedaron cerradas en la revisión de este checkpoint. **Ningún código de negocio fue tocado todavía** — quedan como contrato autorizado para implementarse en esta misma rama (`feat/company-scope-remaining-plugins`, PR #18) una vez el checkpoint quede aprobado. No se abre un PR adicional para PR 4.
 
 ### Time Off
 
@@ -311,8 +340,15 @@ No envolver seeders individuales en `runForBootstrap()` — produciría reentran
 ## Estado
 
 ```
-PR 4: autorizada, checkpoint de auditoría completado
+PR 4 (PR #18, feat/company-scope-remaining-plugins): checkpoint de auditoría corregido tras revisión
+  - auto-discovery global real (sin default parcial de 3 plugins)
+  - isRealGap cubre missing_scope y not_company_scoped sin excepción válida
+  - manifest endurecido: shape, stale por uses_company_scope, cadenas de alias validadas
+  - 122 excepciones formalizadas (1 global_party_identity, 45 alias, 38 global_reference,
+    24 parent_scoped, 12 not_tenancy, 1 root_company_entity, 1 multi_company_membership)
+  - docs/security/company-scope-pr4-inventory.json generado por el auditor (304 filas, paths relativos)
 Modelos de negocio (Leave, Project, TableView, Invitation, BankAccount, Maintenance, etc.): aún no modificados
+PR adicional para PR 4: prohibido — los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
 #138 / #81: abiertos
 AGENTS.md: stashes intactos (ambos checkouts)
