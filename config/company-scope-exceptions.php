@@ -262,18 +262,15 @@ return [
         'reason'         => 'Single public-site CMS content — same one-instance-one-site reasoning as the blogs plugin.',
         'tracking'       => '#138',
     ],
-    \Webkul\TableViews\Models\TableView::class => [
-        'table'          => 'table_views',
-        'classification' => 'not_tenancy',
-        'reason'         => 'User-owned saved Filament table filters (user_id + optional is_public), not company data by design — the approved contract (#138 review, 2026-07-19) keeps this user-scoped with an explicit ownership check on write, not a company scope. This entry only records that no company_id is expected; it does NOT imply the ownership-check fix for EditViewAction/deleteTableViewAction/replaceTableViewAction has been implemented yet.',
-        'tracking'       => '#138',
-    ],
-    \Webkul\TableViews\Models\TableViewFavorite::class => [
-        'table'          => 'table_view_favorites',
-        'classification' => 'not_tenancy',
-        'reason'         => 'Per-user favorite marker for a TableView — same reasoning as TableView itself.',
-        'tracking'       => '#138',
-    ],
+    // NOTE: TableView/TableViewFavorite are deliberately NOT in this
+    // manifest, even though neither will ever need a company_id column.
+    // The approved contract (#138 review, 2026-07-19) requires an explicit
+    // server-side ownership check in EditViewAction/deleteTableViewAction/
+    // replaceTableViewAction (currently only gates button visibility, a
+    // confirmed IDOR) before either model can be considered resolved — a
+    // classification alone must never silence a gap that still has real,
+    // uncommitted enforcement work behind it. Both stay
+    // real_gap_without_company_column until that lands.
     \Webkul\Support\Models\ActivityTypeSuggestion::class => [
         'table'          => 'activity_type_suggestions',
         'classification' => 'not_tenancy',

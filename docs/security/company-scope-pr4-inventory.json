@@ -30,9 +30,9 @@
     "summary": {
         "total": 304,
         "scoped": 106,
-        "classified_exceptions": 122,
+        "classified_exceptions": 120,
         "real_gaps_with_company_id": 44,
-        "real_gaps_without_company_id": 32,
+        "real_gaps_without_company_id": 34,
         "table_missing": 0,
         "inspection_errors": 0,
         "manifest_violations": 0
@@ -3527,8 +3527,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "classification": null,
+            "effective_status": "real_gap_without_company_column"
         },
         {
             "plugin": "table-views",
@@ -3539,8 +3539,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "classification": null,
+            "effective_status": "real_gap_without_company_column"
         },
         {
             "plugin": "time-off",

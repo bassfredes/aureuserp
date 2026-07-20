@@ -373,10 +373,36 @@ final class Auditor
     }
 
     /**
-     * Validates every manifest entry against live reflection, independent
-     * of which plugins were passed to inspectPlugins() — a partial
-     * `--plugins=` run must still catch a stale/broken exception anywhere
-     * in the manifest, not only within the scanned subset.
+     * Whether a row belongs in the default `--format=table` view. Every
+     * real gap must be visible regardless of whether it has a company_id
+     * column — filtering table rows on `has_company_id !== false` alone
+     * (the original behavior) silently hid every
+     * `real_gap_without_company_column` row from the default view (#138,
+     * PR 4 review, 2026-07-20). Classified exceptions that never needed a
+     * company_id (global reference data, aliases, not_tenancy, ...) are
+     * still hidden by default to keep the table readable — they're not
+     * gaps, and the JSON output always has the full row set.
+     *
+     * @param  array{has_company_id: bool|null, effective_status: string}  $row
+     */
+    public function shouldDisplayInTable(array $row): bool
+    {
+        return $row['has_company_id'] !== false
+            || $this->isRealGap($row)
+            || in_array($row['effective_status'], ['table_missing', 'inspection_error'], true);
+    }
+
+    /**
+     * Validates every manifest entry STATICALLY (shape, class/table/
+     * classification/alias-chain consistency via reflection only — never
+     * a live schema lookup), independent of which plugins were passed to
+     * inspectPlugins(). A partial `--plugins=` run must still catch a
+     * stale/broken exception anywhere in the manifest, not only within the
+     * scanned subset — but it must NOT require every manifest entry's
+     * table to physically exist in whatever schema happens to be migrated
+     * right now. Physical table presence (`table_missing`) is exclusively
+     * inspectClass()'s job, scoped to whichever rows were actually
+     * inspected in this run (#138, PR 4 review, 2026-07-20).
      *
      * @return list<array{fqcn: string, type: string, message: string}>
      */
@@ -386,14 +412,21 @@ final class Auditor
         $entries = $manifest->entries();
 
         foreach ($entries as $fqcn => $entry) {
-            $violations = array_merge($violations, $this->validateEntryShape($fqcn, $entry));
-        }
+            $shapeViolations = $this->validateEntryShape($fqcn, $entry);
 
-        foreach ($entries as $fqcn => $entry) {
+            if ($shapeViolations !== []) {
+                // An entry with a malformed shape (missing keys, etc.) is
+                // not safe to reflect on — $entry['table'] and friends may
+                // not exist. Report the shape problem and move on, rather
+                // than risk a PHP warning or a misleading second violation
+                // from code that assumes a valid shape (#138, PR 4 review).
+                $violations = array_merge($violations, $shapeViolations);
+
+                continue;
+            }
+
             $violations = array_merge($violations, $this->validateEntryAgainstReflection($fqcn, $entry));
-        }
 
-        foreach (array_keys($entries) as $fqcn) {
             $chainViolation = $this->validateAliasChain($fqcn, $entries);
 
             if ($chainViolation !== null) {
@@ -451,6 +484,11 @@ final class Auditor
     }
 
     /**
+     * Purely static: reflection and `getTable()` (a plain property/method
+     * read, not a query) only — never touches the schema builder or the
+     * database. Physical table presence is inspectClass()'s job, scoped to
+     * whatever the current run actually inspected.
+     *
      * @param  array{table: string, classification: string, reason: string, tracking: string, alias_of?: string}  $entry
      * @return list<array{fqcn: string, type: string, message: string}>
      */
@@ -478,21 +516,12 @@ final class Auditor
             /** @var Model $model */
             $model = $reflection->newInstance();
             $table = $model->getTable();
-            $schema = $model->getConnection()->getSchemaBuilder();
 
             if ($table !== $entry['table']) {
                 return [[
                     'fqcn'    => $fqcn,
                     'type'    => 'table_mismatch',
                     'message' => "Manifest records table '{$entry['table']}' but the model's actual table is now '{$table}'.",
-                ]];
-            }
-
-            if (! $schema->hasTable($table)) {
-                return [[
-                    'fqcn'    => $fqcn,
-                    'type'    => 'table_mismatch',
-                    'message' => "Table '{$table}' is not present in the migrated schema — cannot verify this entry.",
                 ]];
             }
 
@@ -544,9 +573,14 @@ final class Auditor
 
     /**
      * Walks an `alias` entry's `alias_of` pointers until it reaches a
-     * non-alias classification (chain terminates), a manifest entry that
-     * doesn't exist (chain broken), or revisits a class already seen in
-     * this walk (cycle).
+     * manifest entry with a non-alias classification (chain terminates in
+     * a REGISTERED, classified entry), revisits a class already seen in
+     * this walk (cycle), or points at a target with no manifest entry at
+     * all — always broken, even if that target happens to be a real,
+     * autoloadable, same-table class. An alias must terminate in something
+     * this manifest has actually classified, never in an arbitrary
+     * unregistered class that could itself be an unclassified gap (#138,
+     * PR 4 review, 2026-07-20).
      *
      * @param  array<class-string, array{table?: mixed, classification?: mixed, alias_of?: mixed}>  $entries
      */
@@ -574,19 +608,10 @@ final class Auditor
             $next = $entries[$current] ?? null;
 
             if ($next === null) {
-                if (class_exists($current)) {
-                    // Terminal target has no manifest entry of its own —
-                    // fine as long as it isn't itself an unclassified gap;
-                    // that's caught separately by the real-gap count, not
-                    // here (this method only validates the manifest's own
-                    // internal consistency).
-                    return null;
-                }
-
                 return [
                     'fqcn'    => $fqcn,
                     'type'    => 'alias_chain_broken',
-                    'message' => "Alias chain starting at '{$fqcn}' points to '{$current}', which has no manifest entry and is not an autoloadable class.",
+                    'message' => "Alias chain starting at '{$fqcn}' points to '{$current}', which has no manifest entry of its own — an alias chain must terminate in a registered, classified entry.",
                 ];
             }
 

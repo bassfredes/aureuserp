@@ -80,10 +80,7 @@ if ($format === 'json') {
         JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
     ).PHP_EOL;
 } else {
-    $reportedRows = array_values(array_filter(
-        $rows,
-        static fn (array $row): bool => $row['has_company_id'] !== false,
-    ));
+    $reportedRows = array_values(array_filter($rows, $auditor->shouldDisplayInTable(...)));
 
     $headers = ['PLUGIN', 'MODEL', 'TABLE', 'COMPANY_ID', 'SCOPE', 'STATUS', 'CLASSIFICATION', 'EFFECTIVE'];
     $displayRows = array_map(

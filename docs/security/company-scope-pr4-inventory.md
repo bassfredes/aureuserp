@@ -28,9 +28,9 @@ El auditor valida el manifest completo en cada corrida (independiente del `--plu
 - `alias_chain_cycle` — la cadena de `alias_of` se revisita a sí misma.
 - `table_missing` / `inspection_error` (comportamiento preexistente).
 
-Un gap real (sin entrada de manifest, `missing_scope` o `not_company_scoped`) solo hace fallar la corrida (`exit 1`) cuando se pasa `--fail-on-missing` — es trabajo pendiente conocido, no un auditor roto. Verificado explícitamente sobre la base fresh: `php scripts/audit-company-scope.php --format=json` → `exit 0` (0 table_missing, 0 inspection_errors, 0 manifest_violations, 76 gaps reales); el mismo comando `--fail-on-missing` → `exit 1` (76 gaps reales > 0).
+Un gap real (sin entrada de manifest, `missing_scope` o `not_company_scoped`) solo hace fallar la corrida (`exit 1`) cuando se pasa `--fail-on-missing` — es trabajo pendiente conocido, no un auditor roto. Verificado explícitamente sobre la base fresh: `php scripts/audit-company-scope.php --format=json` → `exit 0` (0 table_missing, 0 inspection_errors, 0 manifest_violations, 78 gaps reales); el mismo comando `--fail-on-missing` → `exit 1` (78 gaps reales > 0).
 
-Cobertura de tests: `tests/Feature/Support/CompanyScopeAuditorTest.php` (18 casos) — excepción válida, alias esperado, cadena de alias multi-hop real, `not_company_scoped` clasificado vs no clasificado, `missing_scope` no clasificado, `table_missing`, excepción stale (por `uses_company_scope` solo), tabla incorrecta, clasificación inválida, clase inexistente, shape inválido, alias sin `alias_of`, cadena de alias rota, ciclo de alias, discovery global determinista, `--plugins` focalizado, plugin inexistente solicitado.
+Cobertura de tests: `tests/Feature/Support/CompanyScopeAuditorTest.php` (29 casos) — excepción válida, alias esperado, cadena de alias multi-hop real, `not_company_scoped` clasificado vs no clasificado, `missing_scope` no clasificado, `table_missing`, excepción stale (por `uses_company_scope` solo), tabla incorrecta, clasificación inválida, clase inexistente, shape inválido (4 variantes: cada campo requerido eliminado por completo), validación detenida tras shape inválido (sin segunda violación espuria), alias sin `alias_of`, cadena de alias rota (clase inexistente Y clase real-pero-no-registrada, casos distintos), ciclo de alias, manifest válido con tabla físicamente ausente en la corrida (sin violación), TableView/TableViewFavorite no silenciables vía manifest, gap sin company_id visible en `--format=table`, excepción sin company_id oculta en `--format=table`, `table_missing` siempre visible, discovery global determinista, `--plugins` focalizado, plugin inexistente solicitado.
 
 ## Checkpoint de esquema completo (fresh install aislado)
 
@@ -42,25 +42,25 @@ Corrida final, `php scripts/audit-company-scope.php --format=json` (auto-discove
 {
   "total": 304,
   "scoped": 106,
-  "classified_exceptions": 122,
+  "classified_exceptions": 120,
   "real_gaps_with_company_id": 44,
-  "real_gaps_without_company_id": 32,
+  "real_gaps_without_company_id": 34,
   "table_missing": 0,
   "inspection_errors": 0,
   "manifest_violations": 0
 }
 ```
 
-`exit 0` sin `--fail-on-missing`; `exit 1` con `--fail-on-missing` (76 gaps reales = 44 + 32 > 0) — verificado explícitamente, no asumido.
+`exit 0` sin `--fail-on-missing`; `exit 1` con `--fail-on-missing` (78 gaps reales = 44 + 34 > 0) — verificado explícitamente, no asumido.
 
 | Corrida | table_missing | inspection_error | manifest_violations | gaps reales | exit (sin flag) | exit (`--fail-on-missing`) |
 |---|---|---|---|---|---|---|
 | DB dev existente (`db_aureuserp`), auto-discovery | 35 | 0 | 0 | — (no se completó, table_missing>0 es fatal) | 2 | 2 |
-| DB aislada, fresh install completo | **0** | **0** | **0** | 76 | **0** | **1** |
+| DB aislada, fresh install completo | **0** | **0** | **0** | 78 | **0** | **1** |
 
 ## Manifest de excepciones — resumen
 
-122 entradas — 1 `global_party_identity` + 121 restantes (aliases + referencia global + not_tenancy + parent_scoped + las 2 nuevas categorías de la revisión), 0 violaciones (shape, tabla, clasificación, stale, cadena de alias) sobre el manifest completo:
+120 entradas — 1 `global_party_identity` + 119 restantes (aliases + referencia global + not_tenancy + parent_scoped + las 2 nuevas categorías de la revisión), 0 violaciones (shape, tabla, clasificación, stale, cadena de alias) sobre el manifest completo. `TableView`/`TableViewFavorite` fueron retiradas del manifest en esta ronda de revisión — ver "Correcciones de la segunda revisión" abajo.
 
 Conteo exacto (`config/company-scope-exceptions.php`, verificado por script, no a mano):
 
@@ -70,10 +70,10 @@ Conteo exacto (`config/company-scope-exceptions.php`, verificado por script, no 
 | `alias` | 45 | Partner/Customer/Vendor/Address (15 aliases del grupo original) + Currency/Bank/Industry/Tag/Title/Incoterm/CashRounding/Category/Attribute/ProcurementGroup/UTMMedium/UTMSource/EmploymentType/SkillType/`Company`(security) — cadenas multi-hop verificadas (p.ej. `sales.Category → invoices.Category → accounts.Category → products.Category`) |
 | `global_reference` | 38 | Currency, Country, State, Bank, UOM, UOMCategory, EmailTemplate, custom_fields, UTMMedium/Source/Stage, products Attribute/Category/AttributeOption/Tag, accounts Incoterm/CashRounding/Tag/PaymentMethod, inventories Tag, manufacturing WorkCenterLossType/Tag/ProductivityLoss, HR/recruitment lookup tables (EmployeeCategory, DepartureReason, EmployeeResumeLineType, EmploymentType, SkillType, SkillLevel, Skill, ApplicantCategory, Degree, RefuseReason), `maintenance.Stage` (contrato aprobado), `partners`/`contacts` Industry/Tag/Title, `projects.Tag` |
 | `parent_scoped` | 24 | Pivotes/hijos de un parent YA `HasCompanyScope` o pivote-validado, con evidencia citada (p.ej. `sales.OrderLine` vía `ValidatesRelatedCompanyScope`, `accounts_account_*` pivots vía Journal/Tax/Move ya escopados, `manufacturing_work_orders/operations/work_center_capacities` con comentario de ronda de revisión en código) |
-| `not_tenancy` | 12 | Permission, Role, Team(security), Plugin, EmailLog, Blog Category/Post/Tag, Website Page, TableView/TableViewFavorite, ActivityTypeSuggestion |
+| `not_tenancy` | 10 | Permission, Role, Team(security), Plugin, EmailLog, Blog Category/Post/Tag, Website Page, ActivityTypeSuggestion |
 | `root_company_entity` | 1 | `Webkul\Support\Models\Company` |
 | `multi_company_membership` | 1 | `Webkul\Security\Models\User` |
-| **Total** | **122** | |
+| **Total** | **120** | |
 
 `BankAccount` (4 clases) queda deliberadamente **fuera** del manifest — es un gap real pendiente del pivote `partners_bank_account_companies` del contrato aprobado, no una excepción. Ver sección 4.
 
@@ -337,16 +337,36 @@ No envolver seeders individuales en `runForBootstrap()` — produciría reentran
 
 ---
 
+## Correcciones de la segunda revisión (#138, revisión `4731774794`)
+
+1. **`TableView`/`TableViewFavorite` retiradas del manifest.** Clasificarlas silenciaba el IDOR confirmado (ownership check pendiente en `EditViewAction`/`deleteTableViewAction`/`replaceTableViewAction`) — un contrato aprobado pero no implementado no puede desaparecer del conteo de gaps solo por declarar una clasificación. Ambas vuelven a `real_gap_without_company_column`. Test dedicado: `it('does not let a manifest exception silence a model with an approved-but-unimplemented contract (TableView)')`.
+2. **Validación de manifest separada en estática vs física.** `validateManifest()` ya no llama a `Schema::hasTable()`/`hasColumn()` — solo reflection pura (`class_exists`, `getTable()`, `class_uses_recursive`, `is_subclass_of`). Una corrida `--plugins=A` con una entrada de manifest para un modelo del plugin B, cuya tabla no está migrada en ese esquema, ya no produce `manifest_violation`. `table_missing` sigue siendo exclusivamente responsabilidad de `inspectClass()`, acotado a lo realmente inspeccionado. Test: `it('does not require a manifest entry\'s table to physically exist...')`.
+3. **La validación se detiene tras `invalid_shape`.** Una entrada con shape inválido (clave faltante) ya no cae en `validateEntryAgainstReflection()`, que asumía la forma válida. 4 tests nuevos eliminan por completo cada una de `table`/`classification`/`reason`/`tracking` y confirman que solo se reporta `invalid_shape`, sin una segunda violación espuria.
+4. **Cadena de alias exige terminal registrado.** `validateAliasChain()` ya no acepta como válido un `alias_of` que apunte a una clase real, autoloadable y de la misma tabla si esa clase no tiene su propia entrada en el manifest — ahora es siempre `alias_chain_broken`. Test dedicado distingue este caso del de "clase totalmente inexistente".
+5. **Salida `--format=table` ya no oculta gaps sin `company_id`.** Nuevo `Auditor::shouldDisplayInTable()` — visible si tiene `company_id`, o si es cualquier `real_gap_*`, o si es `table_missing`/`inspection_error`; solo se ocultan por defecto las excepciones clasificadas sin `company_id` (referencia global, alias, not_tenancy). Verificado con `--plugins=table-views`: ambas filas aparecen ahora como `real_gap_without_company_column`.
+6. **CI corregido y con verificación de drift exacta.** El job `Company Scope Global Audit` fallaba en `Running Composer Install` porque `filament:upgrade` (hook `post-autoload-dump`) intenta copiar assets de `resources/dist/` que solo existen tras el job `frontend_assets` — faltaban `needs: frontend_assets` y el step `Download built plugin assets`, ya agregados. El gate de `total >= 300` fue reemplazado por un `diff -u` exacto entre el JSON recién generado y `docs/security/company-scope-pr4-inventory.json` committeado — cualquier drift (modelo escopado, excepción agregada/quitada, tabla renombrada) rompe el CI hasta que el inventario se regenere y se commitee en el mismo cambio.
+
+Números actualizados tras estas correcciones (120 excepciones, no 122 — las 2 de TableView/TableViewFavorite salieron del manifest): ver el bloque JSON al inicio de este documento.
+
+---
+
 ## Estado
 
 ```
-PR 4 (PR #18, feat/company-scope-remaining-plugins): checkpoint de auditoría corregido tras revisión
+PR 4 (PR #18, feat/company-scope-remaining-plugins): checkpoint de auditoría, segunda revisión aplicada
   - auto-discovery global real (sin default parcial de 3 plugins)
   - isRealGap cubre missing_scope y not_company_scoped sin excepción válida
-  - manifest endurecido: shape, stale por uses_company_scope, cadenas de alias validadas
-  - 122 excepciones formalizadas (1 global_party_identity, 45 alias, 38 global_reference,
-    24 parent_scoped, 12 not_tenancy, 1 root_company_entity, 1 multi_company_membership)
+  - manifest endurecido: shape (detiene validación posterior), stale por uses_company_scope,
+    cadena de alias exige terminal registrado en el manifest (no solo autoloadable)
+  - validación de manifest 100% estática (reflection), sin Schema::hasTable()/hasColumn() —
+    table_missing es exclusivamente de inspectClass(), acotado a la corrida
+  - salida --format=table ya no oculta real_gap_without_company_column
+  - TableView/TableViewFavorite retiradas del manifest (IDOR sin fix aún, no se silencia)
+  - 120 excepciones formalizadas (1 global_party_identity, 45 alias, 38 global_reference,
+    24 parent_scoped, 10 not_tenancy, 1 root_company_entity, 1 multi_company_membership)
   - docs/security/company-scope-pr4-inventory.json generado por el auditor (304 filas, paths relativos)
+  - CI: job Company Scope Global Audit corregido (needs frontend_assets + download assets) y
+    con diff exacto contra el inventario committeado, no un umbral laxo
 Modelos de negocio (Leave, Project, TableView, Invitation, BankAccount, Maintenance, etc.): aún no modificados
 PR adicional para PR 4: prohibido — los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
