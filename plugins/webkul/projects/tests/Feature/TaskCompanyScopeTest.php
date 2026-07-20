@@ -262,6 +262,174 @@ it('fails closed when creating a Task with no authenticated user and no active C
         ->toThrow(AuthorizationException::class);
 });
 
+// ── no create/detach sin Project ─────────────────────────────────────────
+
+it('forbids creating a Task with no project_id at all', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    expect(fn () => Task::factory()
+        ->afterMaking(fn (Task $task) => $task->offsetUnset('visibility'))
+        ->create(['project_id' => null, 'company_id' => null, 'stage_id' => null]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('projects_tasks', ['title' => null]);
+});
+
+it('forbids manually detaching a Task from its Project by setting project_id to null', function () {
+    $companyA = Company::factory()->create();
+    $projectA = makeProjectIn($companyA->id);
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $task = makeTaskFor($projectA->id, $companyA->id);
+
+    expect(fn () => $task->update(['project_id' => null]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('projects_tasks', ['id' => $task->id, 'project_id' => $projectA->id]);
+});
+
+it('allows updating an unrelated field on a Task already orphaned (project_id null) before this save, reauthorizing its own company_id', function () {
+    $companyA = Company::factory()->create();
+    $projectA = makeProjectIn($companyA->id);
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $task = makeTaskFor($projectA->id, $companyA->id);
+
+    // Simulates the real nullOnDelete cascade — a raw update bypasses
+    // Task's own saving hook entirely, exactly like the DB-level FK action
+    // would.
+    DB::table('projects_tasks')->where('id', $task->id)->update(['project_id' => null]);
+
+    $orphanedTask = Task::withoutGlobalScope(CompanyScope::class)->findOrFail($task->id);
+
+    $orphanedTask->update(['title' => 'Still editable']);
+
+    $this->assertDatabaseHas('projects_tasks', ['id' => $task->id, 'title' => 'Still editable', 'project_id' => null]);
+});
+
+// ── Task.stage_id debe pertenecer al mismo Project/company ───────────────
+
+it('forbids a Task\'s stage_id from belonging to a TaskStage in a different Project', function () {
+    $companyA = Company::factory()->create();
+    $projectA1 = makeProjectIn($companyA->id);
+    $projectA2 = makeProjectIn($companyA->id);
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $stageOnA2 = \Webkul\Project\Models\TaskStage::factory()->create(['project_id' => $projectA2->id, 'company_id' => $companyA->id]);
+
+    expect(fn () => Task::factory()
+        ->afterMaking(fn (Task $task) => $task->offsetUnset('visibility'))
+        ->create(['project_id' => $projectA1->id, 'company_id' => $companyA->id, 'stage_id' => $stageOnA2->id]))
+        ->toThrow(AuthorizationException::class);
+});
+
+it('forbids a Task\'s stage_id from belonging to a TaskStage in a different company', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $projectA = makeProjectIn($companyA->id);
+    $projectB = makeProjectIn($companyB->id);
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->syncWithoutDetaching([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $stageOnB = \Webkul\Project\Models\TaskStage::factory()->create(['project_id' => $projectB->id, 'company_id' => $companyB->id]);
+
+    expect(fn () => Task::factory()
+        ->afterMaking(fn (Task $task) => $task->offsetUnset('visibility'))
+        ->create(['project_id' => $projectA->id, 'company_id' => $companyA->id, 'stage_id' => $stageOnB->id]))
+        ->toThrow(AuthorizationException::class);
+});
+
+it('allows a Task\'s stage_id when it belongs to the same Project', function () {
+    $companyA = Company::factory()->create();
+    $projectA = makeProjectIn($companyA->id);
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $stageOnA = \Webkul\Project\Models\TaskStage::factory()->create(['project_id' => $projectA->id, 'company_id' => $companyA->id]);
+
+    $task = Task::factory()
+        ->afterMaking(fn (Task $task) => $task->offsetUnset('visibility'))
+        ->create(['project_id' => $projectA->id, 'company_id' => $companyA->id, 'stage_id' => $stageOnA->id]);
+
+    expect($task->stage_id)->toBe($stageOnA->id);
+});
+
+// ── Task.parent_id debe pertenecer al mismo Project/company, nunca a sí misma ──
+
+it('forbids a Task\'s parent_id from belonging to a Task in a different Project', function () {
+    $companyA = Company::factory()->create();
+    $projectA1 = makeProjectIn($companyA->id);
+    $projectA2 = makeProjectIn($companyA->id);
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $parentOnA2 = makeTaskFor($projectA2->id, $companyA->id);
+
+    expect(fn () => Task::factory()
+        ->afterMaking(fn (Task $task) => $task->offsetUnset('visibility'))
+        ->create(['project_id' => $projectA1->id, 'company_id' => $companyA->id, 'stage_id' => null, 'parent_id' => $parentOnA2->id]))
+        ->toThrow(AuthorizationException::class);
+});
+
+it('forbids a Task\'s parent_id from belonging to a Task in a different company', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $projectA = makeProjectIn($companyA->id);
+    $projectB = makeProjectIn($companyB->id);
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->syncWithoutDetaching([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $parentOnB = makeTaskFor($projectB->id, $companyB->id);
+
+    expect(fn () => Task::factory()
+        ->afterMaking(fn (Task $task) => $task->offsetUnset('visibility'))
+        ->create(['project_id' => $projectA->id, 'company_id' => $companyA->id, 'stage_id' => null, 'parent_id' => $parentOnB->id]))
+        ->toThrow(AuthorizationException::class);
+});
+
+it('forbids a Task from being its own parent', function () {
+    $companyA = Company::factory()->create();
+    $projectA = makeProjectIn($companyA->id);
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $task = makeTaskFor($projectA->id, $companyA->id);
+
+    expect(fn () => $task->update(['parent_id' => $task->id]))
+        ->toThrow(AuthorizationException::class);
+});
+
+it('allows a Task\'s parent_id when it belongs to the same Project', function () {
+    $companyA = Company::factory()->create();
+    $projectA = makeProjectIn($companyA->id);
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $parentOnA = makeTaskFor($projectA->id, $companyA->id);
+
+    $subTask = Task::factory()
+        ->afterMaking(fn (Task $task) => $task->offsetUnset('visibility'))
+        ->create(['project_id' => $projectA->id, 'company_id' => $companyA->id, 'stage_id' => null, 'parent_id' => $parentOnA->id]);
+
+    expect($subTask->parent_id)->toBe($parentOnA->id);
+});
+
 // ── CompanyContext::runForAllCompanies/runForBootstrap allow valid ops ───
 
 it('allows creating a Task under CompanyContext::runForAllCompanies with an explicit company_id', function () {

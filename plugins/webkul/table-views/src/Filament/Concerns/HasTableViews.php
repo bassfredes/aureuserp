@@ -343,7 +343,6 @@ trait HasTableViews
                     $arguments['view_type'],
                     $arguments['view_key'],
                     static::class,
-                    Auth::id(),
                     true,
                 );
 
@@ -362,7 +361,6 @@ trait HasTableViews
                     $arguments['view_type'],
                     $arguments['view_key'],
                     static::class,
-                    Auth::id(),
                     false,
                 );
 
@@ -394,12 +392,12 @@ trait HasTableViews
                 $tableView = TableViewModel::resolveOwnedTableViewOrFail(
                     (int) $arguments['view_key'],
                     static::class,
-                    (int) Auth::id(),
                 );
 
                 $tableView->delete();
 
-                TableViewFavoriteModel::where('view_key', $arguments['view_key'])
+                TableViewFavoriteModel::where('view_type', 'saved')
+                    ->where('view_key', $arguments['view_key'])
                     ->where('filterable_type', (string) static::class)
                     ->delete();
 
@@ -421,7 +419,6 @@ trait HasTableViews
                 $tableView = TableViewModel::resolveOwnedTableViewOrFail(
                     (int) $arguments['view_key'],
                     static::class,
-                    (int) Auth::id(),
                 );
 
                 $tableView->update([

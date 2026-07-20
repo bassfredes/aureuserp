@@ -197,14 +197,18 @@ class Task extends Model implements Sortable
         static::saving(function (self $task): void {
             // The effective company is derived from the persisted Project,
             // not trusted from the task's own mutable company_id column —
-            // a project_id is mandatory to resolve it (#138 PR4 ola4A). A
-            // task that has no project (e.g. orphaned after its Project was
-            // deleted via nullOnDelete) keeps re-authorizing its own,
-            // already-persisted company_id instead of failing every future
-            // save.
+            // a project_id is mandatory (#138 PR4 ola4A). Only a row that
+            // was ALREADY orphaned before this exact save (its Project was
+            // deleted via nullOnDelete, outside any Eloquent hook) may keep
+            // saving without one, re-authorizing its own already-persisted
+            // company_id — a brand new Task with no project, or an existing
+            // Task being manually detached from its Project, is rejected
+            // outright (#138 PR4 ola4A round 2 review).
+            $wasAlreadyOrphaned = $task->exists && $task->getOriginal('project_id') === null;
+
             if ($task->project_id !== null) {
                 $effectiveCompanyId = static::resolveEffectiveCompanyIdOrFail($task->project_id, Project::class, $task->company_id, 'Project');
-            } else {
+            } elseif ($wasAlreadyOrphaned) {
                 $effectiveCompanyId = $task->company_id ?? Auth::user()?->default_company_id;
 
                 if ($effectiveCompanyId === null) {
@@ -212,6 +216,8 @@ class Task extends Model implements Sortable
                 }
 
                 CompanyScope::assertCanWriteCompany((int) $effectiveCompanyId);
+            } else {
+                throw new AuthorizationException('A Task requires a project_id.');
             }
 
             // A project_id reassignment (alone, or paired with a matching
@@ -226,6 +232,51 @@ class Task extends Model implements Sortable
             }
 
             $task->company_id = $effectiveCompanyId;
+
+            // stage_id must resolve to a persisted TaskStage belonging to
+            // the SAME project (and, transitively, the same company) as
+            // this Task — a stage picker that isn't actually scoped to the
+            // task's own project could otherwise attach a Task to a
+            // Kanban column that belongs to a different project entirely
+            // (#138 PR4 ola4A round 2 review).
+            if ($task->stage_id !== null) {
+                $stage = TaskStage::withoutGlobalScope(CompanyScope::class)->find($task->stage_id);
+
+                if (! $stage) {
+                    throw new AuthorizationException('The TaskStage could not be found.');
+                }
+
+                if ($task->project_id !== null && (int) $stage->project_id !== (int) $task->project_id) {
+                    throw new AuthorizationException("The Task's stage_id does not belong to its Project.");
+                }
+
+                if ((int) $stage->company_id !== (int) $effectiveCompanyId) {
+                    throw new AuthorizationException("The Task's stage_id does not belong to its company.");
+                }
+            }
+
+            // parent_id must resolve to a persisted Task in the same
+            // project and company — never itself (#138 PR4 ola4A round 2
+            // review).
+            if ($task->parent_id !== null) {
+                if ($task->exists && (int) $task->parent_id === (int) $task->getKey()) {
+                    throw new AuthorizationException('A Task cannot be its own parent.');
+                }
+
+                $parent = static::withoutGlobalScope(CompanyScope::class)->find($task->parent_id);
+
+                if (! $parent) {
+                    throw new AuthorizationException('The parent Task could not be found.');
+                }
+
+                if ($task->project_id !== null && $parent->project_id !== null && (int) $parent->project_id !== (int) $task->project_id) {
+                    throw new AuthorizationException("The Task's parent_id does not belong to its Project.");
+                }
+
+                if ((int) $parent->company_id !== (int) $effectiveCompanyId) {
+                    throw new AuthorizationException("The Task's parent_id does not belong to its company.");
+                }
+            }
         });
 
         static::updated(function ($task) {

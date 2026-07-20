@@ -41,9 +41,9 @@ Corrida final tras ola 4A, `php scripts/audit-company-scope.php --format=json` (
 ```json
 {
   "total": 304,
-  "scoped": 111,
+  "scoped": 112,
   "classified_exceptions": 123,
-  "real_gaps_with_company_id": 39,
+  "real_gaps_with_company_id": 38,
   "real_gaps_without_company_id": 31,
   "table_missing": 0,
   "inspection_errors": 0,
@@ -51,15 +51,16 @@ Corrida final tras ola 4A, `php scripts/audit-company-scope.php --format=json` (
 }
 ```
 
-`exit 0` sin `--fail-on-missing`; `exit 1` con `--fail-on-missing` (70 gaps reales = 39 + 31 > 0, todavía esperado — quedan olas futuras) — verificado explícitamente, no asumido.
+`exit 0` sin `--fail-on-missing`; `exit 1` con `--fail-on-missing` (69 gaps reales = 38 + 31 > 0, todavía esperado — quedan olas futuras) — verificado explícitamente, no asumido.
 
 | Corrida | table_missing | inspection_error | manifest_violations | gaps reales | exit (sin flag) | exit (`--fail-on-missing`) |
 |---|---|---|---|---|---|---|
 | DB dev existente (`db_aureuserp`), auto-discovery | 35 | 0 | 0 | — (no se completó, table_missing>0 es fatal) | 2 | 2 |
 | DB aislada, fresh install completo (checkpoint, antes de ola 4A) | **0** | **0** | **0** | 78 | **0** | **1** |
-| DB aislada, fresh install completo (después de ola 4A) | **0** | **0** | **0** | 70 | **0** | **1** |
+| DB aislada, fresh install completo (ola 4A, ronda 1) | **0** | **0** | **0** | 70 | **0** | **1** |
+| DB aislada, fresh install completo (ola 4A, ronda 2) | **0** | **0** | **0** | 69 | **0** | **1** |
 
-`scoped` sube de 106 a 111 (+5: `Project`, `Task`, `TaskStage`, y ambas clases `Timesheet` — `Webkul\Project\Models\Timesheet` y `Webkul\Timesheet\Models\Timesheet`). `classified_exceptions` sube de 120 a 123 (+3: `TableView`, `TableViewFavorite`, `Milestone`). Gaps reales bajan de 78 a 70 (-8, exactamente los 5 `scoped` + 3 `classified_exceptions` nuevos).
+`scoped` sube de 106 a 112 (+6: `Project`, `Task`, `TaskStage`, ambas clases `Timesheet` — `Webkul\Project\Models\Timesheet` y `Webkul\Timesheet\Models\Timesheet` — y, desde la ronda 2, `Webkul\Analytic\Models\Record`, el owner físico de `analytic_records`). `classified_exceptions` sube de 120 a 123 (+3: `TableView`, `TableViewFavorite`, `Milestone`). Gaps reales bajan de 78 a 69.
 
 ## Manifest de excepciones — resumen
 
@@ -393,26 +394,49 @@ Valida el grafo completo Timesheet → Task → Project → company: `company_id
 
 ### Cobertura total de esta ola
 
-46 tests nuevos (`ProjectCompanyScopeTest`, `TaskCompanyScopeTest`, `TaskStageCompanyScopeTest`, `MilestoneCompanyScopeTest`, `TimesheetCompanyScopeTest`, `TableViewOwnershipTest`), cubriendo por cada modelo: aislamiento de lectura (actor ve solo su(s) compañía(s)), lista vacía sin compañías, fail-closed sin actor/contexto, creación/actualización cross-company rechazadas, reasignación rechazada (donde aplica), al menos una prueba con `withoutGlobalScope()` demostrando que la autorización de escritura no depende del scope de lectura, y `CompanyContext::runForCompany/runForAllCompanies/runForBootstrap` operando correctamente (Project/Task). `--fail-on-missing` sigue retornando `1` (70 gaps reales restantes — Time Off, Invitations, BankAccount, Maintenance, y otros hijos de parents aún no escopados quedan para olas futuras).
+81 tests nuevos entre las dos rondas (`ProjectCompanyScopeTest` 10, `TaskCompanyScopeTest` 23, `TaskStageCompanyScopeTest` 7, `MilestoneCompanyScopeTest` 11, `TimesheetCompanyScopeTest` 11, `TableViewOwnershipTest` 14, `RecordCompanyScopeTest` 5), cubriendo por cada modelo: aislamiento de lectura (actor ve solo su(s) compañía(s)), lista vacía sin compañías, fail-closed sin actor/contexto, creación/actualización cross-company rechazadas, reasignación rechazada (donde aplica), al menos una prueba con `withoutGlobalScope()` demostrando que la autorización de escritura no depende del scope de lectura, y `CompanyContext::runForCompany/runForAllCompanies/runForBootstrap` operando correctamente. `--fail-on-missing` sigue retornando `1` (69 gaps reales restantes — Time Off, Invitations, BankAccount, Maintenance, y otros hijos de parents aún no escopados quedan para olas futuras).
+
+---
+
+## Correcciones de la ronda 2 de ola 4A (#138, revisión `4739111455`)
+
+1. **TableView/TableViewFavorite ya no aceptan un `$userId` como argumento.** `resolveOwnedTableViewOrFail()`, `assertVisibleOrFail()` y `toggleForOwnViewOrFail()` derivan el owner de `Auth::id()` internamente — un usuario autenticado ya no puede pasar el id de otro y que se confíe como dueño. Ambos modelos ahora fuerzan `user_id = Auth::id()` en `creating()` y lo hacen inmutable en `saving()`. El cleanup de `deleteTableViewAction` agrega `where('view_type', 'saved')`. Tests: 14/14 en `TableViewOwnershipTest.php` (3 nuevos: fail-closed sin auth, forced-on-create, inmutabilidad x2).
+2. **Milestone ya no puede retargetearse desde una compañía oculta.** El `saving()` hook ahora reconsulta el Milestone *persistido* (sin el scope `companyViaProject`) para autorizar también su Project **original**, no solo el nuevo — cerrando el ataque "obtener vía consulta sin scope + reasignar a mi propia compañía autorizada". `MilestonePolicy::belongsToAllowedCompany()` reconsulta el Milestone por PK en vez de confiar en `$milestone->project_id` (que puede estar sucio en memoria). 3 tests nuevos: retargeting B→A rechazado, policy retorna `false` con `project_id` falsificado en memoria, reasignación A1→A2 dentro de la misma compañía permitida.
+3. **El owner físico de `analytic_records` (`Webkul\Analytic\Models\Record`) ahora tiene `HasCompanyScope` y autorización de escritura propias**, no solo sus alias Timesheet — una consulta o escritura directa contra `Record` ya no podía eludir el aislamiento. Resolución de compañía polimórfica: `Record::resolveEffectiveCompanyId()` (genérica) vs `Webkul\Project\Models\Timesheet::resolveEffectiveCompanyId()` (deriva y cruza Task↔Project: verifica `Task.company_id === Project.company_id`, `Timesheet.project_id === Task.project_id`). 5 tests nuevos en `plugins/webkul/analytics/tests/Feature/RecordCompanyScopeTest.php`, incluida una Task con `company_id` corrompido manualmente para probar la validación cruzada.
+4. **Task.stage_id y Task.parent_id ahora se validan contra el grafo completo.** `stage_id` debe resolver a un `TaskStage` persistido con el mismo `project_id` y compañía; `parent_id` debe resolver a una Task persistida con el mismo `project_id` y compañía, y nunca a sí misma. `TaskFactory` se corrigió para construir `project_id`/`stage_id` de forma consistente (antes eran dos `Model::factory()` independientes que casi nunca coincidían). 6 tests nuevos.
+5. **Create/detach sin Project (Task) o sin Task (Timesheet) ahora se rechaza.** Antes, un `project_id`/`task_id` ausente caía silenciosamente al `company_id` del actor. Ahora solo una fila que **ya estaba huérfana antes de este save** (p.ej. tras un `nullOnDelete` real) puede seguir guardándose sin su padre, reautorizando su propio `company_id` persistido — crear una fila nueva sin padre, o desprender manualmente una existente, se rechaza. 6 tests nuevos.
+6. **`TestBootstrapHelper` es determinista y reconoce los 20 plugins.** `ensureERPInstalled()` instala los 20 plugins (incluido `website`, ausente del mapa anterior) de forma incondicional tras `erp:install`, no bajo demanda por archivo de test — el esquema final ya no depende de qué archivo corre primero. Al implementarlo se descubrió que `DatabaseTransactions` ya tiene una transacción abierta en la primera invocación (desde un `beforeEach()`), y que el DDL de `migrate:fresh`/cada `:install` hace auto-commit implícito en MySQL sin que Laravel se entere — desincronizando el conteo de transacciones y provocando que los datos sembrados por los 20 installs se revirtieran al terminar el primer test. Corregido haciendo `commit()` explícito de cualquier transacción abierta antes del bootstrap pesado y reabriendo el mismo número de niveles después. Validado con una corrida completa de la suite (`vendor/bin/pest --exclude-group=gold-standard-dataset`) desde una base limpia: **1639/1639 tests pasan**, sin depender del orden.
+7. **Bug preexistente descubierto y corregido en `manufacturing/Warehouse.php` (fuera del área de negocio de ola 4A, autorizado explícitamente al detectarse durante la corrección del punto 6).** `createManufacturingRules()`/`createManufacturingOperationTypes()` consultaban `Location::where('type', PRODUCTION)->first()` sin bypasear `CompanyScope` — como `Location` implementa `IncludesSharedCompanyRows` pero `CompanyScope::apply()` niega **todo** (incluidas las filas compartidas) cuando no hay actor autenticado ni `CompanyContext` activo (ADR 0007), esa consulta retornaba `null` en cualquier test que creara un Warehouse sin un actor/contexto ya establecido — antes invisible porque `manufacturing` nunca se instalaba durante una corrida aislada de `inventories`. Corregido con `Location::withoutGlobalScope(CompanyScope::class)->where(...)`, el mismo patrón ya usado en el resto de esta ola para resolver un padre autoritativo. Verificado con la suite completa de `plugins/webkul/inventories` (552/552) y la suite global (1639/1639).
+
+Números actualizados tras esta ronda (112 `scoped`, no 111 — `Record` se suma; 69 gaps reales, no 70): ver el bloque JSON al inicio de este documento.
 
 ---
 
 ## Estado
 
 ```
-PR 4 (PR #18, feat/company-scope-remaining-plugins): checkpoint aprobado + ola 4A implementada
+PR 4 (PR #18, feat/company-scope-remaining-plugins): checkpoint aprobado + ola 4A implementada (2 rondas)
   - checkpoint (auditor/manifest/CI): sin cambios respecto a la 2a/3a/4a revisión, ver arriba
-  - ola 4A: TableView/TableViewFavorite (IDOR cerrado, resolver server-side), Project
+  - ola 4A ronda 1: TableView/TableViewFavorite (IDOR cerrado, resolver server-side), Project
     (HasCompanyScope + HasStrictCompanyId), Task/TaskStage (derivación desde Project,
     ValidatesRelatedCompanyScope), Milestone (parent-scoped vía whereHas + policy),
     Timesheet ambas clases (grafo Task→Project→company validado)
+  - ola 4A ronda 2 (revisión 4739111455): TableView/TableViewFavorite ya no aceptan userId
+    externo (siempre Auth::id(), inmutable); Milestone reautoriza el Project ORIGINAL antes
+    de aceptar un retargeting, policy reconsulta por PK; Analytic\Record (owner físico de
+    analytic_records) recibe HasCompanyScope propio, resolución polimórfica Task↔Project
+    cross-validada; Task.stage_id/parent_id validados contra el mismo project_id/compañía;
+    create/detach sin Project(Task)/Task(Timesheet) rechazado salvo fila ya huérfana;
+    TestBootstrapHelper determinista (20 plugins, incluido website, fix de transacción vs DDL);
+    fix acotado en manufacturing/Warehouse.php (Location::withoutGlobalScope, autorizado
+    explícitamente al descubrirse durante el punto anterior)
   - 123 excepciones formalizadas (1 global_party_identity, 45 alias, 38 global_reference,
     25 parent_scoped, 12 not_tenancy, 1 root_company_entity, 1 multi_company_membership)
-  - docs/security/company-scope-pr4-inventory.json regenerado (304 filas): scoped 106→111,
-    classified_exceptions 120→123, gaps reales 78→70
-  - 46 tests nuevos + 116/116 verde en la suite completa de plugins/webkul/projects (incluye
-    2 factories corregidas — company_id independiente del project_id, ver "Regresión de fixtures")
-  - CI: 4/4 verde sobre el nuevo head, diff exacto de inventario sin drift inesperado
+  - docs/security/company-scope-pr4-inventory.json regenerado (304 filas): scoped 106→112,
+    classified_exceptions 120→123, gaps reales 78→69
+  - 81 tests nuevos de company-scope + suite completa del monorepo (vendor/bin/pest, exclude
+    gold-standard-dataset) 1639/1639 verde desde una base limpia, sin depender del orden
+  - CI: pendiente de confirmar sobre el nuevo head tras esta ronda
 Modelos de negocio aún no tocados (próximas olas): Time Off/Leave, Invitations, BankAccount,
   Maintenance, ProjectStage, ActivityPlan, y todo hijo/pivote de un parent aún no escopado
 PR adicional para PR 4: prohibido — los cambios de negocio landean en esta misma rama/PR #18

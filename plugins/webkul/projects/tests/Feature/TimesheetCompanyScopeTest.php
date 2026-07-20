@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Webkul\Project\Models\Project;
 use Webkul\Project\Models\Task;
 use Webkul\Project\Models\Timesheet;
@@ -45,6 +46,21 @@ function makeTimesheet(array $attributes): Timesheet
 {
     $timesheet = new Timesheet;
 
+    foreach ($attributes as $key => $value) {
+        $timesheet->{$key} = $value;
+    }
+
+    $timesheet->save();
+
+    return $timesheet;
+}
+
+// ->update([...]) mass-assignment would silently DROP task_id/project_id
+// (not in $fillable) instead of actually changing them, making a test that
+// expects a rejected reassignment pass for the wrong reason (nothing
+// changed at all). Direct property assignment mirrors makeTimesheet().
+function updateTimesheet(Timesheet $timesheet, array $attributes): Timesheet
+{
     foreach ($attributes as $key => $value) {
         $timesheet->{$key} = $value;
     }
@@ -131,7 +147,7 @@ it('forbids reassigning a Timesheet\'s task_id to a Task in a different company'
 
     $timesheet = makeTimesheet(['type' => 'hours', 'unit_amount' => 1, 'task_id' => $taskA->id, 'company_id' => $companyA->id]);
 
-    expect(fn () => $timesheet->update(['task_id' => $taskB->id, 'company_id' => $companyB->id]))
+    expect(fn () => updateTimesheet($timesheet, ['task_id' => $taskB->id, 'company_id' => $companyB->id]))
         ->toThrow(AuthorizationException::class);
 
     $this->assertDatabaseHas('analytic_records', ['id' => $timesheet->id, 'task_id' => $taskA->id, 'company_id' => $companyA->id]);
@@ -169,6 +185,55 @@ it('fails closed when creating a Timesheet with no authenticated user and no act
 
     expect(fn () => makeTimesheet(['type' => 'hours', 'unit_amount' => 1, 'task_id' => $task->id]))
         ->toThrow(AuthorizationException::class);
+});
+
+// ── no create/detach sin Task ─────────────────────────────────────────────
+
+it('forbids creating a Timesheet with no task_id at all', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    expect(fn () => makeTimesheet(['type' => 'hours', 'unit_amount' => 1]))
+        ->toThrow(AuthorizationException::class);
+});
+
+it('forbids manually detaching a Timesheet from its Task by setting task_id to null', function () {
+    $companyA = Company::factory()->create();
+    $projectA = timesheetProjectIn($companyA->id);
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $taskA = timesheetTaskIn($projectA->id, $companyA->id);
+    $timesheet = makeTimesheet(['type' => 'hours', 'unit_amount' => 1, 'task_id' => $taskA->id]);
+
+    expect(fn () => updateTimesheet($timesheet, ['task_id' => null]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('analytic_records', ['id' => $timesheet->id, 'task_id' => $taskA->id]);
+});
+
+it('allows updating an unrelated field on a Timesheet already orphaned (task_id null) before this save, reauthorizing its own company_id', function () {
+    $companyA = Company::factory()->create();
+    $projectA = timesheetProjectIn($companyA->id);
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $taskA = timesheetTaskIn($projectA->id, $companyA->id);
+    $timesheet = makeTimesheet(['type' => 'hours', 'unit_amount' => 1, 'task_id' => $taskA->id]);
+
+    // Simulates the real nullOnDelete cascade — a raw update bypasses
+    // Timesheet's own saving hook entirely, exactly like the DB-level FK
+    // action would.
+    DB::table('analytic_records')->where('id', $timesheet->id)->update(['task_id' => null]);
+
+    $orphaned = Timesheet::withoutGlobalScope(CompanyScope::class)->findOrFail($timesheet->id);
+
+    $orphaned->update(['name' => 'Still editable']);
+
+    $this->assertDatabaseHas('analytic_records', ['id' => $timesheet->id, 'name' => 'Still editable', 'task_id' => null]);
 });
 
 // ── read isolation ────────────────────────────────────────────────────────

@@ -31,7 +31,6 @@ class EditViewAction extends Action
                 $tableView = TableView::resolveOwnedTableViewOrFail(
                     (int) $arguments['view_key'],
                     (string) $arguments['filterable_type'],
-                    (int) Auth::id(),
                 );
 
                 $tableViewFavorite = TableViewFavorite::query()
@@ -70,7 +69,6 @@ class EditViewAction extends Action
                 $tableView = TableView::resolveOwnedTableViewOrFail(
                     (int) $arguments['view_key'],
                     (string) $arguments['filterable_type'],
-                    (int) Auth::id(),
                 );
 
                 $this->process(function (array $data) use ($tableView): TableView {

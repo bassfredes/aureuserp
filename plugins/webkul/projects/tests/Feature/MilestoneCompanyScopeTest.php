@@ -4,6 +4,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Webkul\Project\Models\Milestone;
 use Webkul\Project\Models\Project;
+use Webkul\Project\Policies\MilestonePolicy;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Scopes\CompanyScope;
@@ -112,6 +113,78 @@ it('forbids a user in company A from updating an unrelated field on a Milestone 
         ->toThrow(AuthorizationException::class);
 
     $this->assertDatabaseMissing('projects_milestones', ['id' => $milestoneB->id, 'name' => 'Renamed by A']);
+});
+
+// ── B→A retargeting: unscoped + reassigned to actor's own (authorized) company must still fail ──
+
+it('forbids retargeting a Milestone hidden in company B to a Project in company A, obtained via an unscoped query', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $projectB = milestoneProjectIn($companyB->id);
+    $milestoneB = CompanyContext::runForAllCompanies(
+        reason: 'fixture', caller: __FILE__,
+        callback: fn () => Milestone::factory()->create(['project_id' => $projectB->id]),
+    );
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+    $projectA = milestoneProjectIn($companyA->id);
+
+    $milestoneBUnscoped = Milestone::withoutGlobalScope('companyViaProject')->findOrFail($milestoneB->id);
+
+    expect(fn () => $milestoneBUnscoped->update(['project_id' => $projectA->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('projects_milestones', ['id' => $milestoneB->id, 'project_id' => $projectB->id]);
+});
+
+it('returns false from the policy for a Milestone with an in-memory-only spoofed project_id', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $projectB = milestoneProjectIn($companyB->id);
+    $milestoneB = CompanyContext::runForAllCompanies(
+        reason: 'fixture', caller: __FILE__,
+        callback: fn () => Milestone::factory()->create(['project_id' => $projectB->id]),
+    );
+
+    // Grants the abilities so the policy check under test — belongsToAllowedCompany(),
+    // not the Spatie ability gate — is what actually decides the outcome here.
+    // SecurityHelper::authenticateWithPermissions() grants access to every
+    // company that already exists at authentication time (companyA AND
+    // companyB, both created above) — sync() back down to just companyA so
+    // this test actually exercises "not authorized for B", not "authorized
+    // for everything".
+    $user = SecurityHelper::authenticateWithPermissions([
+        'view_project_milestone', 'update_project_milestone', 'delete_project_milestone',
+    ]);
+    $user->allowedCompanies()->sync([$companyA->id]);
+    $user->forceFill(['default_company_id' => $companyA->id])->saveQuietly();
+    $projectA = milestoneProjectIn($companyA->id);
+
+    $milestoneBUnscoped = Milestone::withoutGlobalScope('companyViaProject')->findOrFail($milestoneB->id);
+    $milestoneBUnscoped->project_id = $projectA->id; // dirty, never saved
+
+    $policy = new MilestonePolicy;
+
+    expect($policy->view($user, $milestoneBUnscoped))->toBeFalse()
+        ->and($policy->update($user, $milestoneBUnscoped))->toBeFalse()
+        ->and($policy->delete($user, $milestoneBUnscoped))->toBeFalse();
+});
+
+it('allows reassigning a Milestone between two Projects in the same authorized company', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $projectA1 = milestoneProjectIn($companyA->id);
+    $projectA2 = milestoneProjectIn($companyA->id);
+    $milestone = Milestone::factory()->create(['project_id' => $projectA1->id]);
+
+    $milestone->update(['project_id' => $projectA2->id]);
+
+    expect($milestone->fresh()->project_id)->toBe($projectA2->id);
 });
 
 // ── read: whereHas Project bajo CompanyScope ──────────────────────────────

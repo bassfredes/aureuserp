@@ -71,7 +71,18 @@ class MilestonePolicy
      */
     private function belongsToAllowedCompany(User $user, Milestone $milestone): bool
     {
-        $project = Project::withoutGlobalScope(CompanyScope::class)->find($milestone->project_id);
+        // Re-fetches the Milestone from the database by primary key, never
+        // trusting $milestone->project_id as passed in — a caller could
+        // hand this a model with an in-memory-mutated project_id (dirty,
+        // unsaved) to make an ability check pass for a row it doesn't
+        // actually belong to (#138 PR4 ola4A round 2 review).
+        $persisted = Milestone::withoutGlobalScope('companyViaProject')->find($milestone->getKey());
+
+        if (! $persisted) {
+            return false;
+        }
+
+        $project = Project::withoutGlobalScope(CompanyScope::class)->find($persisted->project_id);
 
         if (! $project || $project->company_id === null) {
             return false;

@@ -3,7 +3,6 @@
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Webkul\Support\Services\CompanyContext;
 
 class TestBootstrapHelper
@@ -40,31 +39,34 @@ class TestBootstrapHelper
     // en local, "aureuserp" en CI (ver .github/workflows/pest_tests.yml).
     private const ALLOWED_DATABASES_ENV = 'TEST_BOOTSTRAP_ALLOWED_DATABASES';
 
+    /**
+     * Every plugin with its own `<plugin>:install` Artisan command, in the
+     * exact order docs/security/company-scope-pr4-inventory.md's checkpoint
+     * recipe installs them (each install command runs its own dependency
+     * chain, e.g. manufacturing:install installs products/inventories
+     * first). Installed unconditionally, once, right after erp:install —
+     * NOT lazily per test file — so the final schema is identical
+     * regardless of which test file happens to run first in the process
+     * (#138 PR4 ola4A round 2 review: the previous lazy, on-demand
+     * approach — plus "website" never being a recognized plugin name here
+     * at all — meant a local full-suite run's schema depended on file
+     * discovery order, and some plugins with no test ever calling
+     * ensurePluginInstalled() for them were never installed at all).
+     */
+    private const ALL_PLUGINS = [
+        'accounting', 'accounts', 'barcode', 'blogs', 'contacts', 'employees',
+        'full-calendar', 'inventories', 'invoices', 'maintenance', 'manufacturing',
+        'payments', 'products', 'projects', 'purchases', 'recruitments', 'sales',
+        'time-off', 'timesheets', 'website',
+    ];
+
     public static function ensurePluginInstalled(string $pluginName): void
     {
-        $pluginTables = [
-            'projects'      => 'projects_projects',
-            'sales'         => 'sales_orders',
-            'purchases'     => 'purchases_orders',
-            'inventories'   => 'inventories_operations',
-            'accounts'      => 'accounts_account_moves',
-            'products'      => 'products_products',
-            'manufacturing' => 'manufacturing_orders',
-        ];
-
-        $table = $pluginTables[$pluginName] ?? null;
-
-        if (! $table) {
+        if (! in_array($pluginName, self::ALL_PLUGINS, true)) {
             throw new InvalidArgumentException("Unknown plugin: {$pluginName}");
         }
 
         static::ensureERPInstalled();
-
-        if (Schema::hasTable($table)) {
-            return;
-        }
-
-        Artisan::call("{$pluginName}:install", ['--no-interaction' => true]);
 
         // Re-register the plugin's routes into the already-booted application.
         // On CI, the app boots before beforeEach installs the plugin, so routes
@@ -90,6 +92,27 @@ class TestBootstrapHelper
 
         static::assertSafeToRunDestructiveBootstrap();
 
+        // DatabaseTransactions has already opened a test transaction by the
+        // time this first-ever call happens from inside a test's
+        // beforeEach() — but this bootstrap runs many DDL statements
+        // (migrate:fresh, every plugin's own migrations), and DDL always
+        // auto-commits in MySQL regardless of any surrounding transaction.
+        // Running all of it "inside" a transaction Laravel still THINKS is
+        // open desyncs Laravel's transaction bookkeeping from MySQL's real
+        // state — the data seeded by every plugin's install command then
+        // gets silently rolled back the moment that first test ends,
+        // reproducing exactly the schema-depends-on-file-order bug this
+        // determinism fix exists to close (#138 PR4 ola4A round 2 review).
+        // Committing whatever is already open first (and reopening it
+        // afterward, since DatabaseTransactions' own tearDown() expects to
+        // roll one back) keeps everything installed here permanent.
+        $connection = DB::connection();
+        $transactionLevel = $connection->transactionLevel();
+
+        for ($i = $transactionLevel; $i > 0; $i--) {
+            $connection->commit();
+        }
+
         Artisan::call('migrate:fresh', ['--force' => true]);
 
         Artisan::call('erp:install', [
@@ -101,7 +124,15 @@ class TestBootstrapHelper
             '--admin-password' => 'Admin123456',
         ]);
 
+        foreach (self::ALL_PLUGINS as $pluginName) {
+            Artisan::call("{$pluginName}:install", ['--no-interaction' => true]);
+        }
+
         static::$isERPInstalled = true;
+
+        for ($i = 0; $i < $transactionLevel; $i++) {
+            $connection->beginTransaction();
+        }
     }
 
     /**

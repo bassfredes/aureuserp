@@ -29,9 +29,9 @@
     ],
     "summary": {
         "total": 304,
-        "scoped": 111,
+        "scoped": 112,
         "classified_exceptions": 123,
-        "real_gaps_with_company_id": 39,
+        "real_gaps_with_company_id": 38,
         "real_gaps_without_company_id": 31,
         "table_missing": 0,
         "inspection_errors": 0,
@@ -836,11 +836,11 @@
             "file": "plugins/webkul/analytics/src/Models/Record.php",
             "table": "analytic_records",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "blogs",
