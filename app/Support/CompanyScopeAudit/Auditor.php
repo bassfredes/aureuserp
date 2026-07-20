@@ -323,8 +323,17 @@ final class Auditor
         return array_map(function (array $row) use ($manifest): array {
             $entry = $manifest->get($row['class']);
 
-            $row['classification'] = ($entry !== null && $entry['table'] === $row['table'])
-                ? $entry['classification']
+            // Defense in depth: validateManifest() is the authority on
+            // shape, and callers are expected to check it (and stop) before
+            // ever reaching classifyRows() — but reading with `??` here
+            // means a malformed entry that somehow slips through can never
+            // throw an "undefined array key" warning during classification
+            // (#138, PR 4 review, 2026-07-20).
+            $table = $entry['table'] ?? null;
+            $classification = $entry['classification'] ?? null;
+
+            $row['classification'] = (is_string($table) && is_string($classification) && $table === $row['table'])
+                ? $classification
                 : null;
 
             $row['effective_status'] = $this->effectiveStatus($row);

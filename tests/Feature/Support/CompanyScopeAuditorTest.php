@@ -5,6 +5,7 @@
 use App\Support\CompanyScopeAudit\Auditor;
 use App\Support\CompanyScopeAudit\ExceptionManifest;
 use Illuminate\Database\Eloquent\Model;
+use Symfony\Component\Process\Process;
 use Webkul\Account\Models\Category as AccountCategory;
 use Webkul\Account\Models\Customer as AccountCustomer;
 use Webkul\Partner\Models\Partner;
@@ -13,6 +14,34 @@ use Webkul\Support\Models\Currency;
 use Webkul\Support\Traits\HasCompanyScope;
 use Webkul\TableViews\Models\TableView;
 use Webkul\TableViews\Models\TableViewFavorite;
+
+/**
+ * Runs the REAL CLI script (scripts/audit-company-scope.php) as a
+ * subprocess against a temp fixture manifest, via
+ * COMPANY_SCOPE_MANIFEST_PATH. Exercises the actual orchestration order
+ * (inspect -> validate manifest -> exit-or-classify), not just Auditor
+ * methods called directly — a unit-level test of validateManifest() alone
+ * cannot prove the CLI validates before it classifies (#138, PR 4 review,
+ * 2026-07-20).
+ *
+ * @param  array<class-string, array<string, mixed>>  $manifestEntries
+ */
+function runAuditScript(array $manifestEntries, array $args = []): Process
+{
+    $manifestPath = tempnam(sys_get_temp_dir(), 'company-scope-manifest-').'.php';
+    file_put_contents($manifestPath, '<?php return '.var_export($manifestEntries, true).';'.PHP_EOL);
+
+    $process = new Process(
+        array_merge([PHP_BINARY, base_path('scripts/audit-company-scope.php')], $args),
+        base_path(),
+        array_merge($_SERVER, $_ENV, ['COMPANY_SCOPE_MANIFEST_PATH' => $manifestPath]),
+    );
+    $process->run();
+
+    @unlink($manifestPath);
+
+    return $process;
+}
 
 // Fixtures below deliberately reuse already-migrated tables (company_id
 // present or absent as needed) instead of creating throwaway ones — DDL
@@ -290,6 +319,81 @@ it('does not run reflection or alias-chain checks on an entry with an invalid sh
     foreach ($violations as $violation) {
         expect($violation['type'])->toBe('invalid_shape');
     }
+});
+
+// --- end-to-end: the real CLI orchestration order, not just Auditor calls --
+
+it('the real CLI script exits 2 on a missing "table" key and never warns, before classifying any row', function () {
+    $process = runAuditScript([
+        Partner::class => [
+            'classification' => 'global_party_identity',
+            'reason'         => 'fixture: missing table key entirely, exercised through the real CLI',
+            'tracking'       => '#138',
+        ],
+    ], ['--plugins=partners', '--format=json']);
+
+    expect($process->getExitCode())->toBe(2);
+
+    $combined = $process->getOutput().$process->getErrorOutput();
+    expect($combined)->not->toContain('Undefined array key');
+    expect($combined)->not->toContain('Warning');
+
+    $payload = json_decode($process->getOutput(), true);
+    expect($payload)->not->toBeNull();
+    expect($payload['rows'])->toBeNull();
+    expect($payload['summary'])->toBeNull();
+
+    $shapeViolation = array_filter(
+        $payload['manifest_violations'],
+        fn (array $v) => $v['type'] === 'invalid_shape' && $v['fqcn'] === Partner::class,
+    );
+    expect($shapeViolation)->not->toBeEmpty();
+});
+
+it('the real CLI script exits 2 on a missing "classification" key and never warns, before classifying any row', function () {
+    $process = runAuditScript([
+        Partner::class => [
+            'table'    => 'partners_partners',
+            'reason'   => 'fixture: missing classification key entirely, exercised through the real CLI',
+            'tracking' => '#138',
+        ],
+    ], ['--plugins=partners', '--format=json']);
+
+    expect($process->getExitCode())->toBe(2);
+
+    $combined = $process->getOutput().$process->getErrorOutput();
+    expect($combined)->not->toContain('Undefined array key');
+    expect($combined)->not->toContain('Warning');
+
+    $payload = json_decode($process->getOutput(), true);
+    expect($payload)->not->toBeNull();
+    expect($payload['rows'])->toBeNull();
+    expect($payload['summary'])->toBeNull();
+
+    $shapeViolation = array_filter(
+        $payload['manifest_violations'],
+        fn (array $v) => $v['type'] === 'invalid_shape' && $v['fqcn'] === Partner::class,
+    );
+    expect($shapeViolation)->not->toBeEmpty();
+});
+
+it('the real CLI script exits 0 for the actual shipped manifest with no violations', function () {
+    // Sanity check that runAuditScript()/the real manifest path work
+    // end-to-end when nothing is broken — protects against the two tests
+    // above passing for the wrong reason (e.g. the script crashing before
+    // even reaching manifest validation).
+    $process = new Process(
+        [PHP_BINARY, base_path('scripts/audit-company-scope.php'), '--plugins=partners', '--format=json'],
+        base_path(),
+        array_merge($_SERVER, $_ENV),
+    );
+    $process->run();
+
+    expect($process->getExitCode())->toBe(0);
+
+    $payload = json_decode($process->getOutput(), true);
+    expect($payload['manifest_violations'])->toBe([]);
+    expect($payload['summary']['manifest_violations'])->toBe(0);
 });
 
 it('rejects an alias classification with no alias_of target', function () {

@@ -22,7 +22,11 @@ if (! in_array($format, ['table', 'json'], true)) {
 }
 
 $auditor = new Auditor;
-$manifest = ExceptionManifest::default();
+// COMPANY_SCOPE_MANIFEST_PATH exists so tests can drive this exact script
+// against a deliberately broken fixture manifest — the real orchestration
+// order, not just the Auditor methods in isolation (#138, PR 4 review).
+$manifestPath = getenv('COMPANY_SCOPE_MANIFEST_PATH');
+$manifest = ExceptionManifest::default($manifestPath !== false ? $manifestPath : null);
 
 // No --plugins means a real, global audit — every plugin with a
 // src/Models directory, discovered from disk, not a hardcoded default
@@ -56,12 +60,35 @@ try {
     exit(2);
 }
 
-$rows = $auditor->classifyRows($rows, $manifest);
-
 // The manifest is validated in full on every run, regardless of --plugins
 // scope — a partial-scope run must still catch a stale/broken exception
-// anywhere in the manifest (#138, PR 4 checkpoint).
+// anywhere in the manifest (#138, PR 4 checkpoint). Validated BEFORE
+// classifyRows() ever runs: a malformed entry (missing 'table' or
+// 'classification') must never reach the classification step, even
+// defensively-coded — a broken manifest means the audit itself can't be
+// trusted yet, so nothing downstream should try to use it
+// (#138, PR 4 review, 2026-07-20).
 $manifestViolations = $auditor->validateManifest($manifest);
+
+if ($manifestViolations !== []) {
+    if ($format === 'json') {
+        echo json_encode(
+            ['plugins' => $pluginNames, 'summary' => null, 'rows' => null, 'manifest_violations' => $manifestViolations],
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+        ).PHP_EOL;
+    } else {
+        echo 'Manifest violations (fatal — fix these before the audit can run):'.PHP_EOL;
+
+        foreach ($manifestViolations as $violation) {
+            echo "  [{$violation['type']}] {$violation['fqcn']}: {$violation['message']}".PHP_EOL;
+        }
+    }
+
+    fwrite(STDERR, sprintf("Manifest is broken: %d violation(s). Audit did not run.\n", count($manifestViolations)));
+    exit(2);
+}
+
+$rows = $auditor->classifyRows($rows, $manifest);
 
 $summary = [
     'total'                         => count($rows),
@@ -71,12 +98,13 @@ $summary = [
     'real_gaps_without_company_id'  => count(array_filter($rows, static fn (array $r): bool => $r['effective_status'] === 'real_gap_without_company_column')),
     'table_missing'                 => count(array_filter($rows, static fn (array $r): bool => $r['effective_status'] === 'table_missing')),
     'inspection_errors'             => count(array_filter($rows, static fn (array $r): bool => $r['effective_status'] === 'inspection_error')),
-    'manifest_violations'           => count($manifestViolations),
+    // Always 0 here — a non-empty $manifestViolations already exited above.
+    'manifest_violations'           => 0,
 ];
 
 if ($format === 'json') {
     echo json_encode(
-        ['plugins' => $pluginNames, 'summary' => $summary, 'rows' => $rows, 'manifest_violations' => $manifestViolations],
+        ['plugins' => $pluginNames, 'summary' => $summary, 'rows' => $rows, 'manifest_violations' => []],
         JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
     ).PHP_EOL;
 } else {
@@ -121,14 +149,6 @@ if ($format === 'json') {
     foreach ($displayRows as $displayRow) {
         $printRow($displayRow);
     }
-
-    if ($manifestViolations !== []) {
-        echo PHP_EOL.'Manifest violations:'.PHP_EOL;
-
-        foreach ($manifestViolations as $violation) {
-            echo "  [{$violation['type']}] {$violation['fqcn']}: {$violation['message']}".PHP_EOL;
-        }
-    }
 }
 
 fwrite(
@@ -147,9 +167,10 @@ fwrite(
     ),
 );
 
-// Manifest violations and table/inspection errors mean the audit itself is
-// untrustworthy — always fatal, regardless of --fail-on-missing.
-if ($summary['table_missing'] > 0 || $summary['inspection_errors'] > 0 || $manifestViolations !== []) {
+// table_missing/inspection_error mean the audit itself is untrustworthy —
+// always fatal, regardless of --fail-on-missing. (Manifest violations
+// already exited above, before classification ever ran.)
+if ($summary['table_missing'] > 0 || $summary['inspection_errors'] > 0) {
     exit(2);
 }
 

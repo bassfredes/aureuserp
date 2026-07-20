@@ -37,10 +37,18 @@ final class ExceptionManifest
     {
     }
 
-    public static function default(): self
+    /**
+     * @param  string|null  $path  Absolute path to a manifest file to load
+     *     instead of the real config/company-scope-exceptions.php. Exists
+     *     so tests can drive the exact same CLI orchestration
+     *     (scripts/audit-company-scope.php) against a deliberately broken
+     *     fixture manifest, instead of only exercising Auditor methods
+     *     directly (#138, PR 4 review, 2026-07-20).
+     */
+    public static function default(?string $path = null): self
     {
         /** @var array<class-string, array{table: string, classification: string, reason: string, tracking: string, alias_of?: class-string}> $entries */
-        $entries = require base_path('config/company-scope-exceptions.php');
+        $entries = require ($path ?? base_path('config/company-scope-exceptions.php'));
 
         return new self($entries);
     }
