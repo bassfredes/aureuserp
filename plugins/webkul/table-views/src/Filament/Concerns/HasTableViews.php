@@ -339,16 +339,12 @@ trait HasTableViews
             ->label(__('table-views::filament/concerns/has-table-views.add-to-favorites'))
             ->icon('heroicon-o-star')
             ->action(function (array $arguments) {
-                TableViewFavoriteModel::updateOrCreate(
-                    [
-                        'view_type'       => $arguments['view_type'],
-                        'view_key'        => $arguments['view_key'],
-                        'filterable_type' => static::class,
-                        'user_id'         => Auth::id(),
-                    ],
-                    [
-                        'is_favorite' => true,
-                    ]
+                TableViewFavoriteModel::toggleForOwnViewOrFail(
+                    $arguments['view_type'],
+                    $arguments['view_key'],
+                    static::class,
+                    Auth::id(),
+                    true,
                 );
 
                 unset($this->cachedTableViews);
@@ -362,16 +358,12 @@ trait HasTableViews
             ->label(__('table-views::filament/concerns/has-table-views.remove-from-favorites'))
             ->icon('heroicon-o-minus-circle')
             ->action(function (array $arguments) {
-                TableViewFavoriteModel::updateOrCreate(
-                    [
-                        'view_type'       => $arguments['view_type'],
-                        'view_key'        => $arguments['view_key'],
-                        'filterable_type' => static::class,
-                        'user_id'         => Auth::id(),
-                    ],
-                    [
-                        'is_favorite' => false,
-                    ]
+                TableViewFavoriteModel::toggleForOwnViewOrFail(
+                    $arguments['view_type'],
+                    $arguments['view_key'],
+                    static::class,
+                    Auth::id(),
+                    false,
                 );
 
                 unset($this->cachedTableViews);
@@ -399,7 +391,13 @@ trait HasTableViews
             ->color('danger')
             ->requiresConfirmation()
             ->action(function (array $arguments) {
-                TableViewModel::find($arguments['view_key'])->delete();
+                $tableView = TableViewModel::resolveOwnedTableViewOrFail(
+                    (int) $arguments['view_key'],
+                    static::class,
+                    (int) Auth::id(),
+                );
+
+                $tableView->delete();
 
                 TableViewFavoriteModel::where('view_key', $arguments['view_key'])
                     ->where('filterable_type', (string) static::class)
@@ -420,7 +418,13 @@ trait HasTableViews
             ->color('danger')
             ->requiresConfirmation()
             ->action(function (array $arguments) {
-                TableViewModel::find($arguments['view_key'])->update([
+                $tableView = TableViewModel::resolveOwnedTableViewOrFail(
+                    (int) $arguments['view_key'],
+                    static::class,
+                    (int) Auth::id(),
+                );
+
+                $tableView->update([
                     'filters' => [
                         'tableFilters'        => $this->tableFilters,
                         'tableGrouping'       => $this->tableGrouping,
@@ -439,8 +443,9 @@ trait HasTableViews
     public function getTableViewActionGroup(string $key, string $type, mixed $tableView): ActionGroup
     {
         $args = [
-            'view_key'  => $key,
-            'view_type' => $type,
+            'view_key'        => $key,
+            'view_type'       => $type,
+            'filterable_type' => static::class,
         ];
 
         return ActionGroup::make([

@@ -29,10 +29,10 @@
     ],
     "summary": {
         "total": 304,
-        "scoped": 106,
-        "classified_exceptions": 120,
-        "real_gaps_with_company_id": 44,
-        "real_gaps_without_company_id": 34,
+        "scoped": 111,
+        "classified_exceptions": 123,
+        "real_gaps_with_company_id": 39,
+        "real_gaps_without_company_id": 31,
         "table_missing": 0,
         "inspection_errors": 0,
         "manifest_violations": 0
@@ -2387,8 +2387,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "projects",
@@ -2396,11 +2396,11 @@
             "file": "plugins/webkul/projects/src/Models/Project.php",
             "table": "projects_projects",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "projects",
@@ -2432,11 +2432,11 @@
             "file": "plugins/webkul/projects/src/Models/Task.php",
             "table": "projects_tasks",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "projects",
@@ -2444,11 +2444,11 @@
             "file": "plugins/webkul/projects/src/Models/TaskStage.php",
             "table": "projects_task_stages",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "projects",
@@ -2456,11 +2456,11 @@
             "file": "plugins/webkul/projects/src/Models/Timesheet.php",
             "table": "analytic_records",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "purchases",
@@ -3527,8 +3527,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "not_tenancy",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "table-views",
@@ -3539,8 +3539,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "not_tenancy",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "time-off",
@@ -3656,11 +3656,11 @@
             "file": "plugins/webkul/timesheets/src/Models/Timesheet.php",
             "table": "analytic_records",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "website",

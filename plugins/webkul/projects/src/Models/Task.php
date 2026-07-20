@@ -2,6 +2,7 @@
 
 namespace Webkul\Project\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -21,10 +22,13 @@ use Webkul\Security\Models\Scopes\UserPermissionScope;
 use Webkul\Security\Models\User;
 use Webkul\Security\Traits\HasPermissionScope;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class Task extends Model implements Sortable
 {
-    use HasChatter, HasCustomFields, HasFactory, HasLogActivity, HasPermissionScope, SoftDeletes, SortableTrait;
+    use HasChatter, HasCompanyScope, HasCustomFields, HasFactory, HasLogActivity, HasPermissionScope, SoftDeletes, SortableTrait, ValidatesRelatedCompanyScope;
 
     public const ACTIVITY_PLAN_PLUGIN = 'projects';
 
@@ -187,11 +191,41 @@ class Task extends Model implements Sortable
         parent::boot();
 
         static::creating(function ($task) {
-            $authUser = Auth::user();
+            $task->creator_id ??= Auth::id();
+        });
 
-            $task->creator_id ??= $authUser->id;
+        static::saving(function (self $task): void {
+            // The effective company is derived from the persisted Project,
+            // not trusted from the task's own mutable company_id column —
+            // a project_id is mandatory to resolve it (#138 PR4 ola4A). A
+            // task that has no project (e.g. orphaned after its Project was
+            // deleted via nullOnDelete) keeps re-authorizing its own,
+            // already-persisted company_id instead of failing every future
+            // save.
+            if ($task->project_id !== null) {
+                $effectiveCompanyId = static::resolveEffectiveCompanyIdOrFail($task->project_id, Project::class, $task->company_id, 'Project');
+            } else {
+                $effectiveCompanyId = $task->company_id ?? Auth::user()?->default_company_id;
 
-            $task->company_id ??= $authUser?->default_company_id;
+                if ($effectiveCompanyId === null) {
+                    throw new AuthorizationException(static::class.' requires a company_id and none could be resolved from the acting user.');
+                }
+
+                CompanyScope::assertCanWriteCompany((int) $effectiveCompanyId);
+            }
+
+            // A project_id reassignment (alone, or paired with a matching
+            // explicit company_id) that would move an already-persisted
+            // Task to a different company is rejected outright — the same
+            // "archive and recreate instead" rule as Project's own
+            // company_id, just derived through the parent (#138 PR4 ola4A).
+            $originalCompanyId = $task->exists ? $task->getOriginal('company_id') : null;
+
+            if ($originalCompanyId !== null && (int) $originalCompanyId !== (int) $effectiveCompanyId) {
+                throw new AuthorizationException('Changing the company of this Task (via project_id or company_id) is forbidden — archive it and create a new one instead.');
+            }
+
+            $task->company_id = $effectiveCompanyId;
         });
 
         static::updated(function ($task) {

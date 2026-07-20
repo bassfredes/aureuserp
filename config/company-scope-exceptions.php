@@ -52,8 +52,7 @@ declare(strict_types=1);
  *     CompanyScope::allowedCompanyIds() itself.
  *
  * Models that are real, unresolved gaps (including ones with an approved
- * future contract not yet implemented — Leave/LeaveAllocation, Project/
- * Task/TaskStage/Milestone, TableView ownership check, Invitation,
+ * future contract not yet implemented — Leave/LeaveAllocation, Invitation,
  * BankAccount, Maintenance, ActivityPlan/ActivityType/Calendar family,
  * CurrencyRate, Chatter, UtmCampaign, and every plugin-specific child of a
  * still-unscoped parent) are deliberately NOT in this file — declaring a
@@ -262,15 +261,18 @@ return [
         'reason'         => 'Single public-site CMS content — same one-instance-one-site reasoning as the blogs plugin.',
         'tracking'       => '#138',
     ],
-    // NOTE: TableView/TableViewFavorite are deliberately NOT in this
-    // manifest, even though neither will ever need a company_id column.
-    // The approved contract (#138 review, 2026-07-19) requires an explicit
-    // server-side ownership check in EditViewAction/deleteTableViewAction/
-    // replaceTableViewAction (currently only gates button visibility, a
-    // confirmed IDOR) before either model can be considered resolved — a
-    // classification alone must never silence a gap that still has real,
-    // uncommitted enforcement work behind it. Both stay
-    // real_gap_without_company_column until that lands.
+    \Webkul\TableViews\Models\TableView::class => [
+        'table'          => 'table_views',
+        'classification' => 'not_tenancy',
+        'reason'         => 'Per-user saved UI filter state, never company data. The previously-confirmed IDOR (EditViewAction/deleteTableViewAction/replaceTableViewAction resolving any view by id with no ownership check) is closed: all three now go through TableView::resolveOwnedTableViewOrFail(id, filterable_type, user_id) — a single query requiring exact id + filterable_type + user_id match, so a public view can be read but never written by anyone but its owner. Covered by plugins/webkul/table-views/tests/Feature/TableViewOwnershipTest.php.',
+        'tracking'       => '#138 PR4 ola4A',
+    ],
+    \Webkul\TableViews\Models\TableViewFavorite::class => [
+        'table'          => 'table_view_favorites',
+        'classification' => 'not_tenancy',
+        'reason'         => 'Per-user favorite marker, never company data. user_id is always the caller\'s own Auth::id(), never accepted from the request. TableViewFavorite::toggleForOwnViewOrFail() additionally refuses to favorite a private view belonging to another user via TableView::assertVisibleOrFail(). Covered by plugins/webkul/table-views/tests/Feature/TableViewOwnershipTest.php.',
+        'tracking'       => '#138 PR4 ola4A',
+    ],
     \Webkul\Support\Models\ActivityTypeSuggestion::class => [
         'table'          => 'activity_type_suggestions',
         'classification' => 'not_tenancy',
@@ -521,6 +523,12 @@ return [
         'classification' => 'parent_scoped',
         'reason'         => 'Deliberately has no company_id column of its own — visibility is validated via a many-to-many pivot to Company (accounts_account_companies), documented and reviewed in PR #17 (plugins/webkul/accounts/src/Models/Account.php:111,200).',
         'tracking'       => '#138 / PR #17',
+    ],
+    \Webkul\Project\Models\Milestone::class => [
+        'table'          => 'projects_milestones',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column — its mandatory (non-nullable, cascadeOnDelete) parent Project is HasCompanyScope-enforced (plugins/webkul/projects/src/Models/Project.php), and Milestone::booted() adds a global scope requiring whereHas(\'project\') (plugins/webkul/projects/src/Models/Milestone.php), inheriting Project\'s own CompanyScope filter for reads. Writes are validated by resolveEffectiveCompanyIdOrFail() against the persisted Project, and MilestonePolicy::belongsToAllowedCompany() re-checks the same on every view/update/delete. Covered by plugins/webkul/projects/tests/Feature/MilestoneCompanyScopeTest.php.',
+        'tracking'       => '#138 PR4 ola4A',
     ],
     \Webkul\Accounting\Models\Account::class => [
         'table'          => 'accounts_accounts',

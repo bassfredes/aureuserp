@@ -8,7 +8,6 @@ use Webkul\Project\Models\Project;
 use Webkul\Project\Models\Task;
 use Webkul\Project\Models\TaskStage;
 use Webkul\Security\Models\User;
-use Webkul\Support\Models\Company;
 
 /**
  * @extends Factory<Task>
@@ -52,7 +51,11 @@ class TaskFactory extends Factory
             'project_id'          => Project::factory(),
             'stage_id'            => TaskStage::factory(),
             'partner_id'          => Partner::query()->value('id') ?? Partner::factory(),
-            'company_id'          => Company::factory(),
+            // Left unset by default: the model's own saving() hook always
+            // re-derives company_id from project_id and now rejects an
+            // explicit mismatch — a random Company::factory() here would
+            // spuriously conflict with whatever Project a caller overrides
+            // project_id with (#138 PR4 ola4A).
             'creator_id'          => User::query()->value('id') ?? User::factory(),
         ];
     }

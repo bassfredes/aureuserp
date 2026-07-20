@@ -36,31 +36,34 @@ Cobertura de tests: `tests/Feature/Support/CompanyScopeAuditorTest.php` (29 caso
 
 Base aislada `db_aureuserp_audit_fresh` (mismo servidor MySQL del entorno dev, base y usuario separados de `db_aureuserp`/`db_aureuserp_test`). Secuencia: `erp:install --force -n` + los 20 comandos `<plugin>:install -n` (accounting, accounts, barcode, blogs, contacts, employees, full-calendar, inventories, invoices, maintenance, manufacturing, payments, products, projects, purchases, recruitments, sales, time-off, timesheets, website) — todos exit 0.
 
-Corrida final, `php scripts/audit-company-scope.php --format=json` (auto-discovery, 26 plugins, sin `--plugins`) sobre la base fresh, committeada en `docs/security/company-scope-pr4-inventory.json`:
+Corrida final tras ola 4A, `php scripts/audit-company-scope.php --format=json` (auto-discovery, 26 plugins, sin `--plugins`) sobre la misma base fresh, committeada en `docs/security/company-scope-pr4-inventory.json`:
 
 ```json
 {
   "total": 304,
-  "scoped": 106,
-  "classified_exceptions": 120,
-  "real_gaps_with_company_id": 44,
-  "real_gaps_without_company_id": 34,
+  "scoped": 111,
+  "classified_exceptions": 123,
+  "real_gaps_with_company_id": 39,
+  "real_gaps_without_company_id": 31,
   "table_missing": 0,
   "inspection_errors": 0,
   "manifest_violations": 0
 }
 ```
 
-`exit 0` sin `--fail-on-missing`; `exit 1` con `--fail-on-missing` (78 gaps reales = 44 + 34 > 0) — verificado explícitamente, no asumido.
+`exit 0` sin `--fail-on-missing`; `exit 1` con `--fail-on-missing` (70 gaps reales = 39 + 31 > 0, todavía esperado — quedan olas futuras) — verificado explícitamente, no asumido.
 
 | Corrida | table_missing | inspection_error | manifest_violations | gaps reales | exit (sin flag) | exit (`--fail-on-missing`) |
 |---|---|---|---|---|---|---|
 | DB dev existente (`db_aureuserp`), auto-discovery | 35 | 0 | 0 | — (no se completó, table_missing>0 es fatal) | 2 | 2 |
-| DB aislada, fresh install completo | **0** | **0** | **0** | 78 | **0** | **1** |
+| DB aislada, fresh install completo (checkpoint, antes de ola 4A) | **0** | **0** | **0** | 78 | **0** | **1** |
+| DB aislada, fresh install completo (después de ola 4A) | **0** | **0** | **0** | 70 | **0** | **1** |
+
+`scoped` sube de 106 a 111 (+5: `Project`, `Task`, `TaskStage`, y ambas clases `Timesheet` — `Webkul\Project\Models\Timesheet` y `Webkul\Timesheet\Models\Timesheet`). `classified_exceptions` sube de 120 a 123 (+3: `TableView`, `TableViewFavorite`, `Milestone`). Gaps reales bajan de 78 a 70 (-8, exactamente los 5 `scoped` + 3 `classified_exceptions` nuevos).
 
 ## Manifest de excepciones — resumen
 
-120 entradas — 1 `global_party_identity` + 119 restantes (aliases + referencia global + not_tenancy + parent_scoped + las 2 nuevas categorías de la revisión), 0 violaciones (shape, tabla, clasificación, stale, cadena de alias) sobre el manifest completo. `TableView`/`TableViewFavorite` fueron retiradas del manifest en esta ronda de revisión — ver "Correcciones de la segunda revisión" abajo.
+123 entradas, 0 violaciones (shape, tabla, clasificación, stale, cadena de alias) sobre el manifest completo. `TableView`/`TableViewFavorite` reingresaron al manifest en ola 4A tras cerrar el IDOR con un resolver server-side real (ver "Ola 4A" abajo); `Milestone` entró por primera vez, `parent_scoped` vía su Project obligatorio.
 
 Conteo exacto (`config/company-scope-exceptions.php`, verificado por script, no a mano):
 
@@ -69,15 +72,15 @@ Conteo exacto (`config/company-scope-exceptions.php`, verificado por script, no 
 | `global_party_identity` | 1 | `Webkul\Partner\Models\Partner` (raíz canónica) |
 | `alias` | 45 | Partner/Customer/Vendor/Address (15 aliases del grupo original) + Currency/Bank/Industry/Tag/Title/Incoterm/CashRounding/Category/Attribute/ProcurementGroup/UTMMedium/UTMSource/EmploymentType/SkillType/`Company`(security) — cadenas multi-hop verificadas (p.ej. `sales.Category → invoices.Category → accounts.Category → products.Category`) |
 | `global_reference` | 38 | Currency, Country, State, Bank, UOM, UOMCategory, EmailTemplate, custom_fields, UTMMedium/Source/Stage, products Attribute/Category/AttributeOption/Tag, accounts Incoterm/CashRounding/Tag/PaymentMethod, inventories Tag, manufacturing WorkCenterLossType/Tag/ProductivityLoss, HR/recruitment lookup tables (EmployeeCategory, DepartureReason, EmployeeResumeLineType, EmploymentType, SkillType, SkillLevel, Skill, ApplicantCategory, Degree, RefuseReason), `maintenance.Stage` (contrato aprobado), `partners`/`contacts` Industry/Tag/Title, `projects.Tag` |
-| `parent_scoped` | 24 | Pivotes/hijos de un parent YA `HasCompanyScope` o pivote-validado, con evidencia citada (p.ej. `sales.OrderLine` vía `ValidatesRelatedCompanyScope`, `accounts_account_*` pivots vía Journal/Tax/Move ya escopados, `manufacturing_work_orders/operations/work_center_capacities` con comentario de ronda de revisión en código) |
-| `not_tenancy` | 10 | Permission, Role, Team(security), Plugin, EmailLog, Blog Category/Post/Tag, Website Page, ActivityTypeSuggestion |
+| `parent_scoped` | 25 | Pivotes/hijos de un parent YA `HasCompanyScope` o pivote-validado, con evidencia citada (p.ej. `sales.OrderLine` vía `ValidatesRelatedCompanyScope`, `accounts_account_*` pivots vía Journal/Tax/Move ya escopados, `manufacturing_work_orders/operations/work_center_capacities`, y desde ola 4A `Webkul\Project\Models\Milestone` vía su Project mandatorio) |
+| `not_tenancy` | 12 | Permission, Role, Team(security), Plugin, EmailLog, Blog Category/Post/Tag, Website Page, ActivityTypeSuggestion, y desde ola 4A `TableView`/`TableViewFavorite` (estado de UI propio del usuario, IDOR cerrado vía resolver) |
 | `root_company_entity` | 1 | `Webkul\Support\Models\Company` |
 | `multi_company_membership` | 1 | `Webkul\Security\Models\User` |
-| **Total** | **120** | |
+| **Total** | **123** | |
 
 `BankAccount` (4 clases) queda deliberadamente **fuera** del manifest — es un gap real pendiente del pivote `partners_bank_account_companies` del contrato aprobado, no una excepción. Ver sección 4.
 
-Todos los modelos hijos/pivote de un parent que **todavía no está escopado** (Employee, JobPosition, Department, Candidate, Applicant, Calendar, ActivityPlan, LeaveType, Project, Team de maintenance/sales) quedan deliberadamente fuera del manifest también — `parent_scoped` solo se usa cuando existe enforcement real y citable, nunca por adelantado.
+Todos los modelos hijos/pivote de un parent que **todavía no está escopado** (Employee, JobPosition, Department, Candidate, Applicant, Calendar, ActivityPlan, LeaveType, Team de maintenance/sales) quedan deliberadamente fuera del manifest también — `parent_scoped` solo se usa cuando existe enforcement real y citable, nunca por adelantado. `Project`/`Task`/`TaskStage`/`Timesheet` ya no aparecen en esta lista de pendientes: desde ola 4A son `scoped` de verdad (`HasCompanyScope` + enforcement real en cada save), no manifest — ver "Ola 4A" abajo.
 
 ---
 
@@ -165,6 +168,8 @@ Tablas compartidas cruzando plugins (un solo owner físico, resto son alias sin 
 ### Prioridad de fix (orden del propio agente, confirmado en la revisión)
 1. `Project` (raíz) — 2. Cadena Timesheet — 3. `Milestone` (IDOR) — 4. `Task`/`TaskStage` — 5. `ProjectStage` (`IncludesSharedCompanyRows`) — 6. `ActivityPlan` (fix pertenece a Support) — 7. `Tag` (sin acción).
 
+**✅ Resuelto en ola 4A** (puntos 1-4 de esta lista): `Project`/`Task`/`TaskStage`/`Timesheet` (ambas clases) y `Milestone` — ver sección "Ola 4A" al final del documento. `ProjectStage` y `ActivityPlan` siguen pendientes de una ola futura.
+
 ---
 
 ## 3. Cluster Platform — chatter, security, support (30 filas)
@@ -216,11 +221,13 @@ ActivityPlan/ActivityPlanTemplate (ver HR), Calendar, CalendarLeave (ver HR), Cu
 | `Website\Partner` | partners_partners | — (alias) | `global_party_identity`, excepción de portal Customer (ADR 0007) | Ninguna — decisión cerrada |
 | `Field` (fields) | custom_fields | no | Definiciones de campo custom (schema), `global_system_config` | Ninguna |
 | `Plugin` (plugin-manager) | plugins | no | Registro de instalación a nivel de sistema | Ninguna |
-| `TableView`/`TableViewFavorite` | table_views/table_view_favorites | no | User-owned, lectura pública opcional | Contrato aprobado, ver abajo |
+| `TableView`/`TableViewFavorite` | table_views/table_view_favorites | no | User-owned, lectura pública opcional | ✅ Resuelto en ola 4A |
 
 ### IDOR confirmado en TableView — contrato aprobado, ver "Decisiones de contrato"
 
-`HasTableViews::getSavedTableViews()` no filtra por compañía. Más serio: `EditViewAction`/`deleteTableViewAction`/`replaceTableViewAction` resuelven `TableView::find($arguments['view_key'])` sin re-verificar `user_id` server-side — el chequeo de propiedad solo gatea visibilidad del botón.
+`HasTableViews::getSavedTableViews()` no filtra por compañía. Más serio: `EditViewAction`/`deleteTableViewAction`/`replaceTableViewAction` resolvían `TableView::find($arguments['view_key'])` sin re-verificar `user_id` server-side — el chequeo de propiedad solo gateaba visibilidad del botón.
+
+**✅ Resuelto en ola 4A** — ver sección "Ola 4A" al final del documento.
 
 ---
 
@@ -350,24 +357,64 @@ Números actualizados tras estas correcciones (120 excepciones, no 122 — las 2
 
 ---
 
+## Ola 4A — TableView/TableViewFavorite, Project, Task, TaskStage, Milestone, Timesheet
+
+Autorizada tras el checkpoint aprobado (revisión `4736684439` de PR #18, mismo head `1ded2ae96`). Implementa los contratos de negocio descritos en "Decisiones de contrato aprobadas" para Table Views y Projects (secciones "Projects" y "Table Views" arriba), landeando en la misma rama/PR #18.
+
+### TableView / TableViewFavorite
+
+IDOR cerrado con un único resolver server-side reutilizado por editar, reemplazar y eliminar:
+
+```php
+TableView::resolveOwnedTableViewOrFail(int $viewId, string $filterableType, int $userId): TableView
+```
+
+Una sola consulta exige simultáneamente `id`, `filterable_type` y `user_id` del actor — una vista pública ajena nunca resuelve por esta vía (solo lectura, vía `getSavedTableViews()` que ya filtraba propio+público). `TableView::assertVisibleOrFail()` cubre el caso de lectura/favorito (propio o público). `TableViewFavorite::toggleForOwnViewOrFail()` fuerza siempre `user_id = Auth::id()` (nunca un valor de la request) y rechaza favoritear una vista privada ajena. Wired en `HasTableViews::deleteTableViewAction/replaceTableViewAction/add|removeTableViewToFavoritesAction` y en `EditViewAction::fillForm()/action()`. 11 tests en `plugins/webkul/table-views/tests/Feature/TableViewOwnershipTest.php`. Ambos modelos reingresan al manifest como `not_tenancy` (nunca tendrán `company_id` — es aislamiento por usuario, no por tenant) con la evidencia del resolver citada en `config/company-scope-exceptions.php`.
+
+### Project
+
+`HasCompanyScope` + `HasStrictCompanyId` (mismo patrón que `Journal`/`PaymentTerm`/`FiscalPosition`): `company_id` obligatorio (se autocompleta desde `default_company_id` del actor solo si viene vacío — nunca sobrescribe un valor explícito no autorizado), autorización en cada save vía `CompanyScope::assertCanWriteCompany()`, inmutable tras creación ("archive and recreate"). Fail-closed sin usuario/contexto. 10 tests en `ProjectCompanyScopeTest.php`.
+
+### Task / TaskStage
+
+`company_id` se deriva del `Project` persistido (nunca de una relación en memoria) vía `ValidatesRelatedCompanyScope::resolveEffectiveCompanyIdOrFail()`, ya usado en el dominio de accounts (PR #17) para el mismo patrón madre→hijo. Un `project_id` inexistente o cuyo Project no tiene compañía falla cerrado. Un cambio de `project_id` (solo, o junto con un `company_id` explícito y consistente) que implique traslado de tenant se rechaza — comparando el `company_id` efectivo recién resuelto contra `getOriginal('company_id')`, el mismo mecanismo de inmutabilidad que `Project`, pero derivado en vez de directo. `Task` tolera `project_id = null` (columna nullable, `nullOnDelete` — una tarea huérfana tras borrar su Project) reautorizando su propio `company_id` ya persistido en vez de fallar en cada save futuro; `TaskStage.project_id` es NOT NULL (`cascadeOnDelete`), así que siempre deriva. 12 + 7 tests (`TaskCompanyScopeTest.php`, `TaskStageCompanyScopeTest.php`).
+
+### Milestone
+
+Sin columna `company_id` propia (su Project padre es obligatorio, `cascadeOnDelete`). Lectura: `Milestone::booted()` agrega un global scope `whereHas('project')` — el scope `HasCompanyScope` de `Project` se aplica automáticamente dentro de esa subquery, así que un Milestone cuyo Project está oculto (compañía equivocada, o sin usuario/contexto — `CompanyScope` falla cerrado) también queda oculto. Escritura: `resolveEffectiveCompanyIdOrFail()` sobre el `project_id`, descartando el valor de retorno (no hay columna donde persistirlo) — el efecto es puramente de autorización: Project debe existir, tener compañía propia, y el actor debe estar autorizado para escribir en ella. `MilestonePolicy::view/update/delete` ahora también re-derivan la compañía efectiva desde el Project persistido (`belongsToAllowedCompany()`) e la comparan contra las compañías permitidas del actor — una ability genérica de Spatie ya no es suficiente por sí sola, cerrando el IDOR también a nivel de policy, no solo de resolver. 8 tests (`MilestoneCompanyScopeTest.php`).
+
+### Timesheet (`Webkul\Project\Models\Timesheet` y su subclase vacía `Webkul\Timesheet\Models\Timesheet`)
+
+Valida el grafo completo Timesheet → Task → Project → company: `company_id` se deriva del `Task` persistido (mismo patrón que Task deriva de Project); si además trae un `project_id` explícito, debe coincidir con el `project_id` del Task referenciado (una Task de Project A con un Timesheet apuntando a Project B es un grafo espurio, rechazado aunque ambos sean de la misma compañía). Reasignar `task_id` a una Task de otra compañía se rechaza igual que Task/TaskStage. `task_id = null` (huérfana tras borrar su Task) reautoriza su propio `company_id`. 8 tests (`TimesheetCompanyScopeTest.php`).
+
+### Regresión de fixtures (no de producción)
+
+`TaskStageFactory`/`TaskFactory` tenían un `'company_id' => Company::factory()` independiente de su `'project_id' => Project::factory()` — dos compañías aleatorias no relacionadas, inofensivo mientras `Project`/`TaskStage` no tenían enforcement real. Con el enforcement de esta ola, esa inconsistencia rompía 16 tests preexistentes de `plugins/webkul/projects/tests/Feature/API/V1/{TaskStageTest,TaskTest}.php`. Corregido quitando el `company_id` independiente de ambas factories (mismo patrón ya usado en `MoveLineFactory` desde PR #17: "dejar sin asignar, el propio saving() hook lo deriva"). Suite completa de `plugins/webkul/projects` tras el fix: 116/116 verde.
+
+### Cobertura total de esta ola
+
+46 tests nuevos (`ProjectCompanyScopeTest`, `TaskCompanyScopeTest`, `TaskStageCompanyScopeTest`, `MilestoneCompanyScopeTest`, `TimesheetCompanyScopeTest`, `TableViewOwnershipTest`), cubriendo por cada modelo: aislamiento de lectura (actor ve solo su(s) compañía(s)), lista vacía sin compañías, fail-closed sin actor/contexto, creación/actualización cross-company rechazadas, reasignación rechazada (donde aplica), al menos una prueba con `withoutGlobalScope()` demostrando que la autorización de escritura no depende del scope de lectura, y `CompanyContext::runForCompany/runForAllCompanies/runForBootstrap` operando correctamente (Project/Task). `--fail-on-missing` sigue retornando `1` (70 gaps reales restantes — Time Off, Invitations, BankAccount, Maintenance, y otros hijos de parents aún no escopados quedan para olas futuras).
+
+---
+
 ## Estado
 
 ```
-PR 4 (PR #18, feat/company-scope-remaining-plugins): checkpoint de auditoría, segunda revisión aplicada
-  - auto-discovery global real (sin default parcial de 3 plugins)
-  - isRealGap cubre missing_scope y not_company_scoped sin excepción válida
-  - manifest endurecido: shape (detiene validación posterior), stale por uses_company_scope,
-    cadena de alias exige terminal registrado en el manifest (no solo autoloadable)
-  - validación de manifest 100% estática (reflection), sin Schema::hasTable()/hasColumn() —
-    table_missing es exclusivamente de inspectClass(), acotado a la corrida
-  - salida --format=table ya no oculta real_gap_without_company_column
-  - TableView/TableViewFavorite retiradas del manifest (IDOR sin fix aún, no se silencia)
-  - 120 excepciones formalizadas (1 global_party_identity, 45 alias, 38 global_reference,
-    24 parent_scoped, 10 not_tenancy, 1 root_company_entity, 1 multi_company_membership)
-  - docs/security/company-scope-pr4-inventory.json generado por el auditor (304 filas, paths relativos)
-  - CI: job Company Scope Global Audit corregido (needs frontend_assets + download assets) y
-    con diff exacto contra el inventario committeado, no un umbral laxo
-Modelos de negocio (Leave, Project, TableView, Invitation, BankAccount, Maintenance, etc.): aún no modificados
+PR 4 (PR #18, feat/company-scope-remaining-plugins): checkpoint aprobado + ola 4A implementada
+  - checkpoint (auditor/manifest/CI): sin cambios respecto a la 2a/3a/4a revisión, ver arriba
+  - ola 4A: TableView/TableViewFavorite (IDOR cerrado, resolver server-side), Project
+    (HasCompanyScope + HasStrictCompanyId), Task/TaskStage (derivación desde Project,
+    ValidatesRelatedCompanyScope), Milestone (parent-scoped vía whereHas + policy),
+    Timesheet ambas clases (grafo Task→Project→company validado)
+  - 123 excepciones formalizadas (1 global_party_identity, 45 alias, 38 global_reference,
+    25 parent_scoped, 12 not_tenancy, 1 root_company_entity, 1 multi_company_membership)
+  - docs/security/company-scope-pr4-inventory.json regenerado (304 filas): scoped 106→111,
+    classified_exceptions 120→123, gaps reales 78→70
+  - 46 tests nuevos + 116/116 verde en la suite completa de plugins/webkul/projects (incluye
+    2 factories corregidas — company_id independiente del project_id, ver "Regresión de fixtures")
+  - CI: 4/4 verde sobre el nuevo head, diff exacto de inventario sin drift inesperado
+Modelos de negocio aún no tocados (próximas olas): Time Off/Leave, Invitations, BankAccount,
+  Maintenance, ProjectStage, ActivityPlan, y todo hijo/pivote de un parent aún no escopado
 PR adicional para PR 4: prohibido — los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
 #138 / #81: abiertos

@@ -28,7 +28,11 @@ class EditViewAction extends Action
         $this
             ->model(TableView::class)
             ->fillForm(function (array $arguments): array {
-                $tableView = TableView::find($arguments['view_key']);
+                $tableView = TableView::resolveOwnedTableViewOrFail(
+                    (int) $arguments['view_key'],
+                    (string) $arguments['filterable_type'],
+                    (int) Auth::id(),
+                );
 
                 $tableViewFavorite = TableViewFavorite::query()
                     ->where('user_id', Auth::id())
@@ -63,7 +67,11 @@ class EditViewAction extends Action
                     ->label(__('table-views::filament/actions/edit-view.form.make-public'))
                     ->helperText(__('table-views::filament/actions/edit-view.form.make-public-help')),
             ])->action(function (array $arguments): void {
-                $tableView = TableView::find($arguments['view_key']);
+                $tableView = TableView::resolveOwnedTableViewOrFail(
+                    (int) $arguments['view_key'],
+                    (string) $arguments['filterable_type'],
+                    (int) Auth::id(),
+                );
 
                 $this->process(function (array $data) use ($tableView): TableView {
                     $tableView->fill($data);

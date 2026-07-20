@@ -505,28 +505,31 @@ it('does not require a manifest entry\'s table to physically exist — that is i
     expect(array_filter($rows, fn (array $r) => $r['class'] === AuditFixtureGhostModel::class))->toBeEmpty();
 });
 
-it('does not let a manifest exception silence a model with an approved-but-unimplemented contract (TableView)', function () {
-    // TableView/TableViewFavorite will never need a company_id column,
-    // but the approved contract (#138 review, 2026-07-19) requires a real
+it('classifies TableView/TableViewFavorite now that the ownership resolver closes the IDOR (#138 PR4 ola4A)', function () {
+    // The approved contract (#138 review, 2026-07-19) required a real
     // server-side ownership fix in EditViewAction/deleteTableViewAction/
-    // replaceTableViewAction before either can be considered resolved.
-    // Classifying them in the manifest today would silence a confirmed
-    // IDOR that hasn't been fixed yet.
+    // replaceTableViewAction before either model could be classified.
+    // TableView::resolveOwnedTableViewOrFail() / TableViewFavorite::
+    // toggleForOwnViewOrFail() now close that gap (see
+    // plugins/webkul/table-views/tests/Feature/TableViewOwnershipTest.php),
+    // so the manifest entry is no longer silencing an unfixed bug.
     $auditor = new Auditor;
     $manifest = ExceptionManifest::default();
 
-    expect($manifest->has(TableView::class))->toBeFalse();
-    expect($manifest->has(TableViewFavorite::class))->toBeFalse();
+    expect($manifest->has(TableView::class))->toBeTrue();
+    expect($manifest->has(TableViewFavorite::class))->toBeTrue();
+    expect($manifest->get(TableView::class)['classification'])->toBe('not_tenancy');
+    expect($manifest->get(TableViewFavorite::class)['classification'])->toBe('not_tenancy');
 
     $tableViewRow = $auditor->inspectClass('table-views', TableView::class, 'fixture');
     [$classified] = $auditor->classifyRows([$tableViewRow], $manifest);
-    expect($classified['effective_status'])->toBe('real_gap_without_company_column');
-    expect($auditor->isRealGap($classified))->toBeTrue();
+    expect($classified['effective_status'])->toBe('classified_exception');
+    expect($auditor->isRealGap($classified))->toBeFalse();
 
     $favoriteRow = $auditor->inspectClass('table-views', TableViewFavorite::class, 'fixture');
     [$classifiedFavorite] = $auditor->classifyRows([$favoriteRow], $manifest);
-    expect($classifiedFavorite['effective_status'])->toBe('real_gap_without_company_column');
-    expect($auditor->isRealGap($classifiedFavorite))->toBeTrue();
+    expect($classifiedFavorite['effective_status'])->toBe('classified_exception');
+    expect($auditor->isRealGap($classifiedFavorite))->toBeFalse();
 });
 
 // --- table output -------------------------------------------------------------
