@@ -1,10 +1,11 @@
 name: Pest Tests
 
+# Temporary manual-CI mode (Intelligent Integration Suite 0.x budget freeze).
+# Automatic triggers (push, pull_request, merge_group) are intentionally removed;
+# ordinary validation happens locally via the monorepo "make verify-local" gate.
+# This runs only on explicit manual dispatch, once per release candidate.
+# Restore automatic triggers before v1.0.0.
 on:
-  push:
-    branches: [main]
-  pull_request:
-  merge_group:
   workflow_dispatch:
 
 concurrency:
@@ -92,7 +93,7 @@ jobs:
           sed -i "s|^\(APP_ENV=\s*\).*$|\1testing|" .env
           sed -i "s|^\(DB_CONNECTION=\s*\).*$|\1mysql|" .env
           sed -i "s|^#\?\s*DB_HOST=.*|DB_HOST=127.0.0.1|" .env
-          sed -i "s|^#\?\s*DB_PORT=.*|DB_PORT=${{ job.services.mysql.ports[3306] }}|" .env
+          sed -i "s|^#\?\s*DB_PORT=.*|DB_PORT=${{ job.services.mysql.ports['3306'] }}|" .env
           sed -i "s|^#\?\s*DB_DATABASE=.*|DB_DATABASE=aureuserp|" .env
           sed -i "s|^#\?\s*DB_USERNAME=.*|DB_USERNAME=root|" .env
           sed -i "s|^#\?\s*DB_PASSWORD=.*|DB_PASSWORD=root|" .env

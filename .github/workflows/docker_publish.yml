@@ -1,9 +1,12 @@
 name: Publish Docker Image
 
+# Temporary manual-CI mode (Intelligent Integration Suite 0.x budget freeze).
+# The automatic tag trigger (push tags v*) is intentionally removed; publishing a
+# Docker image now happens only on explicit, authorized manual dispatch. The
+# publish effect itself (build + push amd64/arm64) is preserved. The
+# github.event_name == "push" branch in the meta step is kept intact so the tag
+# trigger can be restored before v1.0.0 without reworking version resolution.
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       app_ref:

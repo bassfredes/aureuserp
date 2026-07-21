@@ -1,10 +1,11 @@
 name: Translations Check
 
+# Temporary manual-CI mode (Intelligent Integration Suite 0.x budget freeze).
+# Automatic triggers (push, pull_request, merge_group) are intentionally removed;
+# ordinary validation happens locally via the monorepo `make verify-local` gate.
+# This runs only on explicit manual dispatch, once per release candidate.
+# Restore automatic triggers before v1.0.0.
 on:
-  push:
-    branches: [main]
-  pull_request:
-  merge_group:
   workflow_dispatch:
 
 concurrency:
