@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Symfony\Component\Process\Process;
 use Webkul\Account\Models\Category as AccountCategory;
 use Webkul\Account\Models\Customer as AccountCustomer;
+use Webkul\Invoice\Models\Category;
 use Webkul\Partner\Models\Partner;
 use Webkul\Purchase\Models\Category as PurchaseCategory;
 use Webkul\Support\Models\Currency;
@@ -135,9 +136,9 @@ it('resolves a real multi-hop alias chain (purchases -> invoices -> accounts -> 
     $violations = $auditor->validateManifest($manifest);
     $forChain = array_filter($violations, fn (array $v) => in_array($v['fqcn'], [
         PurchaseCategory::class,
-        \Webkul\Invoice\Models\Category::class,
+        Category::class,
         AccountCategory::class,
-        \Webkul\Product\Models\Category::class,
+        Webkul\Product\Models\Category::class,
     ], true));
     expect($forChain)->toBeEmpty();
 });

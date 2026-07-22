@@ -39,7 +39,7 @@ function makeTableView(int $ownerId, bool $isPublic = false, ?string $filterable
 // usuario A edita/elimina vista A → permitido
 it('resolves a user\'s own private view for edit/delete/replace', function () {
     $actorA = SecurityHelper::authenticateWithPermissions([]);
-    $viewA  = makeTableView($actorA->id, isPublic: false);
+    $viewA = makeTableView($actorA->id, isPublic: false);
 
     $resolved = TableView::resolveOwnedTableViewOrFail($viewA->id, FILTERABLE_TYPE);
 
@@ -48,7 +48,7 @@ it('resolves a user\'s own private view for edit/delete/replace', function () {
 
 it('resolves a user\'s own public view for edit/delete/replace', function () {
     $actorA = SecurityHelper::authenticateWithPermissions([]);
-    $viewA  = makeTableView($actorA->id, isPublic: true);
+    $viewA = makeTableView($actorA->id, isPublic: true);
 
     $resolved = TableView::resolveOwnedTableViewOrFail($viewA->id, FILTERABLE_TYPE);
 
@@ -58,7 +58,7 @@ it('resolves a user\'s own public view for edit/delete/replace', function () {
 // usuario A edita/elimina vista B pública → rechazado
 it('refuses to resolve another user\'s public view for edit/delete/replace', function () {
     $actorB = SecurityHelper::authenticateWithPermissions([]);
-    $viewB  = makeTableView($actorB->id, isPublic: true);
+    $viewB = makeTableView($actorB->id, isPublic: true);
 
     SecurityHelper::authenticateWithPermissions([]);
 
@@ -71,7 +71,7 @@ it('refuses to resolve another user\'s public view for edit/delete/replace', fun
 // usuario A resuelve vista B privada → rechazado
 it('refuses to resolve another user\'s private view for edit/delete/replace', function () {
     $actorB = SecurityHelper::authenticateWithPermissions([]);
-    $viewB  = makeTableView($actorB->id, isPublic: false);
+    $viewB = makeTableView($actorB->id, isPublic: false);
 
     SecurityHelper::authenticateWithPermissions([]);
 
@@ -82,7 +82,7 @@ it('refuses to resolve another user\'s private view for edit/delete/replace', fu
 // usuario A lee vista B pública → permitido
 it('lets a user read (list) another user\'s public view', function () {
     $actorB = SecurityHelper::authenticateWithPermissions([]);
-    $viewB  = makeTableView($actorB->id, isPublic: true);
+    $viewB = makeTableView($actorB->id, isPublic: true);
 
     SecurityHelper::authenticateWithPermissions([]);
 
@@ -91,7 +91,7 @@ it('lets a user read (list) another user\'s public view', function () {
 
 it('refuses to let a user read another user\'s private view', function () {
     $actorB = SecurityHelper::authenticateWithPermissions([]);
-    $viewB  = makeTableView($actorB->id, isPublic: false);
+    $viewB = makeTableView($actorB->id, isPublic: false);
 
     SecurityHelper::authenticateWithPermissions([]);
 
@@ -102,7 +102,7 @@ it('refuses to let a user read another user\'s private view', function () {
 // filterable_type distinto → rechazado
 it('refuses to resolve an own view under a mismatched filterable_type', function () {
     $actorA = SecurityHelper::authenticateWithPermissions([]);
-    $viewA  = makeTableView($actorA->id, isPublic: false);
+    $viewA = makeTableView($actorA->id, isPublic: false);
 
     expect(fn () => TableView::resolveOwnedTableViewOrFail($viewA->id, 'Some\\Other\\Type'))
         ->toThrow(NotFoundHttpException::class);
@@ -128,7 +128,7 @@ it('fails closed when resolving a TableView with no authenticated user', functio
 // favorite A sobre vista pública B → permitido
 it('lets a user favorite another user\'s public saved view', function () {
     $actorB = SecurityHelper::authenticateWithPermissions([]);
-    $viewB  = makeTableView($actorB->id, isPublic: true);
+    $viewB = makeTableView($actorB->id, isPublic: true);
 
     $actorA = SecurityHelper::authenticateWithPermissions([]);
 
@@ -141,7 +141,7 @@ it('lets a user favorite another user\'s public saved view', function () {
 // favorite A sobre vista privada B → rechazado
 it('refuses to let a user favorite another user\'s private saved view', function () {
     $actorB = SecurityHelper::authenticateWithPermissions([]);
-    $viewB  = makeTableView($actorB->id, isPublic: false);
+    $viewB = makeTableView($actorB->id, isPublic: false);
 
     $actorA = SecurityHelper::authenticateWithPermissions([]);
 
@@ -153,9 +153,9 @@ it('refuses to let a user favorite another user\'s private saved view', function
 
 // A elimina favorite de B → rechazado (toggle is always scoped to the caller's own user_id — B's row is untouched)
 it('never lets a user remove another user\'s favorite', function () {
-    $actorB     = SecurityHelper::authenticateWithPermissions([]);
-    $viewB      = makeTableView($actorB->id, isPublic: true);
-    $favoriteB  = TableViewFavorite::create([
+    $actorB = SecurityHelper::authenticateWithPermissions([]);
+    $viewB = makeTableView($actorB->id, isPublic: true);
+    $favoriteB = TableViewFavorite::create([
         'user_id'         => $actorB->id,
         'view_type'       => 'saved',
         'view_key'        => (string) $viewB->id,
@@ -210,7 +210,7 @@ it('refuses to change a TableViewFavorite\'s user_id on update, even for its own
 it('refuses to change a TableView\'s user_id on update, even for its own owner', function () {
     $actorA = SecurityHelper::authenticateWithPermissions([]);
     $actorB = SecurityHelper::authenticateWithPermissions([]);
-    $viewB  = makeTableView($actorB->id, isPublic: false);
+    $viewB = makeTableView($actorB->id, isPublic: false);
 
     expect(fn () => $viewB->update(['user_id' => $actorA->id]))
         ->toThrow(AuthorizationException::class);

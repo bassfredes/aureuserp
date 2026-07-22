@@ -412,10 +412,30 @@ Números actualizados tras esta ronda (112 `scoped`, no 111 — `Record` se suma
 
 ---
 
+## Correcciones de la ronda 3 de ola 4A (A18-01/A18-02/A18-03 — determinismo del harness)
+
+La ronda 2 (punto 6) dejó `TestBootstrapHelper` instalando los 20 plugins de forma incondicional, pero una corrida de la suite completa **dos veces seguidas contra la misma base sin recrearla entre medio** seguía fallando en bloque (`website_pages` no encontrada). Root cause encontrado con un repro directo (dos procesos PHP separados contra la misma base):
+
+`Webkul\PluginManager\Package::isPluginInstalled()` decide si el `ServiceProvider` de un plugin registra sus rutas de migración (`loadMigrationsFrom()`) consultando la tabla `plugins` **en el boot de la aplicación** — antes de que corra cualquier código de `TestBootstrapHelper`. Contra una base nunca usada, la tabla `plugins` todavía no existe al momento del boot, así que la mayoría de plugins no registran sus migraciones todavía y `migrate:fresh` solo ve un subconjunto seguro (core/support). Contra una base que un proceso anterior ya usó, el boot de ESTE proceso ve la tabla `plugins` con todo marcado como instalado (la fila sigue ahí, `migrate:fresh` de este proceso todavía no corrió) — así que esta vez sí se registran las migraciones de todos los plugins, y `migrate:fresh` procesa un set mucho más amplio, ordenado por nombre de archivo entre todos los plugins. Ahí aparece un defecto real y preexistente: la migración `2026_04_02_..._create_calendars_table` de `support` está fechada DESPUÉS de varias migraciones de otros plugins que le agregan una foreign key (`employees`'s `2024_12_12_..._create_employees_employees_table`, y por separado `manufacturing`'s `..._create_manufacturing_work_centers_table` — el mismo bug que motivó el fix acotado del punto 7 de la ronda 2, ahora confirmado como una instancia más amplia del mismo problema).
+
+**Decisión explícita: no se renombran/re-fechan migraciones de producción.** Es un cambio de esquema más invasivo y riesgoso que el alcance de este harness — y CI nunca lo sufre, porque cada corrida usa un servicio MySQL efímero nuevo, así que la tabla `plugins` nunca preexiste al boot (siempre reproduce el caso seguro). Es exclusivamente un artefacto de reusar la misma base de MySQL local entre invocaciones separadas de `vendor/bin/pest`.
+
+**Fix aplicado**: `TestBootstrapHelper::assertDatabaseNotAlreadyBootstrapped()` — detecta la condición insegura (tabla `plugins` ya existe con filas `is_installed=true`) **antes** de correr `migrate:fresh`, y falla con un `RuntimeException` claro y accionable en vez de dejar el esquema corrompido a medias. Verificado con el repro original: la excepción se dispara, y la base queda completamente intacta (256 tablas, `website_pages` presente) en vez de caer a 47.
+
+**Regresión nueva** — `plugins/webkul/support/tests/Feature/TestBootstrapHelperDeterminismTest.php`, spawnea el script `plugins/webkul/support/tests/fixtures/run_bootstrap_order.php` como procesos PHP reales vía `Symfony\Component\Process\Process` (mismo patrón que `CompanyScopeAuditorTest.php`'s `runAuditScript()`, necesario porque el bug solo es observable ENTRE procesos, nunca dentro de uno solo):
+- *"produces the identical final schema regardless of which plugin triggers the bootstrap first"* — dos procesos separados, cada uno contra una base recién vaciada, disparando el bootstrap desde un plugin distinto (`accounting` vs `website`) — mismo conteo final de tablas (>200) en ambos.
+- *"fails loud instead of silently corrupting the schema when bootstrapped twice against the same never-recreated database"* — reproduce exactamente el escenario del bug: el segundo proceso, contra la misma base sin recrear, falla con el mensaje exacto del guard, y el esquema del primer proceso permanece intacto.
+
+**Pint aplicado sobre todo el delta PHP** (27 archivos: los 24 de `1ded2ae96..139468817` + los 3 nuevos de esta ronda). 4 archivos tenían sugerencias de estilo sin aplicar (`fully_qualified_strict_types`, `ordered_imports`, `binary_operator_spaces`) — incluido `config/company-scope-exceptions.php`, donde el fixer convirtió ~40 referencias `\Fully\Qualified\Class::class` a imports `use` + nombre corto. Verificado exhaustivamente que es puramente cosmético: sintaxis válida, mismo conteo de entradas (123) y misma distribución por clasificación antes/después, `diff -u` contra el JSON committeado sigue siendo byte-a-byte idéntico, y los 32/32 tests del auditor (incluida la prueba de cadena de alias que referencia directamente una de las clases renombradas) pasan sin cambios.
+
+Validación completa de esta ronda: 32/32 auditor + 81/81 company-scope + 2/2 determinismo + **1641/1641** en la suite completa (`vendor/bin/pest --exclude-group=gold-standard-dataset`, base recreada desde cero) + `pint`/`composer validate --strict` limpios.
+
+---
+
 ## Estado
 
 ```
-PR 4 (PR #18, feat/company-scope-remaining-plugins): checkpoint aprobado + ola 4A implementada (2 rondas)
+PR 4 (PR #18, feat/company-scope-remaining-plugins): checkpoint aprobado + ola 4A implementada (3 rondas)
   - checkpoint (auditor/manifest/CI): sin cambios respecto a la 2a/3a/4a revisión, ver arriba
   - ola 4A ronda 1: TableView/TableViewFavorite (IDOR cerrado, resolver server-side), Project
     (HasCompanyScope + HasStrictCompanyId), Task/TaskStage (derivación desde Project,
@@ -430,13 +450,21 @@ PR 4 (PR #18, feat/company-scope-remaining-plugins): checkpoint aprobado + ola 4
     TestBootstrapHelper determinista (20 plugins, incluido website, fix de transacción vs DDL);
     fix acotado en manufacturing/Warehouse.php (Location::withoutGlobalScope, autorizado
     explícitamente al descubrirse durante el punto anterior)
+  - ola 4A ronda 3 (A18-01/A18-02/A18-03): root cause del no-determinismo entre procesos
+    encontrado y documentado (isPluginInstalled() se resuelve en boot, antes de que corra
+    TestBootstrapHelper); guard assertDatabaseNotAlreadyBootstrapped() falla alto en vez de
+    corromper el esquema; regresión con procesos reales (TestBootstrapHelperDeterminismTest.php)
+    prueba mismo esquema final sin importar el orden Y falla loud en reuso sin recrear; Pint
+    aplicado sobre los 27 archivos del delta completo, verificado sin cambio de comportamiento
   - 123 excepciones formalizadas (1 global_party_identity, 45 alias, 38 global_reference,
     25 parent_scoped, 12 not_tenancy, 1 root_company_entity, 1 multi_company_membership)
   - docs/security/company-scope-pr4-inventory.json regenerado (304 filas): scoped 106→112,
-    classified_exceptions 120→123, gaps reales 78→69
-  - 81 tests nuevos de company-scope + suite completa del monorepo (vendor/bin/pest, exclude
-    gold-standard-dataset) 1639/1639 verde desde una base limpia, sin depender del orden
-  - CI: pendiente de confirmar sobre el nuevo head tras esta ronda
+    classified_exceptions 120→123, gaps reales 78→69 (sin cambio desde ronda 2)
+  - 81 tests de company-scope + 2 tests nuevos de determinismo del harness + suite completa
+    del monorepo (vendor/bin/pest --exclude-group=gold-standard-dataset) 1641/1641 verde desde
+    una base limpia, sin depender del orden
+  - CI: en freeze de presupuesto (workflow_dispatch only, PR #19 mergeado a main) —
+    validación 100% local por instrucción explícita
 Modelos de negocio aún no tocados (próximas olas): Time Off/Leave, Invitations, BankAccount,
   Maintenance, ProjectStage, ActivityPlan, y todo hijo/pivote de un parent aún no escopado
 PR adicional para PR 4: prohibido — los cambios de negocio landean en esta misma rama/PR #18

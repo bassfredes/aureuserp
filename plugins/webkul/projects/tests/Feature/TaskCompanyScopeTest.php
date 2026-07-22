@@ -4,6 +4,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Webkul\Project\Models\Project;
 use Webkul\Project\Models\Task;
+use Webkul\Project\Models\TaskStage;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Scopes\CompanyScope;
@@ -323,7 +324,7 @@ it('forbids a Task\'s stage_id from belonging to a TaskStage in a different Proj
     $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
     test()->actingAs($user);
 
-    $stageOnA2 = \Webkul\Project\Models\TaskStage::factory()->create(['project_id' => $projectA2->id, 'company_id' => $companyA->id]);
+    $stageOnA2 = TaskStage::factory()->create(['project_id' => $projectA2->id, 'company_id' => $companyA->id]);
 
     expect(fn () => Task::factory()
         ->afterMaking(fn (Task $task) => $task->offsetUnset('visibility'))
@@ -341,7 +342,7 @@ it('forbids a Task\'s stage_id from belonging to a TaskStage in a different comp
     $user->allowedCompanies()->syncWithoutDetaching([$companyA->id, $companyB->id]);
     test()->actingAs($user);
 
-    $stageOnB = \Webkul\Project\Models\TaskStage::factory()->create(['project_id' => $projectB->id, 'company_id' => $companyB->id]);
+    $stageOnB = TaskStage::factory()->create(['project_id' => $projectB->id, 'company_id' => $companyB->id]);
 
     expect(fn () => Task::factory()
         ->afterMaking(fn (Task $task) => $task->offsetUnset('visibility'))
@@ -356,7 +357,7 @@ it('allows a Task\'s stage_id when it belongs to the same Project', function () 
     $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
     test()->actingAs($user);
 
-    $stageOnA = \Webkul\Project\Models\TaskStage::factory()->create(['project_id' => $projectA->id, 'company_id' => $companyA->id]);
+    $stageOnA = TaskStage::factory()->create(['project_id' => $projectA->id, 'company_id' => $companyA->id]);
 
     $task = Task::factory()
         ->afterMaking(fn (Task $task) => $task->offsetUnset('visibility'))

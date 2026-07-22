@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Webkul\Support\Services\CompanyContext;
 
 class TestBootstrapHelper
@@ -91,6 +92,7 @@ class TestBootstrapHelper
         }
 
         static::assertSafeToRunDestructiveBootstrap();
+        static::assertDatabaseNotAlreadyBootstrapped();
 
         // DatabaseTransactions has already opened a test transaction by the
         // time this first-ever call happens from inside a test's
@@ -163,6 +165,75 @@ class TestBootstrapHelper
                 "Refusing to run migrate:fresh against \"{$database}\" — it is not in ".self::ALLOWED_DATABASES_ENV.' (currently: ['.implode(', ', $allowedDatabases).']). Set that env var to the dedicated test database name before running this suite. This guard exists after an incident where this helper wiped the shared db_aureuserp database (see the tooling-safety issue linked from #145).'
             );
         }
+    }
+
+    /**
+     * Determinism guard (#138 PR4 ola4A round 2, items A18-01/A18-02):
+     * refuses to bootstrap against a database that a PRIOR process already
+     * installed plugins into, instead of silently corrupting it.
+     *
+     * Root cause, found by direct repro (two separate PHP processes against
+     * the same never-recreated database): `Webkul\PluginManager\Package::
+     * isPluginInstalled()` decides whether a plugin's own service provider
+     * registers its migration paths (`loadMigrationsFrom()`) by querying the
+     * live `plugins` table — and that query runs during THIS process's own
+     * application boot, which happens BEFORE any of this class's code runs
+     * at all (Pest boots the app first, then calls into a test's
+     * beforeEach()). So:
+     *
+     *   - Against a truly empty database (no `plugins` table yet), most
+     *     plugins' migrations aren't registered yet at boot time — only
+     *     core/support's. `migrate:fresh` only ever sees that small, safe
+     *     subset, and succeeds.
+     *   - Against a database a PRIOR process already installed plugins
+     *     into, THIS process's boot sees every plugin marked installed
+     *     (the DB row is still there, migrate:fresh hasn't run yet) — so
+     *     every plugin's migrations get registered this time. `migrate:
+     *     fresh` now processes a much larger combined set, ordered by
+     *     filename/timestamp across every plugin, and hits a genuine
+     *     pre-existing defect: `support`'s `2026_04_02_..._create_calendars_
+     *     table` migration is dated LATER than several other plugins'
+     *     migrations that add a foreign key to `calendars` (e.g.
+     *     `employees`'s `2024_12_12_..._create_employees_employees_table`,
+     *     and separately `manufacturing`'s `..._create_manufacturing_work_
+     *     centers_table`) — those FKs fail with MySQL error 1824 because
+     *     `calendars` hasn't been created yet in that ordering.
+     *
+     * This is a real migration-timestamp defect in those plugins, not a
+     * company-scope bug — fixing it would mean renaming/re-dating shipped
+     * migration files, a production schema change out of scope here and
+     * riskier than the harness fix. CI never hits it: every CI run uses a
+     * brand-new ephemeral MySQL service, so the `plugins` table never
+     * pre-exists at boot, matching the safe "truly empty" case every time.
+     * Locally, reusing the same MySQL database across separate `vendor/bin/
+     * pest` invocations is what exposes it.
+     *
+     * The contract this enforces: every process that calls
+     * ensureERPInstalled() must be the FIRST to ever touch this database.
+     * Recreate it (DROP DATABASE + CREATE DATABASE, or at minimum
+     * `Schema::dropAllTables()` before the NEXT process starts, never
+     * mid-process) before every invocation that needs a guaranteed-clean
+     * bootstrap. Violating that contract now fails loud, with this exact
+     * explanation, instead of leaving the database half-migrated and every
+     * subsequent test failing with an unrelated "table not found".
+     */
+    private static function assertDatabaseNotAlreadyBootstrapped(): void
+    {
+        if (! Schema::hasTable('plugins')) {
+            return;
+        }
+
+        $installedCount = DB::table('plugins')->where('is_installed', true)->count();
+
+        if ($installedCount === 0) {
+            return;
+        }
+
+        $database = DB::connection()->getDatabaseName();
+
+        throw new RuntimeException(
+            "Refusing to bootstrap against \"{$database}\" — it already has {$installedCount} plugin(s) marked installed from a PRIOR process. Bootstrapping again here would make this process's application boot register a wider migration set than a truly empty database would (see this method's docblock for why), which hits a real migration-ordering defect (a `calendars` migration dated after several plugins that foreign-key into it) and leaves the schema half-migrated. Drop and recreate \"{$database}\" (or run Schema::dropAllTables()) before starting this process, not from inside it."
+        );
     }
 
     private static function allowedDatabases(): array
