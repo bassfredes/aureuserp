@@ -3,9 +3,9 @@
 
 declare(strict_types=1);
 
+use App\Support\CompanyScopeAudit\Auditor;
+use App\Support\CompanyScopeAudit\ExceptionManifest;
 use Illuminate\Contracts\Console\Kernel;
-use Illuminate\Database\Eloquent\Model;
-use Webkul\Support\Traits\HasCompanyScope;
 
 require dirname(__DIR__).'/vendor/autoload.php';
 
@@ -13,248 +13,104 @@ $app = require dirname(__DIR__).'/bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
 $options = getopt('', ['plugins:', 'format:', 'fail-on-missing']);
-$pluginNames = array_values(array_filter(
-    array_map('trim', explode(',', (string) ($options['plugins'] ?? 'inventories,purchases,products'))),
-    static fn (string $plugin): bool => $plugin !== '',
-));
 $format = (string) ($options['format'] ?? 'table');
 $failOnMissing = array_key_exists('fail-on-missing', $options);
-
-if ($pluginNames === []) {
-    fwrite(STDERR, "At least one plugin is required.\n");
-    exit(2);
-}
 
 if (! in_array($format, ['table', 'json'], true)) {
     fwrite(STDERR, "Unsupported --format. Use table or json.\n");
     exit(2);
 }
 
-foreach ($pluginNames as $pluginName) {
-    if (! preg_match('/^[a-z0-9-]+$/', $pluginName)) {
-        fwrite(STDERR, "Invalid plugin name: {$pluginName}\n");
+$auditor = new Auditor;
+// COMPANY_SCOPE_MANIFEST_PATH exists so tests can drive this exact script
+// against a deliberately broken fixture manifest — the real orchestration
+// order, not just the Auditor methods in isolation (#138, PR 4 review).
+$manifestPath = getenv('COMPANY_SCOPE_MANIFEST_PATH');
+$manifest = ExceptionManifest::default($manifestPath !== false ? $manifestPath : null);
+
+// No --plugins means a real, global audit — every plugin with a
+// src/Models directory, discovered from disk, not a hardcoded default
+// subset. A partial default here would let `php scripts/audit-company-scope.php`
+// silently skip most of the ERP while looking green (#138, PR 4 review).
+if (array_key_exists('plugins', $options)) {
+    $pluginNames = array_values(array_filter(
+        array_map('trim', explode(',', (string) $options['plugins'])),
+        static fn (string $plugin): bool => $plugin !== '',
+    ));
+
+    if ($pluginNames === []) {
+        fwrite(STDERR, "At least one plugin is required.\n");
         exit(2);
     }
-}
 
-/**
- * @return list<class-string>
- */
-function classesDeclaredInFile(string $path): array
-{
-    $tokens = token_get_all((string) file_get_contents($path));
-    $namespace = '';
-    $classes = [];
-    $tokenCount = count($tokens);
-
-    for ($index = 0; $index < $tokenCount; $index++) {
-        $token = $tokens[$index];
-
-        if (is_array($token) && $token[0] === T_NAMESPACE) {
-            $namespaceParts = [];
-
-            for ($index++; $index < $tokenCount; $index++) {
-                $namespaceToken = $tokens[$index];
-
-                if (is_string($namespaceToken) && ($namespaceToken === ';' || $namespaceToken === '{')) {
-                    break;
-                }
-
-                if (is_array($namespaceToken) && in_array(
-                    $namespaceToken[0],
-                    [T_STRING, T_NS_SEPARATOR, T_NAME_QUALIFIED],
-                    true,
-                )) {
-                    $namespaceParts[] = $namespaceToken[1];
-                }
-            }
-
-            $namespace = implode('', $namespaceParts);
-
-            continue;
-        }
-
-        if (! is_array($token) || $token[0] !== T_CLASS) {
-            continue;
-        }
-
-        $previousIndex = $index - 1;
-        while ($previousIndex >= 0) {
-            $previousToken = $tokens[$previousIndex];
-
-            if (! is_array($previousToken) || $previousToken[0] !== T_WHITESPACE) {
-                break;
-            }
-
-            $previousIndex--;
-        }
-
-        if (
-            $previousIndex >= 0
-            && is_array($tokens[$previousIndex])
-            && $tokens[$previousIndex][0] === T_NEW
-        ) {
-            continue;
-        }
-
-        // `Foo::class` also tokenizes T_STRING, T_DOUBLE_COLON, T_CLASS —
-        // indistinguishable from a real declaration by looking at T_CLASS
-        // alone. Skip it, or the loop below picks up whatever identifier
-        // happens to follow (usually the next method name in the file) as a
-        // bogus "declared class".
-        if (
-            $previousIndex >= 0
-            && is_array($tokens[$previousIndex])
-            && $tokens[$previousIndex][0] === T_DOUBLE_COLON
-        ) {
-            continue;
-        }
-
-        for ($index++; $index < $tokenCount; $index++) {
-            $classToken = $tokens[$index];
-
-            if (is_array($classToken) && $classToken[0] === T_STRING) {
-                $classes[] = ltrim($namespace.'\\'.$classToken[1], '\\');
-                break;
-            }
+    foreach ($pluginNames as $pluginName) {
+        if (! preg_match('/^[a-z0-9-]+$/', $pluginName)) {
+            fwrite(STDERR, "Invalid plugin name: {$pluginName}\n");
+            exit(2);
         }
     }
-
-    return $classes;
+} else {
+    $pluginNames = $auditor->discoverPlugins();
 }
-
-/**
- * @return list<array{
- *     plugin: string,
- *     class: string,
- *     file: string,
- *     table: string|null,
- *     has_company_id: bool|null,
- *     uses_company_scope: bool|null,
- *     status: string,
- *     error: string|null
- * }>
- */
-function inspectPlugin(string $pluginName): array
-{
-    $modelsPath = dirname(__DIR__)."/plugins/webkul/{$pluginName}/src/Models";
-
-    if (! is_dir($modelsPath)) {
-        throw new RuntimeException("Models directory not found for plugin {$pluginName}: {$modelsPath}");
-    }
-
-    $rows = [];
-    $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($modelsPath, RecursiveDirectoryIterator::SKIP_DOTS),
-    );
-
-    /** @var SplFileInfo $file */
-    foreach ($iterator as $file) {
-        if (! $file->isFile() || $file->getExtension() !== 'php') {
-            continue;
-        }
-
-        foreach (classesDeclaredInFile($file->getPathname()) as $className) {
-            try {
-                if (! class_exists($className)) {
-                    $rows[] = [
-                        'plugin'             => $pluginName,
-                        'class'              => $className,
-                        'file'               => $file->getPathname(),
-                        'table'              => null,
-                        'has_company_id'     => null,
-                        'uses_company_scope' => null,
-                        'status'             => 'inspection_error',
-                        'error'              => 'Class is not autoloadable.',
-                    ];
-
-                    continue;
-                }
-
-                $reflection = new ReflectionClass($className);
-
-                if ($reflection->isAbstract() || ! $reflection->isSubclassOf(Model::class)) {
-                    continue;
-                }
-
-                /** @var Model $model */
-                $model = $reflection->newInstance();
-                $table = $model->getTable();
-                $schema = $model->getConnection()->getSchemaBuilder();
-
-                if (! $schema->hasTable($table)) {
-                    $rows[] = [
-                        'plugin'             => $pluginName,
-                        'class'              => $className,
-                        'file'               => $file->getPathname(),
-                        'table'              => $table,
-                        'has_company_id'     => null,
-                        'uses_company_scope' => null,
-                        'status'             => 'table_missing',
-                        'error'              => 'Model table is not present in the migrated schema.',
-                    ];
-
-                    continue;
-                }
-
-                $hasCompanyId = $schema->hasColumn($table, 'company_id');
-                $usesCompanyScope = in_array(HasCompanyScope::class, class_uses_recursive($className), true);
-
-                $rows[] = [
-                    'plugin'             => $pluginName,
-                    'class'              => $className,
-                    'file'               => $file->getPathname(),
-                    'table'              => $table,
-                    'has_company_id'     => $hasCompanyId,
-                    'uses_company_scope' => $usesCompanyScope,
-                    'status'             => ! $hasCompanyId
-                        ? 'not_company_scoped'
-                        : ($usesCompanyScope ? 'scoped' : 'missing_scope'),
-                    'error'              => null,
-                ];
-            } catch (Throwable $exception) {
-                $rows[] = [
-                    'plugin'             => $pluginName,
-                    'class'              => $className,
-                    'file'               => $file->getPathname(),
-                    'table'              => null,
-                    'has_company_id'     => null,
-                    'uses_company_scope' => null,
-                    'status'             => 'inspection_error',
-                    'error'              => $exception->getMessage(),
-                ];
-            }
-        }
-    }
-
-    return $rows;
-}
-
-$rows = [];
 
 try {
-    foreach ($pluginNames as $pluginName) {
-        array_push($rows, ...inspectPlugin($pluginName));
-    }
+    $rows = $auditor->inspectPlugins($pluginNames);
 } catch (Throwable $exception) {
     fwrite(STDERR, $exception->getMessage()."\n");
     exit(2);
 }
 
-usort(
-    $rows,
-    static fn (array $left, array $right): int => [$left['plugin'], $left['class']] <=> [$right['plugin'], $right['class']],
-);
+// The manifest is validated in full on every run, regardless of --plugins
+// scope — a partial-scope run must still catch a stale/broken exception
+// anywhere in the manifest (#138, PR 4 checkpoint). Validated BEFORE
+// classifyRows() ever runs: a malformed entry (missing 'table' or
+// 'classification') must never reach the classification step, even
+// defensively-coded — a broken manifest means the audit itself can't be
+// trusted yet, so nothing downstream should try to use it
+// (#138, PR 4 review, 2026-07-20).
+$manifestViolations = $auditor->validateManifest($manifest);
+
+if ($manifestViolations !== []) {
+    if ($format === 'json') {
+        echo json_encode(
+            ['plugins' => $pluginNames, 'summary' => null, 'rows' => null, 'manifest_violations' => $manifestViolations],
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+        ).PHP_EOL;
+    } else {
+        echo 'Manifest violations (fatal — fix these before the audit can run):'.PHP_EOL;
+
+        foreach ($manifestViolations as $violation) {
+            echo "  [{$violation['type']}] {$violation['fqcn']}: {$violation['message']}".PHP_EOL;
+        }
+    }
+
+    fwrite(STDERR, sprintf("Manifest is broken: %d violation(s). Audit did not run.\n", count($manifestViolations)));
+    exit(2);
+}
+
+$rows = $auditor->classifyRows($rows, $manifest);
+
+$summary = [
+    'total'                         => count($rows),
+    'scoped'                        => count(array_filter($rows, static fn (array $r): bool => $r['effective_status'] === 'scoped')),
+    'classified_exceptions'         => count(array_filter($rows, static fn (array $r): bool => $r['effective_status'] === 'classified_exception')),
+    'real_gaps_with_company_id'     => count(array_filter($rows, static fn (array $r): bool => $r['effective_status'] === 'real_gap_company_column')),
+    'real_gaps_without_company_id'  => count(array_filter($rows, static fn (array $r): bool => $r['effective_status'] === 'real_gap_without_company_column')),
+    'table_missing'                 => count(array_filter($rows, static fn (array $r): bool => $r['effective_status'] === 'table_missing')),
+    'inspection_errors'             => count(array_filter($rows, static fn (array $r): bool => $r['effective_status'] === 'inspection_error')),
+    // Always 0 here — a non-empty $manifestViolations already exited above.
+    'manifest_violations'           => 0,
+];
 
 if ($format === 'json') {
-    echo json_encode($rows, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR).PHP_EOL;
+    echo json_encode(
+        ['plugins' => $pluginNames, 'summary' => $summary, 'rows' => $rows, 'manifest_violations' => []],
+        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+    ).PHP_EOL;
 } else {
-    $reportedRows = array_values(array_filter(
-        $rows,
-        static fn (array $row): bool => $row['has_company_id'] !== false,
-    ));
+    $reportedRows = array_values(array_filter($rows, $auditor->shouldDisplayInTable(...)));
 
-    $headers = ['PLUGIN', 'MODEL', 'TABLE', 'COMPANY_ID', 'SCOPE', 'STATUS'];
+    $headers = ['PLUGIN', 'MODEL', 'TABLE', 'COMPANY_ID', 'SCOPE', 'STATUS', 'CLASSIFICATION', 'EFFECTIVE'];
     $displayRows = array_map(
         static fn (array $row): array => [
             $row['plugin'],
@@ -263,6 +119,8 @@ if ($format === 'json') {
             $row['has_company_id'] === null ? '?' : ($row['has_company_id'] ? 'yes' : 'no'),
             $row['uses_company_scope'] === null ? '?' : ($row['uses_company_scope'] ? 'yes' : 'no'),
             $row['status'],
+            $row['classification'] ?? '-',
+            $row['effective_status'],
         ],
         $reportedRows,
     );
@@ -293,35 +151,34 @@ if ($format === 'json') {
     }
 }
 
-$missingCount = count(array_filter(
-    $rows,
-    static fn (array $row): bool => $row['status'] === 'missing_scope',
-));
-$inspectionErrorCount = count(array_filter(
-    $rows,
-    static fn (array $row): bool => $row['status'] === 'inspection_error',
-));
-$tableMissingCount = count(array_filter(
-    $rows,
-    static fn (array $row): bool => $row['status'] === 'table_missing',
-));
-
 fwrite(
     STDERR,
     sprintf(
-        "Inspected %d model(s): %d missing CompanyScope, %d missing table(s), %d inspection error(s).\n",
-        count($rows),
-        $missingCount,
-        $tableMissingCount,
-        $inspectionErrorCount,
+        "Audited %d plugin(s), %d model(s): %d scoped, %d classified exceptions, %d real gap(s) with company_id, %d real gap(s) without company_id, %d missing table(s), %d inspection error(s), %d manifest violation(s).\n",
+        count($pluginNames),
+        $summary['total'],
+        $summary['scoped'],
+        $summary['classified_exceptions'],
+        $summary['real_gaps_with_company_id'],
+        $summary['real_gaps_without_company_id'],
+        $summary['table_missing'],
+        $summary['inspection_errors'],
+        $summary['manifest_violations'],
     ),
 );
 
-if ($tableMissingCount > 0 || $inspectionErrorCount > 0) {
+// table_missing/inspection_error mean the audit itself is untrustworthy —
+// always fatal, regardless of --fail-on-missing. (Manifest violations
+// already exited above, before classification ever ran.)
+if ($summary['table_missing'] > 0 || $summary['inspection_errors'] > 0) {
     exit(2);
 }
 
-if ($failOnMissing && $missingCount > 0) {
+// Real (unclassified) gaps are known, pending work — only gate on them when
+// the caller explicitly opts in.
+$realGapCount = $summary['real_gaps_with_company_id'] + $summary['real_gaps_without_company_id'];
+
+if ($failOnMissing && $realGapCount > 0) {
     exit(1);
 }
 

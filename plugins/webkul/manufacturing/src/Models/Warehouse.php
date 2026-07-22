@@ -18,6 +18,7 @@ use Webkul\Inventory\Models\OperationType;
 use Webkul\Inventory\Models\Route;
 use Webkul\Inventory\Models\Rule;
 use Webkul\Inventory\Models\Warehouse as BaseWarehouse;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 class Warehouse extends BaseWarehouse
 {
@@ -288,7 +289,7 @@ class Warehouse extends BaseWarehouse
 
     protected function createManufacturingRules(): void
     {
-        $productionLocation = Location::where('type', LocationType::PRODUCTION)->first();
+        $productionLocation = Location::withoutGlobalScope(CompanyScope::class)->where('type', LocationType::PRODUCTION)->first();
 
         $this->manufactureRuleIds[] = Rule::create([
             'sort'                     => 15,
@@ -425,7 +426,7 @@ class Warehouse extends BaseWarehouse
             'deleted_at' => $this->manufacture_steps === ManufactureStep::ONE_STEP ? now() : null,
         ]);
 
-        $productionLocation = Location::where('type', LocationType::PRODUCTION)->first();
+        $productionLocation = Location::withoutGlobalScope(CompanyScope::class)->where('type', LocationType::PRODUCTION)->first();
 
         $this->updateRules(
             'manufacture_steps',
