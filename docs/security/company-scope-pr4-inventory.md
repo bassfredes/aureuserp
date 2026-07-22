@@ -1,40 +1,40 @@
-# PR 4 — Inventario global de company-scope (plugins restantes)
+# PR 4: Inventario global de company-scope (plugins restantes)
 
 - Tracking: `bassfredes/Intelligent-Integration-Suite#138` (padre `#81`)
 - Branch: `feat/company-scope-remaining-plugins`
 - Base: `main` @ `ef7e6aaa8ca55d268288993a3d7f8231adc4479a` (squash PR #17)
-- Estado: checkpoint de inventario/auditoría. **Ningún modelo de negocio fue modificado en este checkpoint** — ver "Estado" al final.
+- Estado: checkpoint de inventario/auditoría. **Ningún modelo de negocio fue modificado en este checkpoint**: ver "Estado" al final.
 
 ## Metodología
 
 Auditoría ejecutada vía `php scripts/audit-company-scope.php` (PHP 8.4.23, dentro del contenedor `monorepo-aureuserp-1`), reescrito en este checkpoint para apoyarse en:
 
-- `app/Support/CompanyScopeAudit/Auditor.php` — motor de inspección (extraído del script original para ser testeable en aislamiento).
-- `app/Support/CompanyScopeAudit/ExceptionManifest.php` — lector del manifest de excepciones.
-- `config/company-scope-exceptions.php` — el manifest mismo: única vía sancionada para silenciar un hallazgo `missing_scope`/`not_company_scoped`, por FQCN exacto (sin exclusiones por namespace/regex/nombre corto).
+- `app/Support/CompanyScopeAudit/Auditor.php`: motor de inspección (extraído del script original para ser testeable en aislamiento).
+- `app/Support/CompanyScopeAudit/ExceptionManifest.php`: lector del manifest de excepciones.
+- `config/company-scope-exceptions.php`: el manifest mismo: única vía sancionada para silenciar un hallazgo `missing_scope`/`not_company_scoped`, por FQCN exacto (sin exclusiones por namespace/regex/nombre corto).
 
-**Auto-discovery real**: sin `--plugins`, el script audita `plugins/webkul/*/src/Models` completo (26 plugins detectados en disco, orden determinista, excluye silenciosamente los que no tienen `src/Models` como `barcode`/`full-calendar`) — ya no un default hardcodeado de 3 plugins. `php scripts/audit-company-scope.php` sin argumentos es ahora una auditoría global real, no un falso verde parcial.
+**Auto-discovery real**: sin `--plugins`, el script audita `plugins/webkul/*/src/Models` completo (26 plugins detectados en disco, orden determinista, excluye silenciosamente los que no tienen `src/Models` como `barcode`/`full-calendar`): ya no un default hardcodeado de 3 plugins. `php scripts/audit-company-scope.php` sin argumentos es ahora una auditoría global real, no un falso verde parcial.
 
-**Estados por fila**: `effective_status` colapsa el escaneo crudo + la clasificación del manifest en `scoped | classified_exception | real_gap_company_column | real_gap_without_company_column | table_missing | inspection_error`. `Auditor::isRealGap()` cubre AMBOS `missing_scope` (tiene `company_id`, sin `HasCompanyScope`) y `not_company_scoped` (sin `company_id`) cuando no hay una entrada de manifest válida — antes solo el primero contaba para `--fail-on-missing`, dejando huecos como `Milestone`/pivotes/children sin `company_id` fuera del gate.
+**Estados por fila**: `effective_status` colapsa el escaneo crudo + la clasificación del manifest en `scoped | classified_exception | real_gap_company_column | real_gap_without_company_column | table_missing | inspection_error`. `Auditor::isRealGap()` cubre AMBOS `missing_scope` (tiene `company_id`, sin `HasCompanyScope`) y `not_company_scoped` (sin `company_id`) cuando no hay una entrada de manifest válida: antes solo el primero contaba para `--fail-on-missing`, dejando huecos como `Milestone`/pivotes/children sin `company_id` fuera del gate.
 
 El auditor valida el manifest completo en cada corrida (independiente del `--plugins` solicitado) y falla (`exit 2`) ante cualquiera de:
 
-- `invalid_shape` — falta `table`/`classification`/`reason`/`tracking` no-vacíos, o `classification: alias` sin `alias_of`.
-- `class_not_found` — la clase de una entrada ya no existe/autoload.
-- `table_mismatch` — la tabla registrada no coincide con la tabla real del modelo.
-- `invalid_classification` — la clasificación no es una de `global_party_identity|alias|global_reference|parent_scoped|not_tenancy|root_company_entity|multi_company_membership`.
-- `stale_exception` — el modelo ya usa `HasCompanyScope` de verdad (basta `uses_company_scope === true`, sin importar `has_company_id`); la excepción sobra y debe eliminarse.
-- `alias_chain_broken` — el `alias_of` no es realmente ancestro (`is_subclass_of`), o apunta a una clase sin entrada de manifest y no autoloadable.
-- `alias_chain_cycle` — la cadena de `alias_of` se revisita a sí misma.
+- `invalid_shape`: falta `table`/`classification`/`reason`/`tracking` no-vacíos, o `classification: alias` sin `alias_of`.
+- `class_not_found`: la clase de una entrada ya no existe/autoload.
+- `table_mismatch`: la tabla registrada no coincide con la tabla real del modelo.
+- `invalid_classification`: la clasificación no es una de `global_party_identity|alias|global_reference|parent_scoped|not_tenancy|root_company_entity|multi_company_membership`.
+- `stale_exception`: el modelo ya usa `HasCompanyScope` de verdad (basta `uses_company_scope === true`, sin importar `has_company_id`); la excepción sobra y debe eliminarse.
+- `alias_chain_broken`: el `alias_of` no es realmente ancestro (`is_subclass_of`), o apunta a una clase sin entrada de manifest y no autoloadable.
+- `alias_chain_cycle`: la cadena de `alias_of` se revisita a sí misma.
 - `table_missing` / `inspection_error` (comportamiento preexistente).
 
-Un gap real (sin entrada de manifest, `missing_scope` o `not_company_scoped`) solo hace fallar la corrida (`exit 1`) cuando se pasa `--fail-on-missing` — es trabajo pendiente conocido, no un auditor roto. Verificado explícitamente sobre la base fresh: `php scripts/audit-company-scope.php --format=json` → `exit 0` (0 table_missing, 0 inspection_errors, 0 manifest_violations, 78 gaps reales); el mismo comando `--fail-on-missing` → `exit 1` (78 gaps reales > 0).
+Un gap real (sin entrada de manifest, `missing_scope` o `not_company_scoped`) solo hace fallar la corrida (`exit 1`) cuando se pasa `--fail-on-missing`: es trabajo pendiente conocido, no un auditor roto. Verificado explícitamente sobre la base fresh: `php scripts/audit-company-scope.php --format=json` → `exit 0` (0 table_missing, 0 inspection_errors, 0 manifest_violations, 78 gaps reales); el mismo comando `--fail-on-missing` → `exit 1` (78 gaps reales > 0).
 
-Cobertura de tests: `tests/Feature/Support/CompanyScopeAuditorTest.php` (29 casos) — excepción válida, alias esperado, cadena de alias multi-hop real, `not_company_scoped` clasificado vs no clasificado, `missing_scope` no clasificado, `table_missing`, excepción stale (por `uses_company_scope` solo), tabla incorrecta, clasificación inválida, clase inexistente, shape inválido (4 variantes: cada campo requerido eliminado por completo), validación detenida tras shape inválido (sin segunda violación espuria), alias sin `alias_of`, cadena de alias rota (clase inexistente Y clase real-pero-no-registrada, casos distintos), ciclo de alias, manifest válido con tabla físicamente ausente en la corrida (sin violación), TableView/TableViewFavorite no silenciables vía manifest, gap sin company_id visible en `--format=table`, excepción sin company_id oculta en `--format=table`, `table_missing` siempre visible, discovery global determinista, `--plugins` focalizado, plugin inexistente solicitado.
+Cobertura de tests: `tests/Feature/Support/CompanyScopeAuditorTest.php` (29 casos): excepción válida, alias esperado, cadena de alias multi-hop real, `not_company_scoped` clasificado vs no clasificado, `missing_scope` no clasificado, `table_missing`, excepción stale (por `uses_company_scope` solo), tabla incorrecta, clasificación inválida, clase inexistente, shape inválido (4 variantes: cada campo requerido eliminado por completo), validación detenida tras shape inválido (sin segunda violación espuria), alias sin `alias_of`, cadena de alias rota (clase inexistente Y clase real-pero-no-registrada, casos distintos), ciclo de alias, manifest válido con tabla físicamente ausente en la corrida (sin violación), TableView/TableViewFavorite no silenciables vía manifest, gap sin company_id visible en `--format=table`, excepción sin company_id oculta en `--format=table`, `table_missing` siempre visible, discovery global determinista, `--plugins` focalizado, plugin inexistente solicitado.
 
 ## Checkpoint de esquema completo (fresh install aislado)
 
-Base aislada `db_aureuserp_audit_fresh` (mismo servidor MySQL del entorno dev, base y usuario separados de `db_aureuserp`/`db_aureuserp_test`). Secuencia: `erp:install --force -n` + los 20 comandos `<plugin>:install -n` (accounting, accounts, barcode, blogs, contacts, employees, full-calendar, inventories, invoices, maintenance, manufacturing, payments, products, projects, purchases, recruitments, sales, time-off, timesheets, website) — todos exit 0.
+Base aislada `db_aureuserp_audit_fresh` (mismo servidor MySQL del entorno dev, base y usuario separados de `db_aureuserp`/`db_aureuserp_test`). Secuencia: `erp:install --force -n` + los 20 comandos `<plugin>:install -n` (accounting, accounts, barcode, blogs, contacts, employees, full-calendar, inventories, invoices, maintenance, manufacturing, payments, products, projects, purchases, recruitments, sales, time-off, timesheets, website): todos exit 0.
 
 Corrida final tras ola 4A, `php scripts/audit-company-scope.php --format=json` (auto-discovery, 26 plugins, sin `--plugins`) sobre la misma base fresh, committeada en `docs/security/company-scope-pr4-inventory.json`:
 
@@ -51,18 +51,18 @@ Corrida final tras ola 4A, `php scripts/audit-company-scope.php --format=json` (
 }
 ```
 
-`exit 0` sin `--fail-on-missing`; `exit 1` con `--fail-on-missing` (69 gaps reales = 38 + 31 > 0, todavía esperado — quedan olas futuras) — verificado explícitamente, no asumido.
+`exit 0` sin `--fail-on-missing`; `exit 1` con `--fail-on-missing` (69 gaps reales = 38 + 31 > 0, todavía esperado: quedan olas futuras): verificado explícitamente, no asumido.
 
 | Corrida | table_missing | inspection_error | manifest_violations | gaps reales | exit (sin flag) | exit (`--fail-on-missing`) |
 |---|---|---|---|---|---|---|
-| DB dev existente (`db_aureuserp`), auto-discovery | 35 | 0 | 0 | — (no se completó, table_missing>0 es fatal) | 2 | 2 |
+| DB dev existente (`db_aureuserp`), auto-discovery | 35 | 0 | 0 | n/a (no se completó, table_missing>0 es fatal) | 2 | 2 |
 | DB aislada, fresh install completo (checkpoint, antes de ola 4A) | **0** | **0** | **0** | 78 | **0** | **1** |
 | DB aislada, fresh install completo (ola 4A, ronda 1) | **0** | **0** | **0** | 70 | **0** | **1** |
 | DB aislada, fresh install completo (ola 4A, ronda 2) | **0** | **0** | **0** | 69 | **0** | **1** |
 
-`scoped` sube de 106 a 112 (+6: `Project`, `Task`, `TaskStage`, ambas clases `Timesheet` — `Webkul\Project\Models\Timesheet` y `Webkul\Timesheet\Models\Timesheet` — y, desde la ronda 2, `Webkul\Analytic\Models\Record`, el owner físico de `analytic_records`). `classified_exceptions` sube de 120 a 123 (+3: `TableView`, `TableViewFavorite`, `Milestone`). Gaps reales bajan de 78 a 69.
+`scoped` sube de 106 a 112 (+6: `Project`, `Task`, `TaskStage`, ambas clases `Timesheet`: `Webkul\Project\Models\Timesheet` y `Webkul\Timesheet\Models\Timesheet`: y, desde la ronda 2, `Webkul\Analytic\Models\Record`, el owner físico de `analytic_records`). `classified_exceptions` sube de 120 a 123 (+3: `TableView`, `TableViewFavorite`, `Milestone`). Gaps reales bajan de 78 a 69.
 
-## Manifest de excepciones — resumen
+## Manifest de excepciones: resumen
 
 123 entradas, 0 violaciones (shape, tabla, clasificación, stale, cadena de alias) sobre el manifest completo. `TableView`/`TableViewFavorite` reingresaron al manifest en ola 4A tras cerrar el IDOR con un resolver server-side real (ver "Ola 4A" abajo); `Milestone` entró por primera vez, `parent_scoped` vía su Project obligatorio.
 
@@ -71,7 +71,7 @@ Conteo exacto (`config/company-scope-exceptions.php`, verificado por script, no 
 | Clasificación | Cantidad | Notas |
 |---|---|---|
 | `global_party_identity` | 1 | `Webkul\Partner\Models\Partner` (raíz canónica) |
-| `alias` | 45 | Partner/Customer/Vendor/Address (15 aliases del grupo original) + Currency/Bank/Industry/Tag/Title/Incoterm/CashRounding/Category/Attribute/ProcurementGroup/UTMMedium/UTMSource/EmploymentType/SkillType/`Company`(security) — cadenas multi-hop verificadas (p.ej. `sales.Category → invoices.Category → accounts.Category → products.Category`) |
+| `alias` | 45 | Partner/Customer/Vendor/Address (15 aliases del grupo original) + Currency/Bank/Industry/Tag/Title/Incoterm/CashRounding/Category/Attribute/ProcurementGroup/UTMMedium/UTMSource/EmploymentType/SkillType/`Company`(security): cadenas multi-hop verificadas (p.ej. `sales.Category → invoices.Category → accounts.Category → products.Category`) |
 | `global_reference` | 38 | Currency, Country, State, Bank, UOM, UOMCategory, EmailTemplate, custom_fields, UTMMedium/Source/Stage, products Attribute/Category/AttributeOption/Tag, accounts Incoterm/CashRounding/Tag/PaymentMethod, inventories Tag, manufacturing WorkCenterLossType/Tag/ProductivityLoss, HR/recruitment lookup tables (EmployeeCategory, DepartureReason, EmployeeResumeLineType, EmploymentType, SkillType, SkillLevel, Skill, ApplicantCategory, Degree, RefuseReason), `maintenance.Stage` (contrato aprobado), `partners`/`contacts` Industry/Tag/Title, `projects.Tag` |
 | `parent_scoped` | 25 | Pivotes/hijos de un parent YA `HasCompanyScope` o pivote-validado, con evidencia citada (p.ej. `sales.OrderLine` vía `ValidatesRelatedCompanyScope`, `accounts_account_*` pivots vía Journal/Tax/Move ya escopados, `manufacturing_work_orders/operations/work_center_capacities`, y desde ola 4A `Webkul\Project\Models\Milestone` vía su Project mandatorio) |
 | `not_tenancy` | 12 | Permission, Role, Team(security), Plugin, EmailLog, Blog Category/Post/Tag, Website Page, ActivityTypeSuggestion, y desde ola 4A `TableView`/`TableViewFavorite` (estado de UI propio del usuario, IDOR cerrado vía resolver) |
@@ -79,32 +79,32 @@ Conteo exacto (`config/company-scope-exceptions.php`, verificado por script, no 
 | `multi_company_membership` | 1 | `Webkul\Security\Models\User` |
 | **Total** | **123** | |
 
-`BankAccount` (4 clases) queda deliberadamente **fuera** del manifest — es un gap real pendiente del pivote `partners_bank_account_companies` del contrato aprobado, no una excepción. Ver sección 4.
+`BankAccount` (4 clases) queda deliberadamente **fuera** del manifest: es un gap real pendiente del pivote `partners_bank_account_companies` del contrato aprobado, no una excepción. Ver sección 4.
 
-Todos los modelos hijos/pivote de un parent que **todavía no está escopado** (Employee, JobPosition, Department, Candidate, Applicant, Calendar, ActivityPlan, LeaveType, Team de maintenance/sales) quedan deliberadamente fuera del manifest también — `parent_scoped` solo se usa cuando existe enforcement real y citable, nunca por adelantado. `Project`/`Task`/`TaskStage`/`Timesheet` ya no aparecen en esta lista de pendientes: desde ola 4A son `scoped` de verdad (`HasCompanyScope` + enforcement real en cada save), no manifest — ver "Ola 4A" abajo.
+Todos los modelos hijos/pivote de un parent que **todavía no está escopado** (Employee, JobPosition, Department, Candidate, Applicant, Calendar, ActivityPlan, LeaveType, Team de maintenance/sales) quedan deliberadamente fuera del manifest también: `parent_scoped` solo se usa cuando existe enforcement real y citable, nunca por adelantado. `Project`/`Task`/`TaskStage`/`Timesheet` ya no aparecen en esta lista de pendientes: desde ola 4A son `scoped` de verdad (`HasCompanyScope` + enforcement real en cada save), no manifest: ver "Ola 4A" abajo.
 
 ---
 
 ## Leyenda de clasificación (matriz narrativa, secciones 0-6)
 
-- `owner standalone` — HasCompanyScope, company_id no-nulo, autorización de escritura en cada save, company_id inmutable.
-- `child` — deriva compañía del parent persistido, sin columna propia o validada contra el parent.
-- `global_party_identity` — Partner/Customer/Vendor y alias, decisión cerrada, NO tocar.
-- `global_system_config` / `global_reference_data` — dato compartido por diseño (países, monedas, UOM, bancos, permisos, plantillas de email...), sin dimensión de compañía.
-- `relational-no-company-with-pivot` — sin company_id, validado vía pivote M2M a Company.
-- `multi_company_membership` — User (default_company_id + user_allowed_companies), es la raíz que CompanyScope::allowedCompanyIds() lee.
-- `root_company_entity` — Company mismo, no se auto-escopa.
-- **real gap** — requiere código de negocio, autorizado a landear en esta misma rama/PR #18 una vez el checkpoint quede aprobado (no en un PR separado).
+- `owner standalone`: HasCompanyScope, company_id no-nulo, autorización de escritura en cada save, company_id inmutable.
+- `child`: deriva compañía del parent persistido, sin columna propia o validada contra el parent.
+- `global_party_identity`: Partner/Customer/Vendor y alias, decisión cerrada, NO tocar.
+- `global_system_config` / `global_reference_data`: dato compartido por diseño (países, monedas, UOM, bancos, permisos, plantillas de email...), sin dimensión de compañía.
+- `relational-no-company-with-pivot`: sin company_id, validado vía pivote M2M a Company.
+- `multi_company_membership`: User (default_company_id + user_allowed_companies), es la raíz que CompanyScope::allowedCompanyIds() lee.
+- `root_company_entity`: Company mismo, no se auto-escopa.
+- **real gap**: requiere código de negocio, autorizado a landear en esta misma rama/PR #18 una vez el checkpoint quede aprobado (no en un PR separado).
 
 ---
 
-## 0. Dominios ya cerrados (PR #17) — verificación, sin acción
+## 0. Dominios ya cerrados (PR #17): verificación, sin acción
 
 71 filas dedupe a 45 tablas físicas. Todas resuelven a 4 patrones ya revisados:
-1. Taxonomía/referencia global (products_attributes, products_categories, currencies, accounts_incoterms, accounts_cash_roundings, accounts_account_tags, manufacturing_work_center_loss_types/tags/productivity_losses, inventories_tags). `partners_bank_accounts` fue removida de esta lista — ver sección 4, es un gap real de PR 4, no una excepción cerrada.
-2. Pivotes/hijos cuyo único FK apunta a un parent ya `HasCompanyScope` (accounts_account_* pivots, inventories_package_destinations, inventories_procurement_groups, purchases_order_groups, manufacturing_work_orders/work_center_capacities/operations — estos 3 últimos con comentario explícito "#138 review round 2, 2026-07-18" en código).
-3. `accounts_accounts` (Account) — sin company_id propio, validado vía pivote M2M `accounts_account_companies` (confirmado en `accounts/src/Models/Account.php:111,200`).
-4. Los 9 `missing_scope` de Partner/Customer/Vendor documentados en PR #17 — ahora formalizados en el manifest (junto con 7 aliases adicionales de otros plugins no cubiertos por esa auditoría más angosta, ver arriba).
+1. Taxonomía/referencia global (products_attributes, products_categories, currencies, accounts_incoterms, accounts_cash_roundings, accounts_account_tags, manufacturing_work_center_loss_types/tags/productivity_losses, inventories_tags). `partners_bank_accounts` fue removida de esta lista: ver sección 4, es un gap real de PR 4, no una excepción cerrada.
+2. Pivotes/hijos cuyo único FK apunta a un parent ya `HasCompanyScope` (accounts_account_* pivots, inventories_package_destinations, inventories_procurement_groups, purchases_order_groups, manufacturing_work_orders/work_center_capacities/operations: estos 3 últimos con comentario explícito "#138 review round 2, 2026-07-18" en código).
+3. `accounts_accounts` (Account): sin company_id propio, validado vía pivote M2M `accounts_account_companies` (confirmado en `accounts/src/Models/Account.php:111,200`).
+4. Los 9 `missing_scope` de Partner/Customer/Vendor documentados en PR #17: ahora formalizados en el manifest (junto con 7 aliases adicionales de otros plugins no cubiertos por esa auditoría más angosta, ver arriba).
 
 Los 13 `table_missing` de `manufacturing` en la corrida sobre `db_aureuserp` eran solo entorno (confirmado por el checkpoint de fresh install: sus tablas existen y ya tienen `HasCompanyScope` en código, con comentario de ronda de revisión).
 
@@ -114,7 +114,7 @@ Dos notas menores no bloqueantes: `inventories.PackageDestination`/`ProductQuant
 
 ---
 
-## 1. Cluster HR — employees, time-off, recruitments (49 filas)
+## 1. Cluster HR: employees, time-off, recruitments (49 filas)
 
 Tablas compartidas cruzando plugins (un solo owner físico, resto son alias sin lógica):
 - `activity_plans`/`activity_types` → owner real: **support** (`Webkul\Support\Models\ActivityPlan/ActivityType`)
@@ -122,7 +122,7 @@ Tablas compartidas cruzando plugins (un solo owner físico, resto son alias sin 
 - `utm_mediums`/`utm_sources` → owner real: **support**
 - `employees_job_positions`/`employees_departments`/`employees_employment_types`/`employees_skill_types` → owner real: **employees** (recruitments solo ALTERs + subclases)
 
-### Hallazgo más severo del cluster (CRÍTICO) — contrato aprobado, ver sección "Decisiones de contrato"
+### Hallazgo más severo del cluster (CRÍTICO): contrato aprobado, ver sección "Decisiones de contrato"
 
 `TimeOff\Leave` y `TimeOff\LeaveAllocation` tienen `employee_id` **NOT NULL** pero derivan `company_id`/`employee_company_id` de `Auth::user()->default_company_id` (el actor), nunca de `$employee->company_id` (el parent ya resuelto):
 - `plugins/webkul/time-off/src/Traits/TimeOffHelper.php:445-449` (`updateEmployeeAndCompanyData()`)
@@ -138,7 +138,7 @@ Tablas compartidas cruzando plugins (un solo owner físico, resto son alias sin 
 | `Employee\Department` (+ alias recruitments) | employees_departments | Alto | HasCompanyScope + reauth en save + validar parent_id/master_department_id no cruce de compañía |
 | `Employee\Employee` | employees_employees | Crítico | HasCompanyScope; es ancla de TimeOff/Recruitment |
 | `Employee\EmployeeJobPosition` (+ alias/subclase recruitments) | employees_job_positions | Alto | HasCompanyScope + validar company_id vs department.company_id (hoy pueden divergir) |
-| `Employee\WorkLocation` | employees_work_locations | Alto | company_id NOT NULL en DB pero sin autorización — Select abierto sin restricción |
+| `Employee\WorkLocation` | employees_work_locations | Alto | company_id NOT NULL en DB pero sin autorización: Select abierto sin restricción |
 | `Recruitment\Applicant` | recruitments_applicants | Alto | HasCompanyScope + validar candidate_id/job_id/department_id; además bug de clave duplicada en `createEmployee()` descarta el company_id propio |
 | `Recruitment\Candidate` | recruitments_candidates | Alto | HasCompanyScope (mismo patrón de auto-provisión de Partner que Employee) |
 | `TimeOff\LeaveAccrualPlan` | time_off_leave_accrual_plans | Alto | HasCompanyScope; ojo: `onDelete('cascade')` en company_id (anómalo, borra planes si se borra la Company) |
@@ -147,7 +147,7 @@ Tablas compartidas cruzando plugins (un solo owner físico, resto son alias sin 
 | `Recruitment\Stage` | recruitments_stages | Bajo-Medio | Decisión de producto: global vs por-compañía (hoy sin company_id) |
 
 ### Bypass patterns
-`Company::first()` en 4 seeders (DepartmentSeeder, WorkLocationSeeder, AccrualPlanSeeder, LeaveTypeSeeder). Ver "Seeders e instaladores" en Decisiones de contrato — esto ya NO se considera un bypass a corregir por seeder individual, ver contrato aprobado.
+`Company::first()` en 4 seeders (DepartmentSeeder, WorkLocationSeeder, AccrualPlanSeeder, LeaveTypeSeeder). Ver "Seeders e instaladores" en Decisiones de contrato: esto ya NO se considera un bypass a corregir por seeder individual, ver contrato aprobado.
 
 ### Bugs no relacionados a scope (flag, no bloqueante)
 - `Applicant::createEmployee()`: clave de array duplicada `'company_id'`, se sobrescribe silenciosamente con `candidate.company_id`.
@@ -155,34 +155,34 @@ Tablas compartidas cruzando plugins (un solo owner físico, resto son alias sin 
 
 ---
 
-## 2. Cluster PM/Analytics — projects, timesheets, analytics (10 filas)
+## 2. Cluster PM/Analytics: projects, timesheets, analytics (10 filas)
 
 `analytic_records` es tabla física única con herencia STI: `Analytic\Record` (base, owner real) ← `Project\Timesheet extends Record` ← `Timesheet\Timesheet extends Project\Timesheet` (subclase vacía). Un solo fix en `Record::boot()` resuelve las 3 clases.
 
-### Hallazgos críticos — contrato aprobado, ver sección "Decisiones de contrato"
+### Hallazgos críticos: contrato aprobado, ver sección "Decisiones de contrato"
 
 - **`Project` no tiene CompanyScope** (solo `UserPermissionScope`, que es visibilidad usuario/equipo, no aislamiento de tenant).
 - **IDOR confirmado en `MilestoneController`**: `show/update/destroy` hacen `Milestone::findOrFail($id)` sin ningún chequeo de compañía/pertenencia; la policy solo valida una ability de Spatie, nunca ownership por registro.
-- **Timesheet/`analytic_records` nunca recibe company_id al crear** — el único lugar que lo backfilla es el hook `updated()` de `Task`.
+- **Timesheet/`analytic_records` nunca recibe company_id al crear**: el único lugar que lo backfilla es el hook `updated()` de `Task`.
 - `Task.company_id` se deriva de `Auth::user()->default_company_id`, nunca del `project_id` ya seleccionado en el mismo formulario.
 
 ### Prioridad de fix (orden del propio agente, confirmado en la revisión)
-1. `Project` (raíz) — 2. Cadena Timesheet — 3. `Milestone` (IDOR) — 4. `Task`/`TaskStage` — 5. `ProjectStage` (`IncludesSharedCompanyRows`) — 6. `ActivityPlan` (fix pertenece a Support) — 7. `Tag` (sin acción).
+1. `Project` (raíz): 2. Cadena Timesheet: 3. `Milestone` (IDOR): 4. `Task`/`TaskStage`: 5. `ProjectStage` (`IncludesSharedCompanyRows`): 6. `ActivityPlan` (fix pertenece a Support): 7. `Tag` (sin acción).
 
-**✅ Resuelto en ola 4A** (puntos 1-4 de esta lista): `Project`/`Task`/`TaskStage`/`Timesheet` (ambas clases) y `Milestone` — ver sección "Ola 4A" al final del documento. `ProjectStage` y `ActivityPlan` siguen pendientes de una ola futura.
+**✅ Resuelto en ola 4A** (puntos 1-4 de esta lista): `Project`/`Task`/`TaskStage`/`Timesheet` (ambas clases) y `Milestone`: ver sección "Ola 4A" al final del documento. `ProjectStage` y `ActivityPlan` siguen pendientes de una ola futura.
 
 ---
 
-## 3. Cluster Platform — chatter, security, support (30 filas)
+## 3. Cluster Platform: chatter, security, support (30 filas)
 
 ### Hallazgos clave
 
-1. **`Security\Models\Company` es código muerto** — subclase vacía de 1 línea, cero referencias fuera de su propia policy huérfana. La clase canónica real es `Support\Models\Company` (228 usos).
-2. **`Support\Models\Company` (la real) correctamente no se auto-escopa** — entidad raíz de tenant, protegida por permisos Filament-Shield.
+1. **`Security\Models\Company` es código muerto**: subclase vacía de 1 línea, cero referencias fuera de su propia policy huérfana. La clase canónica real es `Support\Models\Company` (228 usos).
+2. **`Support\Models\Company` (la real) correctamente no se auto-escopa**: entidad raíz de tenant, protegida por permisos Filament-Shield.
 3. **`User` es la raíz de `multi_company_membership`** (`default_company_id` + pivote `user_allowed_companies`). Sin gap propio.
-4. **Gap real en flujo de invitaciones — contrato aprobado**, ver "Decisiones de contrato".
-5. **`Chatter\Attachment.company_id` es columna muerta** — existe pero ningún call-site la puebla.
-6. **`CurrencyRate`** — candidato claro a `IncludesSharedCompanyRows`.
+4. **Gap real en flujo de invitaciones: contrato aprobado**, ver "Decisiones de contrato".
+5. **`Chatter\Attachment.company_id` es columna muerta**: existe pero ningún call-site la puebla.
+6. **`CurrencyRate`**: candidato claro a `IncludesSharedCompanyRows`.
 7. **`UtmCampaign`** es la única del grupo UTM que debería escoparse pero no lo hace.
 
 ### Clasificación global_system_config (sin acción)
@@ -193,58 +193,58 @@ ActivityPlan/ActivityPlanTemplate (ver HR), Calendar, CalendarLeave (ver HR), Cu
 
 ---
 
-## 4. Cluster Identity — partners, contacts (14 filas)
+## 4. Cluster Identity: partners, contacts (14 filas)
 
 `partners` = capa de modelo/schema (dueña de TODAS las migraciones); `contacts` = capa de UI (subclases de 0 lógica). Ambos plugins son necesarios, no hay duplicado a resolver.
 
 - `Partner`/`Address`/Customer/Vendor → 16 excepciones en el manifest: 1 `global_party_identity` (`Webkul\Partner\Models\Partner`, raíz canónica) + 15 `alias` (Address, y las plugin-scoped subclasses de Partner/Customer/Vendor).
 - `Bank`, `Industry`, `Tag`, `Title` → clasificadas `global_reference` en el manifest de este checkpoint (sin company_id por diseño, sin FK a una entidad tenant-owned).
-- **`BankAccount`** (`partners_bank_accounts`, 4 clases) → **gap real, deliberadamente fuera del manifest**. Contrato aprobado con pivote `partners_bank_account_companies`, ver "Decisiones de contrato" — no implementado en este checkpoint.
+- **`BankAccount`** (`partners_bank_accounts`, 4 clases) → **gap real, deliberadamente fuera del manifest**. Contrato aprobado con pivote `partners_bank_account_companies`, ver "Decisiones de contrato": no implementado en este checkpoint.
 
 ---
 
-## 5. Cluster Commerce — sales, maintenance, payments (22 filas)
+## 5. Cluster Commerce: sales, maintenance, payments (22 filas)
 
-- **`maintenance`**: contrato aprobado, ver "Decisiones de contrato" — `Stage` queda referencia global; `Team`/`EquipmentCategory`/`Equipment`/`MaintenanceRequest` quedan `strict_company`.
-- **`payments`** (PaymentToken/PaymentTransaction) — dormido, sin write path actual. Escopar como prerequisito bloqueante antes de conectar cualquier gateway real.
-- **`sales.Team`** — mismo gap vivo que `maintenance.Team`.
-- **Bypass explícito**: `OrderTemplateProduct::boot()` usa `Company::first()?->id`/`Product::first()?->id`/`UOM::first()?->id` — dormido (Filament Resource huérfano), pero mismo anti-patrón que este rollout cierra en otros lados.
-- `OrderLine` (sales) ya correctamente implementado (child + `ValidatesRelatedCompanyScope`) — falso positivo del auditor, sin acción.
+- **`maintenance`**: contrato aprobado, ver "Decisiones de contrato": `Stage` queda referencia global; `Team`/`EquipmentCategory`/`Equipment`/`MaintenanceRequest` quedan `strict_company`.
+- **`payments`** (PaymentToken/PaymentTransaction): dormido, sin write path actual. Escopar como prerequisito bloqueante antes de conectar cualquier gateway real.
+- **`sales.Team`**: mismo gap vivo que `maintenance.Team`.
+- **Bypass explícito**: `OrderTemplateProduct::boot()` usa `Company::first()?->id`/`Product::first()?->id`/`UOM::first()?->id`: dormido (Filament Resource huérfano), pero mismo anti-patrón que este rollout cierra en otros lados.
+- `OrderLine` (sales) ya correctamente implementado (child + `ValidatesRelatedCompanyScope`): falso positivo del auditor, sin acción.
 
 ---
 
-## 6. Cluster Infra — blogs, website, table-views, fields, plugin-manager (9 filas)
+## 6. Cluster Infra: blogs, website, table-views, fields, plugin-manager (9 filas)
 
 | Modelo | Tabla | company_id | Clasificación | Acción |
 |---|---|---|---|---|
 | `Blog\Category/Post/Tag` | blogs_categories/posts/tags | no | Contenido de sitio único, global por diseño | Ninguna |
 | `Website\Page` | website_pages | no | Igual que Blog | Ninguna |
-| `Website\Partner` | partners_partners | — (alias) | `global_party_identity`, excepción de portal Customer (ADR 0007) | Ninguna — decisión cerrada |
+| `Website\Partner` | partners_partners | n/a (alias) | `global_party_identity`, excepción de portal Customer (ADR 0007) | Ninguna: decisión cerrada |
 | `Field` (fields) | custom_fields | no | Definiciones de campo custom (schema), `global_system_config` | Ninguna |
 | `Plugin` (plugin-manager) | plugins | no | Registro de instalación a nivel de sistema | Ninguna |
 | `TableView`/`TableViewFavorite` | table_views/table_view_favorites | no | User-owned, lectura pública opcional | ✅ Resuelto en ola 4A |
 
-### IDOR confirmado en TableView — contrato aprobado, ver "Decisiones de contrato"
+### IDOR confirmado en TableView: contrato aprobado, ver "Decisiones de contrato"
 
-`HasTableViews::getSavedTableViews()` no filtra por compañía. Más serio: `EditViewAction`/`deleteTableViewAction`/`replaceTableViewAction` resolvían `TableView::find($arguments['view_key'])` sin re-verificar `user_id` server-side — el chequeo de propiedad solo gateaba visibilidad del botón.
+`HasTableViews::getSavedTableViews()` no filtra por compañía. Más serio: `EditViewAction`/`deleteTableViewAction`/`replaceTableViewAction` resolvían `TableView::find($arguments['view_key'])` sin re-verificar `user_id` server-side: el chequeo de propiedad solo gateaba visibilidad del botón.
 
-**✅ Resuelto en ola 4A** — ver sección "Ola 4A" al final del documento.
+**✅ Resuelto en ola 4A**: ver sección "Ola 4A" al final del documento.
 
 ---
 
 ## Resumen de bypass patterns encontrados (todos los clusters)
 
 - `Company::first()` / `Company::query()->value('id')` en 6+ seeders y en runtime real (`sales/OrderTemplateProduct.php:57`, dormido).
-- `Auth::user()->default_company_id` usado en vez de un parent ya disponible: `TimeOff\Leave`, `TimeOff\LeaveAllocation`, `Project\Task` — el hallazgo más repetido y severo.
+- `Auth::user()->default_company_id` usado en vez de un parent ya disponible: `TimeOff\Leave`, `TimeOff\LeaveAllocation`, `Project\Task`: el hallazgo más repetido y severo.
 - Setting global único (`UserSettings::default_company_id`) determinando la compañía de usuarios recién invitados.
-- Ningún seeder en todo el alcance de PR 4 usa `CompanyContext::runForX()` directamente — ver contrato aprobado sobre seeders/instaladores (NO es un defecto a corregir per-seeder).
+- Ningún seeder en todo el alcance de PR 4 usa `CompanyContext::runForX()` directamente: ver contrato aprobado sobre seeders/instaladores (NO es un defecto a corregir per-seeder).
 - Dos IDOR confirmados por falta de autorización de propiedad/relación: `MilestoneController` (projects) y `EditViewAction`/`deleteTableViewAction` (table-views).
 
 ---
 
-## Decisiones de contrato aprobadas (revisión #138, comentario `5016816710`) — pendientes de implementación
+## Decisiones de contrato aprobadas (revisión #138, comentario `5016816710`): pendientes de implementación
 
-Estas decisiones quedaron cerradas en la revisión de este checkpoint. **Ningún código de negocio fue tocado todavía** — quedan como contrato autorizado para implementarse en esta misma rama (`feat/company-scope-remaining-plugins`, PR #18) una vez el checkpoint quede aprobado. No se abre un PR adicional para PR 4.
+Estas decisiones quedaron cerradas en la revisión de este checkpoint. **Ningún código de negocio fue tocado todavía**: quedan como contrato autorizado para implementarse en esta misma rama (`feat/company-scope-remaining-plugins`, PR #18) una vez el checkpoint quede aprobado. Un PR adicional para PR 4 permanece prohibido.
 
 ### Time Off
 
@@ -318,7 +318,7 @@ Al aceptar: URL temporal firmada + transacción + `lockForUpdate()` de Invitatio
 
 ### BankAccount
 
-`BankAccount` permanece hijo de `global_party_identity` — no recibe `HasCompanyScope` ni `company_id` strict. Se agrega tabla de membresía:
+`BankAccount` permanece hijo de `global_party_identity`: no recibe `HasCompanyScope` ni `company_id` strict. Se agrega tabla de membresía:
 
 ```
 partners_bank_account_companies
@@ -329,7 +329,7 @@ partners_bank_account_companies
 
 Reglas: creación desde una compañía habilita esa membresía; `PaymentRegister` exige BankAccount habilitada para su compañía persistida; `partner_bank_id` debe pertenecer a `partner_id`; `Employee.bank_account_id` debe estar habilitada para `Employee.company_id`; consultas tenant-facing filtran por el pivote; procesos sin actor requieren compañía/contexto explícito.
 
-Backfill determinista desde `Employee.company_id + bank_account_id`, `PaymentRegister.company_id + partner_bank_id` y otros owners tenant identificados en esta matriz. Una fila no utilizada o ambigua queda sin membresía (inaccesible hasta remediación explícita) — nunca usar `Partner.company_id`, `creator.default_company_id` ni `Company::first()` como fallback.
+Backfill determinista desde `Employee.company_id + bank_account_id`, `PaymentRegister.company_id + partner_bank_id` y otros owners tenant identificados en esta matriz. Una fila no utilizada o ambigua queda sin membresía (inaccesible hasta remediación explícita): nunca usar `Partner.company_id`, `creator.default_company_id` ni `Company::first()` como fallback.
 
 ### Seeders e instaladores
 
@@ -341,24 +341,24 @@ seeder/command/job ejecutable standalone → abre CompanyContext en su boundary
 factory → no abre contextos por sí sola
 ```
 
-No envolver seeders individuales en `runForBootstrap()` — produciría reentrancia prohibida.
+Envolver seeders individuales en `runForBootstrap()` produciría reentrancia prohibida, así que se evita.
 
 ---
 
 ## Correcciones de la segunda revisión (#138, revisión `4731774794`)
 
-1. **`TableView`/`TableViewFavorite` retiradas del manifest.** Clasificarlas silenciaba el IDOR confirmado (ownership check pendiente en `EditViewAction`/`deleteTableViewAction`/`replaceTableViewAction`) — un contrato aprobado pero no implementado no puede desaparecer del conteo de gaps solo por declarar una clasificación. Ambas vuelven a `real_gap_without_company_column`. Test dedicado: `it('does not let a manifest exception silence a model with an approved-but-unimplemented contract (TableView)')`.
-2. **Validación de manifest separada en estática vs física.** `validateManifest()` ya no llama a `Schema::hasTable()`/`hasColumn()` — solo reflection pura (`class_exists`, `getTable()`, `class_uses_recursive`, `is_subclass_of`). Una corrida `--plugins=A` con una entrada de manifest para un modelo del plugin B, cuya tabla no está migrada en ese esquema, ya no produce `manifest_violation`. `table_missing` sigue siendo exclusivamente responsabilidad de `inspectClass()`, acotado a lo realmente inspeccionado. Test: `it('does not require a manifest entry\'s table to physically exist...')`.
+1. **`TableView`/`TableViewFavorite` retiradas del manifest.** Clasificarlas silenciaba el IDOR confirmado (ownership check pendiente en `EditViewAction`/`deleteTableViewAction`/`replaceTableViewAction`): un contrato aprobado pero no implementado no puede desaparecer del conteo de gaps solo por declarar una clasificación. Ambas vuelven a `real_gap_without_company_column`. Test dedicado: `it('does not let a manifest exception silence a model with an approved-but-unimplemented contract (TableView)')`.
+2. **Validación de manifest separada en estática vs física.** `validateManifest()` ya no llama a `Schema::hasTable()`/`hasColumn()`: solo reflection pura (`class_exists`, `getTable()`, `class_uses_recursive`, `is_subclass_of`). Una corrida `--plugins=A` con una entrada de manifest para un modelo del plugin B, cuya tabla no está migrada en ese esquema, ya no produce `manifest_violation`. `table_missing` sigue siendo exclusivamente responsabilidad de `inspectClass()`, acotado a lo realmente inspeccionado. Test: `it('does not require a manifest entry\'s table to physically exist...')`.
 3. **La validación se detiene tras `invalid_shape`.** Una entrada con shape inválido (clave faltante) ya no cae en `validateEntryAgainstReflection()`, que asumía la forma válida. 4 tests nuevos eliminan por completo cada una de `table`/`classification`/`reason`/`tracking` y confirman que solo se reporta `invalid_shape`, sin una segunda violación espuria.
-4. **Cadena de alias exige terminal registrado.** `validateAliasChain()` ya no acepta como válido un `alias_of` que apunte a una clase real, autoloadable y de la misma tabla si esa clase no tiene su propia entrada en el manifest — ahora es siempre `alias_chain_broken`. Test dedicado distingue este caso del de "clase totalmente inexistente".
-5. **Salida `--format=table` ya no oculta gaps sin `company_id`.** Nuevo `Auditor::shouldDisplayInTable()` — visible si tiene `company_id`, o si es cualquier `real_gap_*`, o si es `table_missing`/`inspection_error`; solo se ocultan por defecto las excepciones clasificadas sin `company_id` (referencia global, alias, not_tenancy). Verificado con `--plugins=table-views`: ambas filas aparecen ahora como `real_gap_without_company_column`.
-6. **CI corregido y con verificación de drift exacta.** El job `Company Scope Global Audit` fallaba en `Running Composer Install` porque `filament:upgrade` (hook `post-autoload-dump`) intenta copiar assets de `resources/dist/` que solo existen tras el job `frontend_assets` — faltaban `needs: frontend_assets` y el step `Download built plugin assets`, ya agregados. El gate de `total >= 300` fue reemplazado por un `diff -u` exacto entre el JSON recién generado y `docs/security/company-scope-pr4-inventory.json` committeado — cualquier drift (modelo escopado, excepción agregada/quitada, tabla renombrada) rompe el CI hasta que el inventario se regenere y se commitee en el mismo cambio.
+4. **Cadena de alias exige terminal registrado.** `validateAliasChain()` ya no acepta como válido un `alias_of` que apunte a una clase real, autoloadable y de la misma tabla si esa clase no tiene su propia entrada en el manifest: ahora es siempre `alias_chain_broken`. Test dedicado distingue este caso del de "clase totalmente inexistente".
+5. **Salida `--format=table` ya no oculta gaps sin `company_id`.** Nuevo `Auditor::shouldDisplayInTable()`: visible si tiene `company_id`, o si es cualquier `real_gap_*`, o si es `table_missing`/`inspection_error`; solo se ocultan por defecto las excepciones clasificadas sin `company_id` (referencia global, alias, not_tenancy). Verificado con `--plugins=table-views`: ambas filas aparecen ahora como `real_gap_without_company_column`.
+6. **CI corregido y con verificación de drift exacta.** El job `Company Scope Global Audit` fallaba en `Running Composer Install` porque `filament:upgrade` (hook `post-autoload-dump`) intenta copiar assets de `resources/dist/` que solo existen tras el job `frontend_assets`: faltaban `needs: frontend_assets` y el step `Download built plugin assets`, ya agregados. El gate de `total >= 300` fue reemplazado por un `diff -u` exacto entre el JSON recién generado y `docs/security/company-scope-pr4-inventory.json` committeado: cualquier drift (modelo escopado, excepción agregada/quitada, tabla renombrada) rompe el CI hasta que el inventario se regenere y se commitee en el mismo cambio.
 
-Números actualizados tras estas correcciones (120 excepciones, no 122 — las 2 de TableView/TableViewFavorite salieron del manifest): ver el bloque JSON al inicio de este documento.
+Números actualizados tras estas correcciones (120 excepciones, no 122: las 2 de TableView/TableViewFavorite salieron del manifest): ver el bloque JSON al inicio de este documento.
 
 ---
 
-## Ola 4A — TableView/TableViewFavorite, Project, Task, TaskStage, Milestone, Timesheet
+## Ola 4A: TableView/TableViewFavorite, Project, Task, TaskStage, Milestone, Timesheet
 
 Autorizada tras el checkpoint aprobado (revisión `4736684439` de PR #18, mismo head `1ded2ae96`). Implementa los contratos de negocio descritos en "Decisiones de contrato aprobadas" para Table Views y Projects (secciones "Projects" y "Table Views" arriba), landeando en la misma rama/PR #18.
 
@@ -370,19 +370,19 @@ IDOR cerrado con un único resolver server-side reutilizado por editar, reemplaz
 TableView::resolveOwnedTableViewOrFail(int $viewId, string $filterableType, int $userId): TableView
 ```
 
-Una sola consulta exige simultáneamente `id`, `filterable_type` y `user_id` del actor — una vista pública ajena nunca resuelve por esta vía (solo lectura, vía `getSavedTableViews()` que ya filtraba propio+público). `TableView::assertVisibleOrFail()` cubre el caso de lectura/favorito (propio o público). `TableViewFavorite::toggleForOwnViewOrFail()` fuerza siempre `user_id = Auth::id()` (nunca un valor de la request) y rechaza favoritear una vista privada ajena. Wired en `HasTableViews::deleteTableViewAction/replaceTableViewAction/add|removeTableViewToFavoritesAction` y en `EditViewAction::fillForm()/action()`. 11 tests en `plugins/webkul/table-views/tests/Feature/TableViewOwnershipTest.php`. Ambos modelos reingresan al manifest como `not_tenancy` (nunca tendrán `company_id` — es aislamiento por usuario, no por tenant) con la evidencia del resolver citada en `config/company-scope-exceptions.php`.
+Una sola consulta exige simultáneamente `id`, `filterable_type` y `user_id` del actor: una vista pública ajena nunca resuelve por esta vía (solo lectura, vía `getSavedTableViews()` que ya filtraba propio+público). `TableView::assertVisibleOrFail()` cubre el caso de lectura/favorito (propio o público). `TableViewFavorite::toggleForOwnViewOrFail()` fuerza siempre `user_id = Auth::id()` (nunca un valor de la request) y rechaza favoritear una vista privada ajena. Wired en `HasTableViews::deleteTableViewAction/replaceTableViewAction/add|removeTableViewToFavoritesAction` y en `EditViewAction::fillForm()/action()`. 11 tests en `plugins/webkul/table-views/tests/Feature/TableViewOwnershipTest.php`. Ambos modelos reingresan al manifest como `not_tenancy` (nunca tendrán `company_id`: es aislamiento por usuario, no por tenant) con la evidencia del resolver citada en `config/company-scope-exceptions.php`.
 
 ### Project
 
-`HasCompanyScope` + `HasStrictCompanyId` (mismo patrón que `Journal`/`PaymentTerm`/`FiscalPosition`): `company_id` obligatorio (se autocompleta desde `default_company_id` del actor solo si viene vacío — nunca sobrescribe un valor explícito no autorizado), autorización en cada save vía `CompanyScope::assertCanWriteCompany()`, inmutable tras creación ("archive and recreate"). Fail-closed sin usuario/contexto. 10 tests en `ProjectCompanyScopeTest.php`.
+`HasCompanyScope` + `HasStrictCompanyId` (mismo patrón que `Journal`/`PaymentTerm`/`FiscalPosition`): `company_id` obligatorio (se autocompleta desde `default_company_id` del actor solo si viene vacío: nunca sobrescribe un valor explícito no autorizado), autorización en cada save vía `CompanyScope::assertCanWriteCompany()`, inmutable tras creación ("archive and recreate"). Fail-closed sin usuario/contexto. 10 tests en `ProjectCompanyScopeTest.php`.
 
 ### Task / TaskStage
 
-`company_id` se deriva del `Project` persistido (nunca de una relación en memoria) vía `ValidatesRelatedCompanyScope::resolveEffectiveCompanyIdOrFail()`, ya usado en el dominio de accounts (PR #17) para el mismo patrón madre→hijo. Un `project_id` inexistente o cuyo Project no tiene compañía falla cerrado. Un cambio de `project_id` (solo, o junto con un `company_id` explícito y consistente) que implique traslado de tenant se rechaza — comparando el `company_id` efectivo recién resuelto contra `getOriginal('company_id')`, el mismo mecanismo de inmutabilidad que `Project`, pero derivado en vez de directo. `Task` tolera `project_id = null` (columna nullable, `nullOnDelete` — una tarea huérfana tras borrar su Project) reautorizando su propio `company_id` ya persistido en vez de fallar en cada save futuro; `TaskStage.project_id` es NOT NULL (`cascadeOnDelete`), así que siempre deriva. 12 + 7 tests (`TaskCompanyScopeTest.php`, `TaskStageCompanyScopeTest.php`).
+`company_id` se deriva del `Project` persistido (nunca de una relación en memoria) vía `ValidatesRelatedCompanyScope::resolveEffectiveCompanyIdOrFail()`, ya usado en el dominio de accounts (PR #17) para el mismo patrón madre→hijo. Un `project_id` inexistente o cuyo Project no tiene compañía falla cerrado. Un cambio de `project_id` (solo, o junto con un `company_id` explícito y consistente) que implique traslado de tenant se rechaza: comparando el `company_id` efectivo recién resuelto contra `getOriginal('company_id')`, el mismo mecanismo de inmutabilidad que `Project`, pero derivado en vez de directo. `Task` tolera `project_id = null` (columna nullable, `nullOnDelete`: una tarea huérfana tras borrar su Project) reautorizando su propio `company_id` ya persistido en vez de fallar en cada save futuro; `TaskStage.project_id` es NOT NULL (`cascadeOnDelete`), así que siempre deriva. 12 + 7 tests (`TaskCompanyScopeTest.php`, `TaskStageCompanyScopeTest.php`).
 
 ### Milestone
 
-Sin columna `company_id` propia (su Project padre es obligatorio, `cascadeOnDelete`). Lectura: `Milestone::booted()` agrega un global scope `whereHas('project')` — el scope `HasCompanyScope` de `Project` se aplica automáticamente dentro de esa subquery, así que un Milestone cuyo Project está oculto (compañía equivocada, o sin usuario/contexto — `CompanyScope` falla cerrado) también queda oculto. Escritura: `resolveEffectiveCompanyIdOrFail()` sobre el `project_id`, descartando el valor de retorno (no hay columna donde persistirlo) — el efecto es puramente de autorización: Project debe existir, tener compañía propia, y el actor debe estar autorizado para escribir en ella. `MilestonePolicy::view/update/delete` ahora también re-derivan la compañía efectiva desde el Project persistido (`belongsToAllowedCompany()`) e la comparan contra las compañías permitidas del actor — una ability genérica de Spatie ya no es suficiente por sí sola, cerrando el IDOR también a nivel de policy, no solo de resolver. 8 tests (`MilestoneCompanyScopeTest.php`).
+Sin columna `company_id` propia (su Project padre es obligatorio, `cascadeOnDelete`). Lectura: `Milestone::booted()` agrega un global scope `whereHas('project')`: el scope `HasCompanyScope` de `Project` se aplica automáticamente dentro de esa subquery, así que un Milestone cuyo Project está oculto (compañía equivocada, o sin usuario/contexto: `CompanyScope` falla cerrado) también queda oculto. Escritura: `resolveEffectiveCompanyIdOrFail()` sobre el `project_id`, descartando el valor de retorno (no hay columna donde persistirlo): el efecto es puramente de autorización: Project debe existir, tener compañía propia, y el actor debe estar autorizado para escribir en ella. `MilestonePolicy::view/update/delete` ahora también re-derivan la compañía efectiva desde el Project persistido (`belongsToAllowedCompany()`) e la comparan contra las compañías permitidas del actor: una ability genérica de Spatie ya no es suficiente por sí sola, cerrando el IDOR también a nivel de policy, no solo de resolver. 8 tests (`MilestoneCompanyScopeTest.php`).
 
 ### Timesheet (`Webkul\Project\Models\Timesheet` y su subclase vacía `Webkul\Timesheet\Models\Timesheet`)
 
@@ -390,43 +390,43 @@ Valida el grafo completo Timesheet → Task → Project → company: `company_id
 
 ### Regresión de fixtures (no de producción)
 
-`TaskStageFactory`/`TaskFactory` tenían un `'company_id' => Company::factory()` independiente de su `'project_id' => Project::factory()` — dos compañías aleatorias no relacionadas, inofensivo mientras `Project`/`TaskStage` no tenían enforcement real. Con el enforcement de esta ola, esa inconsistencia rompía 16 tests preexistentes de `plugins/webkul/projects/tests/Feature/API/V1/{TaskStageTest,TaskTest}.php`. Corregido quitando el `company_id` independiente de ambas factories (mismo patrón ya usado en `MoveLineFactory` desde PR #17: "dejar sin asignar, el propio saving() hook lo deriva"). Suite completa de `plugins/webkul/projects` tras el fix: 116/116 verde.
+`TaskStageFactory`/`TaskFactory` tenían un `'company_id' => Company::factory()` independiente de su `'project_id' => Project::factory()`: dos compañías aleatorias no relacionadas, inofensivo mientras `Project`/`TaskStage` no tenían enforcement real. Con el enforcement de esta ola, esa inconsistencia rompía 16 tests preexistentes de `plugins/webkul/projects/tests/Feature/API/V1/{TaskStageTest,TaskTest}.php`. Corregido quitando el `company_id` independiente de ambas factories (mismo patrón ya usado en `MoveLineFactory` desde PR #17: "dejar sin asignar, el propio saving() hook lo deriva"). Suite completa de `plugins/webkul/projects` tras el fix: 116/116 verde.
 
 ### Cobertura total de esta ola
 
-81 tests nuevos entre las dos rondas (`ProjectCompanyScopeTest` 10, `TaskCompanyScopeTest` 23, `TaskStageCompanyScopeTest` 7, `MilestoneCompanyScopeTest` 11, `TimesheetCompanyScopeTest` 11, `TableViewOwnershipTest` 14, `RecordCompanyScopeTest` 5), cubriendo por cada modelo: aislamiento de lectura (actor ve solo su(s) compañía(s)), lista vacía sin compañías, fail-closed sin actor/contexto, creación/actualización cross-company rechazadas, reasignación rechazada (donde aplica), al menos una prueba con `withoutGlobalScope()` demostrando que la autorización de escritura no depende del scope de lectura, y `CompanyContext::runForCompany/runForAllCompanies/runForBootstrap` operando correctamente. `--fail-on-missing` sigue retornando `1` (69 gaps reales restantes — Time Off, Invitations, BankAccount, Maintenance, y otros hijos de parents aún no escopados quedan para olas futuras).
+81 tests nuevos entre las dos rondas (`ProjectCompanyScopeTest` 10, `TaskCompanyScopeTest` 23, `TaskStageCompanyScopeTest` 7, `MilestoneCompanyScopeTest` 11, `TimesheetCompanyScopeTest` 11, `TableViewOwnershipTest` 14, `RecordCompanyScopeTest` 5), cubriendo por cada modelo: aislamiento de lectura (actor ve solo su(s) compañía(s)), lista vacía sin compañías, fail-closed sin actor/contexto, creación/actualización cross-company rechazadas, reasignación rechazada (donde aplica), al menos una prueba con `withoutGlobalScope()` demostrando que la autorización de escritura no depende del scope de lectura, y `CompanyContext::runForCompany/runForAllCompanies/runForBootstrap` operando correctamente. `--fail-on-missing` sigue retornando `1` (69 gaps reales restantes: Time Off, Invitations, BankAccount, Maintenance, y otros hijos de parents aún no escopados quedan para olas futuras).
 
 ---
 
 ## Correcciones de la ronda 2 de ola 4A (#138, revisión `4739111455`)
 
-1. **TableView/TableViewFavorite ya no aceptan un `$userId` como argumento.** `resolveOwnedTableViewOrFail()`, `assertVisibleOrFail()` y `toggleForOwnViewOrFail()` derivan el owner de `Auth::id()` internamente — un usuario autenticado ya no puede pasar el id de otro y que se confíe como dueño. Ambos modelos ahora fuerzan `user_id = Auth::id()` en `creating()` y lo hacen inmutable en `saving()`. El cleanup de `deleteTableViewAction` agrega `where('view_type', 'saved')`. Tests: 14/14 en `TableViewOwnershipTest.php` (3 nuevos: fail-closed sin auth, forced-on-create, inmutabilidad x2).
-2. **Milestone ya no puede retargetearse desde una compañía oculta.** El `saving()` hook ahora reconsulta el Milestone *persistido* (sin el scope `companyViaProject`) para autorizar también su Project **original**, no solo el nuevo — cerrando el ataque "obtener vía consulta sin scope + reasignar a mi propia compañía autorizada". `MilestonePolicy::belongsToAllowedCompany()` reconsulta el Milestone por PK en vez de confiar en `$milestone->project_id` (que puede estar sucio en memoria). 3 tests nuevos: retargeting B→A rechazado, policy retorna `false` con `project_id` falsificado en memoria, reasignación A1→A2 dentro de la misma compañía permitida.
-3. **El owner físico de `analytic_records` (`Webkul\Analytic\Models\Record`) ahora tiene `HasCompanyScope` y autorización de escritura propias**, no solo sus alias Timesheet — una consulta o escritura directa contra `Record` ya no podía eludir el aislamiento. Resolución de compañía polimórfica: `Record::resolveEffectiveCompanyId()` (genérica) vs `Webkul\Project\Models\Timesheet::resolveEffectiveCompanyId()` (deriva y cruza Task↔Project: verifica `Task.company_id === Project.company_id`, `Timesheet.project_id === Task.project_id`). 5 tests nuevos en `plugins/webkul/analytics/tests/Feature/RecordCompanyScopeTest.php`, incluida una Task con `company_id` corrompido manualmente para probar la validación cruzada.
+1. **TableView/TableViewFavorite ya no aceptan un `$userId` como argumento.** `resolveOwnedTableViewOrFail()`, `assertVisibleOrFail()` y `toggleForOwnViewOrFail()` derivan el owner de `Auth::id()` internamente: un usuario autenticado ya no puede pasar el id de otro y que se confíe como dueño. Ambos modelos ahora fuerzan `user_id = Auth::id()` en `creating()` y lo hacen inmutable en `saving()`. El cleanup de `deleteTableViewAction` agrega `where('view_type', 'saved')`. Tests: 14/14 en `TableViewOwnershipTest.php` (3 nuevos: fail-closed sin auth, forced-on-create, inmutabilidad x2).
+2. **Milestone ya no puede retargetearse desde una compañía oculta.** El `saving()` hook ahora reconsulta el Milestone *persistido* (sin el scope `companyViaProject`) para autorizar también su Project **original**, no solo el nuevo: cerrando el ataque "obtener vía consulta sin scope + reasignar a mi propia compañía autorizada". `MilestonePolicy::belongsToAllowedCompany()` reconsulta el Milestone por PK en vez de confiar en `$milestone->project_id` (que puede estar sucio en memoria). 3 tests nuevos: retargeting B→A rechazado, policy retorna `false` con `project_id` falsificado en memoria, reasignación A1→A2 dentro de la misma compañía permitida.
+3. **El owner físico de `analytic_records` (`Webkul\Analytic\Models\Record`) ahora tiene `HasCompanyScope` y autorización de escritura propias**, no solo sus alias Timesheet: una consulta o escritura directa contra `Record` ya no podía eludir el aislamiento. Resolución de compañía polimórfica: `Record::resolveEffectiveCompanyId()` (genérica) vs `Webkul\Project\Models\Timesheet::resolveEffectiveCompanyId()` (deriva y cruza Task↔Project: verifica `Task.company_id === Project.company_id`, `Timesheet.project_id === Task.project_id`). 5 tests nuevos en `plugins/webkul/analytics/tests/Feature/RecordCompanyScopeTest.php`, incluida una Task con `company_id` corrompido manualmente para probar la validación cruzada.
 4. **Task.stage_id y Task.parent_id ahora se validan contra el grafo completo.** `stage_id` debe resolver a un `TaskStage` persistido con el mismo `project_id` y compañía; `parent_id` debe resolver a una Task persistida con el mismo `project_id` y compañía, y nunca a sí misma. `TaskFactory` se corrigió para construir `project_id`/`stage_id` de forma consistente (antes eran dos `Model::factory()` independientes que casi nunca coincidían). 6 tests nuevos.
-5. **Create/detach sin Project (Task) o sin Task (Timesheet) ahora se rechaza.** Antes, un `project_id`/`task_id` ausente caía silenciosamente al `company_id` del actor. Ahora solo una fila que **ya estaba huérfana antes de este save** (p.ej. tras un `nullOnDelete` real) puede seguir guardándose sin su padre, reautorizando su propio `company_id` persistido — crear una fila nueva sin padre, o desprender manualmente una existente, se rechaza. 6 tests nuevos.
-6. **`TestBootstrapHelper` es determinista y reconoce los 20 plugins.** `ensureERPInstalled()` instala los 20 plugins (incluido `website`, ausente del mapa anterior) de forma incondicional tras `erp:install`, no bajo demanda por archivo de test — el esquema final ya no depende de qué archivo corre primero. Al implementarlo se descubrió que `DatabaseTransactions` ya tiene una transacción abierta en la primera invocación (desde un `beforeEach()`), y que el DDL de `migrate:fresh`/cada `:install` hace auto-commit implícito en MySQL sin que Laravel se entere — desincronizando el conteo de transacciones y provocando que los datos sembrados por los 20 installs se revirtieran al terminar el primer test. Corregido haciendo `commit()` explícito de cualquier transacción abierta antes del bootstrap pesado y reabriendo el mismo número de niveles después. Validado con una corrida completa de la suite (`vendor/bin/pest --exclude-group=gold-standard-dataset`) desde una base limpia: **1639/1639 tests pasan**, sin depender del orden.
-7. **Bug preexistente descubierto y corregido en `manufacturing/Warehouse.php` (fuera del área de negocio de ola 4A, autorizado explícitamente al detectarse durante la corrección del punto 6).** `createManufacturingRules()`/`createManufacturingOperationTypes()` consultaban `Location::where('type', PRODUCTION)->first()` sin bypasear `CompanyScope` — como `Location` implementa `IncludesSharedCompanyRows` pero `CompanyScope::apply()` niega **todo** (incluidas las filas compartidas) cuando no hay actor autenticado ni `CompanyContext` activo (ADR 0007), esa consulta retornaba `null` en cualquier test que creara un Warehouse sin un actor/contexto ya establecido — antes invisible porque `manufacturing` nunca se instalaba durante una corrida aislada de `inventories`. Corregido con `Location::withoutGlobalScope(CompanyScope::class)->where(...)`, el mismo patrón ya usado en el resto de esta ola para resolver un padre autoritativo. Verificado con la suite completa de `plugins/webkul/inventories` (552/552) y la suite global (1639/1639).
+5. **Create/detach sin Project (Task) o sin Task (Timesheet) ahora se rechaza.** Antes, un `project_id`/`task_id` ausente caía silenciosamente al `company_id` del actor. Ahora solo una fila que **ya estaba huérfana antes de este save** (p.ej. tras un `nullOnDelete` real) puede seguir guardándose sin su padre, reautorizando su propio `company_id` persistido: crear una fila nueva sin padre, o desprender manualmente una existente, se rechaza. 6 tests nuevos.
+6. **`TestBootstrapHelper` es determinista y reconoce los 20 plugins.** `ensureERPInstalled()` instala los 20 plugins (incluido `website`, ausente del mapa anterior) de forma incondicional tras `erp:install`, no bajo demanda por archivo de test: el esquema final ya no depende de qué archivo corre primero. Al implementarlo se descubrió que `DatabaseTransactions` ya tiene una transacción abierta en la primera invocación (desde un `beforeEach()`), y que el DDL de `migrate:fresh`/cada `:install` hace auto-commit implícito en MySQL sin que Laravel se entere: desincronizando el conteo de transacciones y provocando que los datos sembrados por los 20 installs se revirtieran al terminar el primer test. Corregido haciendo `commit()` explícito de cualquier transacción abierta antes del bootstrap pesado y reabriendo el mismo número de niveles después. Validado con una corrida completa de la suite (`vendor/bin/pest --exclude-group=gold-standard-dataset`) desde una base limpia: **1639/1639 tests pasan**, sin depender del orden.
+7. **Bug preexistente descubierto y corregido en `manufacturing/Warehouse.php` (fuera del área de negocio de ola 4A, autorizado explícitamente al detectarse durante la corrección del punto 6).** `createManufacturingRules()`/`createManufacturingOperationTypes()` consultaban `Location::where('type', PRODUCTION)->first()` sin bypasear `CompanyScope`: como `Location` implementa `IncludesSharedCompanyRows` pero `CompanyScope::apply()` niega **todo** (incluidas las filas compartidas) cuando no hay actor autenticado ni `CompanyContext` activo (ADR 0007), esa consulta retornaba `null` en cualquier test que creara un Warehouse sin un actor/contexto ya establecido: antes invisible porque `manufacturing` nunca se instalaba durante una corrida aislada de `inventories`. Corregido con `Location::withoutGlobalScope(CompanyScope::class)->where(...)`, el mismo patrón ya usado en el resto de esta ola para resolver un padre autoritativo. Verificado con la suite completa de `plugins/webkul/inventories` (552/552) y la suite global (1639/1639).
 
-Números actualizados tras esta ronda (112 `scoped`, no 111 — `Record` se suma; 69 gaps reales, no 70): ver el bloque JSON al inicio de este documento.
+Números actualizados tras esta ronda (112 `scoped`, no 111: `Record` se suma; 69 gaps reales, no 70): ver el bloque JSON al inicio de este documento.
 
 ---
 
-## Correcciones de la ronda 3 de ola 4A (A18-01/A18-02/A18-03 — determinismo del harness)
+## Correcciones de la ronda 3 de ola 4A (A18-01/A18-02/A18-03: determinismo del harness)
 
 La ronda 2 (punto 6) dejó `TestBootstrapHelper` instalando los 20 plugins de forma incondicional, pero una corrida de la suite completa **dos veces seguidas contra la misma base sin recrearla entre medio** seguía fallando en bloque (`website_pages` no encontrada). Root cause encontrado con un repro directo (dos procesos PHP separados contra la misma base):
 
-`Webkul\PluginManager\Package::isPluginInstalled()` decide si el `ServiceProvider` de un plugin registra sus rutas de migración (`loadMigrationsFrom()`) consultando la tabla `plugins` **en el boot de la aplicación** — antes de que corra cualquier código de `TestBootstrapHelper`. Contra una base nunca usada, la tabla `plugins` todavía no existe al momento del boot, así que la mayoría de plugins no registran sus migraciones todavía y `migrate:fresh` solo ve un subconjunto seguro (core/support). Contra una base que un proceso anterior ya usó, el boot de ESTE proceso ve la tabla `plugins` con todo marcado como instalado (la fila sigue ahí, `migrate:fresh` de este proceso todavía no corrió) — así que esta vez sí se registran las migraciones de todos los plugins, y `migrate:fresh` procesa un set mucho más amplio, ordenado por nombre de archivo entre todos los plugins. Ahí aparece un defecto real y preexistente: la migración `2026_04_02_..._create_calendars_table` de `support` está fechada DESPUÉS de varias migraciones de otros plugins que le agregan una foreign key (`employees`'s `2024_12_12_..._create_employees_employees_table`, y por separado `manufacturing`'s `..._create_manufacturing_work_centers_table` — el mismo bug que motivó el fix acotado del punto 7 de la ronda 2, ahora confirmado como una instancia más amplia del mismo problema).
+`Webkul\PluginManager\Package::isPluginInstalled()` decide si el `ServiceProvider` de un plugin registra sus rutas de migración (`loadMigrationsFrom()`) consultando la tabla `plugins` **en el boot de la aplicación**: antes de que corra cualquier código de `TestBootstrapHelper`. Contra una base nunca usada, la tabla `plugins` todavía no existe al momento del boot, así que la mayoría de plugins no registran sus migraciones todavía y `migrate:fresh` solo ve un subconjunto seguro (core/support). Contra una base que un proceso anterior ya usó, el boot de ESTE proceso ve la tabla `plugins` con todo marcado como instalado (la fila sigue ahí, `migrate:fresh` de este proceso todavía no corrió): así que esta vez sí se registran las migraciones de todos los plugins, y `migrate:fresh` procesa un set mucho más amplio, ordenado por nombre de archivo entre todos los plugins. Ahí aparece un defecto real y preexistente: la migración `2026_04_02_..._create_calendars_table` de `support` está fechada DESPUÉS de varias migraciones de otros plugins que le agregan una foreign key (`employees`'s `2024_12_12_..._create_employees_employees_table`, y por separado `manufacturing`'s `..._create_manufacturing_work_centers_table`: el mismo bug que motivó el fix acotado del punto 7 de la ronda 2, ahora confirmado como una instancia más amplia del mismo problema).
 
-**Decisión explícita: no se renombran/re-fechan migraciones de producción.** Es un cambio de esquema más invasivo y riesgoso que el alcance de este harness — y CI nunca lo sufre, porque cada corrida usa un servicio MySQL efímero nuevo, así que la tabla `plugins` nunca preexiste al boot (siempre reproduce el caso seguro). Es exclusivamente un artefacto de reusar la misma base de MySQL local entre invocaciones separadas de `vendor/bin/pest`.
+**Decisión explícita: no se renombran/re-fechan migraciones de producción.** Es un cambio de esquema más invasivo y riesgoso que el alcance de este harness: y CI nunca lo sufre, porque cada corrida usa un servicio MySQL efímero nuevo, así que la tabla `plugins` nunca preexiste al boot (siempre reproduce el caso seguro). Es exclusivamente un artefacto de reusar la misma base de MySQL local entre invocaciones separadas de `vendor/bin/pest`.
 
-**Fix aplicado**: `TestBootstrapHelper::assertDatabaseNotAlreadyBootstrapped()` — detecta la condición insegura (tabla `plugins` ya existe con filas `is_installed=true`) **antes** de correr `migrate:fresh`, y falla con un `RuntimeException` claro y accionable en vez de dejar el esquema corrompido a medias. Verificado con el repro original: la excepción se dispara, y la base queda completamente intacta (256 tablas, `website_pages` presente) en vez de caer a 47.
+**Fix aplicado**: `TestBootstrapHelper::assertDatabaseNotAlreadyBootstrapped()`: detecta la condición insegura (tabla `plugins` ya existe con filas `is_installed=true`) **antes** de correr `migrate:fresh`, y falla con un `RuntimeException` claro y accionable en vez de dejar el esquema corrompido a medias. Verificado con el repro original: la excepción se dispara, y la base queda completamente intacta (256 tablas, `website_pages` presente) en vez de caer a 47.
 
-**Regresión nueva** — `plugins/webkul/support/tests/Feature/TestBootstrapHelperDeterminismTest.php`, spawnea el script `plugins/webkul/support/tests/fixtures/run_bootstrap_order.php` como procesos PHP reales vía `Symfony\Component\Process\Process` (mismo patrón que `CompanyScopeAuditorTest.php`'s `runAuditScript()`, necesario porque el bug solo es observable ENTRE procesos, nunca dentro de uno solo):
-- *"produces the identical final schema regardless of which plugin triggers the bootstrap first"* — dos procesos separados, cada uno contra una base recién vaciada, disparando el bootstrap desde un plugin distinto (`accounting` vs `website`) — mismo conteo final de tablas (>200) en ambos.
-- *"fails loud instead of silently corrupting the schema when bootstrapped twice against the same never-recreated database"* — reproduce exactamente el escenario del bug: el segundo proceso, contra la misma base sin recrear, falla con el mensaje exacto del guard, y el esquema del primer proceso permanece intacto.
+**Regresión nueva**: `plugins/webkul/support/tests/Feature/TestBootstrapHelperDeterminismTest.php`, spawnea el script `plugins/webkul/support/tests/fixtures/run_bootstrap_order.php` como procesos PHP reales vía `Symfony\Component\Process\Process` (mismo patrón que `CompanyScopeAuditorTest.php`'s `runAuditScript()`, necesario porque el bug solo es observable ENTRE procesos, nunca dentro de uno solo):
+- *"produces the identical final schema regardless of which plugin triggers the bootstrap first"*: dos procesos separados, cada uno contra una base recién vaciada, disparando el bootstrap desde un plugin distinto (`accounting` vs `website`): mismo conteo final de tablas (>200) en ambos.
+- *"fails loud instead of silently corrupting the schema when bootstrapped twice against the same never-recreated database"*: reproduce exactamente el escenario del bug: el segundo proceso, contra la misma base sin recrear, falla con el mensaje exacto del guard, y el esquema del primer proceso permanece intacto.
 
-**Pint aplicado sobre todo el delta PHP** (27 archivos: los 24 de `1ded2ae96..139468817` + los 3 nuevos de esta ronda). 4 archivos tenían sugerencias de estilo sin aplicar (`fully_qualified_strict_types`, `ordered_imports`, `binary_operator_spaces`) — incluido `config/company-scope-exceptions.php`, donde el fixer convirtió ~40 referencias `\Fully\Qualified\Class::class` a imports `use` + nombre corto. Verificado exhaustivamente que es puramente cosmético: sintaxis válida, mismo conteo de entradas (123) y misma distribución por clasificación antes/después, `diff -u` contra el JSON committeado sigue siendo byte-a-byte idéntico, y los 32/32 tests del auditor (incluida la prueba de cadena de alias que referencia directamente una de las clases renombradas) pasan sin cambios.
+**Pint aplicado sobre todo el delta PHP** (27 archivos: los 24 de `1ded2ae96..139468817` + los 3 nuevos de esta ronda). 4 archivos tenían sugerencias de estilo sin aplicar (`fully_qualified_strict_types`, `ordered_imports`, `binary_operator_spaces`): incluido `config/company-scope-exceptions.php`, donde el fixer convirtió ~40 referencias `\Fully\Qualified\Class::class` a imports `use` + nombre corto. Verificado exhaustivamente que es puramente cosmético: sintaxis válida, mismo conteo de entradas (123) y misma distribución por clasificación antes/después, `diff -u` contra el JSON committeado sigue siendo byte-a-byte idéntico, y los 32/32 tests del auditor (incluida la prueba de cadena de alias que referencia directamente una de las clases renombradas) pasan sin cambios.
 
 Validación completa de esta ronda: 32/32 auditor + 81/81 company-scope + 2/2 determinismo + **1641/1641** en la suite completa (`vendor/bin/pest --exclude-group=gold-standard-dataset`, base recreada desde cero) + `pint`/`composer validate --strict` limpios.
 
@@ -463,11 +463,11 @@ PR 4 (PR #18, feat/company-scope-remaining-plugins): checkpoint aprobado + ola 4
   - 81 tests de company-scope + 2 tests nuevos de determinismo del harness + suite completa
     del monorepo (vendor/bin/pest --exclude-group=gold-standard-dataset) 1641/1641 verde desde
     una base limpia, sin depender del orden
-  - CI: en freeze de presupuesto (workflow_dispatch only, PR #19 mergeado a main) —
+  - CI: en freeze de presupuesto (workflow_dispatch only, PR #19 mergeado a main):
     validación 100% local por instrucción explícita
 Modelos de negocio aún no tocados (próximas olas): Time Off/Leave, Invitations, BankAccount,
   Maintenance, ProjectStage, ActivityPlan, y todo hijo/pivote de un parent aún no escopado
-PR adicional para PR 4: prohibido — los cambios de negocio landean en esta misma rama/PR #18
+PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
 #138 / #81: abiertos
 AGENTS.md: stashes intactos (ambos checkouts)

@@ -236,6 +236,57 @@ class TestBootstrapHelper
         );
     }
 
+    /**
+     * A stable, deterministic hash of the current database's structure —
+     * tables, columns (type + nullability), indexes, and foreign keys, all
+     * read from `information_schema` and sorted explicitly before hashing
+     * so two structurally identical schemas always produce the identical
+     * fingerprint regardless of any incidental ordering MySQL happens to
+     * return them in (#138 PR4 ola4A round 4 review — a bare table COUNT
+     * cannot tell "same 256 tables" apart from "256 tables, one missing a
+     * column and one extra elsewhere").
+     */
+    public static function schemaFingerprint(): string
+    {
+        $database = DB::connection()->getDatabaseName();
+
+        $columns = DB::select(
+            'select table_name, column_name, data_type, is_nullable, column_type
+             from information_schema.columns
+             where table_schema = ?
+             order by table_name, column_name',
+            [$database],
+        );
+
+        $indexes = DB::select(
+            'select table_name, index_name, column_name, non_unique, seq_in_index
+             from information_schema.statistics
+             where table_schema = ?
+             order by table_name, index_name, seq_in_index',
+            [$database],
+        );
+
+        $foreignKeys = DB::select(
+            'select table_name, column_name, referenced_table_name, referenced_column_name, constraint_name
+             from information_schema.key_column_usage
+             where table_schema = ? and referenced_table_name is not null
+             order by table_name, column_name, constraint_name',
+            [$database],
+        );
+
+        $lines = [];
+
+        foreach (['columns' => $columns, 'indexes' => $indexes, 'foreign_keys' => $foreignKeys] as $section => $rows) {
+            $lines[] = "## {$section}";
+
+            foreach ($rows as $row) {
+                $lines[] = implode('|', (array) $row);
+            }
+        }
+
+        return hash('sha256', implode("\n", $lines));
+    }
+
     private static function allowedDatabases(): array
     {
         return array_values(array_filter(array_map(

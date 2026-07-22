@@ -1,6 +1,8 @@
 <?php
 
 declare(strict_types=1);
+use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Support\Facades\DB;
 
 // Standalone entry point spawned as a real, separate PHP process by
 // TestBootstrapHelperDeterminismTest.php (via Symfony\Component\Process\
@@ -12,13 +14,18 @@ declare(strict_types=1);
 // the same process as the rest of the suite can never reproduce that.
 //
 // Usage: php run_bootstrap_order.php <json-encoded-array-of-plugin-names>
-// Prints the resulting `SHOW TABLES` count on success (exit 0), or the
-// exception class + message on stderr (exit 1).
+// Prints a single JSON object on success (exit 0): {"tableCount": int,
+// "fingerprint": string} — the fingerprint is
+// TestBootstrapHelper::schemaFingerprint(), a stable hash of tables,
+// columns, indexes and foreign keys, so two runs can be compared for an
+// EXACT structural match, not just a table count that could hide a
+// missing column or a differently-ordered index. On failure, prints the
+// exception class + message on stderr and exits 1.
 
 require dirname(__DIR__, 5).'/vendor/autoload.php';
 
 $app = require dirname(__DIR__, 5).'/bootstrap/app.php';
-$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$app->make(Kernel::class)->bootstrap();
 
 require dirname(__DIR__).'/Helpers/TestBootstrapHelper.php';
 
@@ -29,9 +36,10 @@ try {
         TestBootstrapHelper::ensurePluginInstalled($pluginName);
     }
 
-    $tableCount = count(Illuminate\Support\Facades\DB::select('SHOW TABLES'));
-
-    echo $tableCount.PHP_EOL;
+    echo json_encode([
+        'tableCount'  => count(DB::select('SHOW TABLES')),
+        'fingerprint' => TestBootstrapHelper::schemaFingerprint(),
+    ], JSON_THROW_ON_ERROR).PHP_EOL;
 
     exit(0);
 } catch (Throwable $e) {
