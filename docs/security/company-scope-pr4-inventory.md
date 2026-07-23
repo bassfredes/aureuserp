@@ -432,6 +432,94 @@ Validación completa de esta ronda: 32/32 auditor + 81/81 company-scope + 2/2 de
 
 ---
 
+## Ola 4B: Maintenance, ProjectStage, ActivityPlan, Time Off/Leave, Invitations, BankAccount
+
+Checkpoint aprobado (revisión `5016816710`) autorizó implementar código de negocio por olas; ola 4B cubre los 6 dominios listados en la sección "Estado" de ola 4A como pendientes. Ningún modelo fuera de estos 6 se toca en esta ola: Employee, Department, Candidate, Applicant, WorkLocation, Calendar (plano) y Recruitment\Stage quedan para una ola futura pese a aparecer en el inventario.
+
+### Maintenance
+
+```
+Stage: referencia global (sin cambio, ya clasificado)
+Team: HasCompanyScope + HasStrictCompanyId
+EquipmentCategory: HasCompanyScope + HasStrictCompanyId
+Equipment: HasCompanyScope + HasStrictCompanyId + valida category_id/maintenance_team_id contra su propia compañía
+MaintenanceRequest: HasCompanyScope + HasStrictCompanyId + valida equipment_id/maintenance_team_id/category_id contra su propia compañía
+```
+
+La réplica recurrente de `MaintenanceRequest` (creación automática de la siguiente instancia cuando una etapa `done` se alcanza) reautoriza la compañía persistida de forma natural: al ser una fila nueva creada vía `replicate()->save()`, pasa por el mismo `saving()` de `HasStrictCompanyId` que cualquier otra creación, sin código adicional. 36 tests nuevos (`TeamCompanyScopeTest`, `EquipmentCategoryCompanyScopeTest`, `EquipmentCompanyScopeTest`, `MaintenanceRequestCompanyScopeTest`), incluida la reautorización de la réplica bajo un contexto que ya no puede escribir en la compañía persistida.
+
+### ProjectStage
+
+Contrato previo (ola 4A, prioridad 5) señalaba `IncludesSharedCompanyRows`. Implementado siguiendo el patrón exacto de `Route`/`Location`: `HasCompanyScope` + `IncludesSharedCompanyRows` + `guardSharedRowMutation()` (filas `company_id IS NULL`, las 4 etapas por defecto sembradas por `ProjectStageSeeder`, solo mutables por super_admin o proceso de sistema). A diferencia de `Route`, se agrega reautorización en cada `update()` de una fila no compartida (`CompanyScope::assertCanWriteCompany()` sobre el `company_id` original), cerrando la misma clase de IDOR que Milestone/Task en ola 4A: un actor que obtiene una fila cross-company vía consulta sin scope y edita un campo no relacionado debe seguir siendo rechazado. Se detectó que `Route`/`Location` mismos no tienen esta reautorización todavía: riesgo señalado para una ola futura, fuera de alcance de ProjectStage. 9 tests nuevos (`ProjectStageCompanyScopeTest`).
+
+### ActivityPlan (owner físico: Support)
+
+```
+Webkul\Support\Models\ActivityPlan (owner real): HasCompanyScope + IncludesSharedCompanyRows + guardSharedRowMutation
+Webkul\Employee\Models\ActivityPlan, Recruitment\ActivityPlan, Project\ActivityPlan, Sale\ActivityPlan: alias sin lógica, heredan el scope automáticamente
+Webkul\Support\Models\ActivityPlanTemplate: parent-scoped vía plan_id (whereHas + resolveEffectiveCompanyIdOrFail, mismo patrón que Milestone)
+Webkul\Support\Models\ActivityType (+ alias Webkul\TimeOff\Models\ActivityType): clasificado global_reference en el manifest, catálogo cross-plugin particionado únicamente por la columna plugin, nunca por compañía
+```
+
+Bug encontrado y corregido en el mismo commit: el `creating()` original de `ActivityPlan` solo defaulteaba `company_id` desde el actor sin autorizar un valor explícito distinto, el mismo gap que Project cerró en ola 4A ("un usuario de A conociendo el id de B no basta para crear directamente en B"). 17 tests nuevos entre `ActivityPlanCompanyScopeTest` y `ActivityPlanTemplateCompanyScopeTest`.
+
+### Time Off / Leave
+
+```
+Leave: HasCompanyScope, company_id y employee_company_id derivan de Employee.company_id (resolveEffectiveCompanyIdOrFail), manager/first_approver/second_approver/department validados contra la misma compañía
+LeaveType: HasCompanyScope + HasStrictCompanyId (strict_company propio, seeders siempre asignan una compañía real, sin evidencia de filas compartidas)
+LeaveAccrualPlan: HasCompanyScope + HasStrictCompanyId, time_off_type_id validado contra su propia compañía
+LeaveMandatoryDay: HasCompanyScope + HasStrictCompanyId
+LeaveAllocation: sin company_id propio por decisión de contrato, employee_company_id es la columna tenant real, scope propio (no HasCompanyScope, que asume la columna se llama company_id) replicando la misma precedencia vía los helpers públicos de CompanyScope
+LeaveAccrualLevel: parent-scoped vía accrual_plan_id (mismo patrón Milestone/ActivityPlanTemplate)
+UserLeaveType: pivote sin id/timestamps entre User y LeaveType, parent-scoped vía leaveType, además valida que el usuario notificado tenga acceso real a la compañía de ese LeaveType
+```
+
+`CalendarLeave` (aliaseado también por `time-off`) queda fuera de esta ola: su owner real es `Support\Calendar` (agenda/asistencia), y `manufacturing\WorkOrder` lo crea directamente, ninguno de los dos autorizado en ola 4B. Se documenta como riesgo para una ola de Calendar futura, no como una omisión.
+
+Bugs preexistentes, no relacionados a company-scope, encontrados y corregidos porque bloqueaban las fixtures de esta ola:
+- `DepartmentFactory`: `manager_id => Employee::factory()` creaba un ciclo infinito con `EmployeeFactory`'s `department_id => Department::factory()` (nunca antes ejercitado, ninguna prueba en el repositorio invocaba ninguna de las dos fábricas con sus valores por defecto).
+- `EmployeeFactory`: `employee_properties` no es una columna real; `user_id` reusaba el primer usuario existente pese a la restricción UNIQUE de la tabla.
+- `EmployeeJobPositionFactory`: `status`/`open_date` no son columnas reales (la real es `is_active`).
+- `WorkLocationFactory`: `user_id`/`active` no son columnas reales (`creator_id`/`is_active`), y `location_type` usaba una palabra aleatoria en vez de un valor válido del enum.
+- `DepartureReasonFactory`: `sequence` no es columna real (`sort`); `reason_code` es entero, no texto.
+- `LeaveFactory`/`LeaveMandatoryDayFactory`: rango de fechas invertido (`'+7 days'` es relativo a *ahora*, no a la fecha de inicio ya aleatoria dentro de una ventana de 30 días).
+- `LeaveTypeFactory`: `company_id`/`creator_id` usaban enteros aleatorios sin FK real.
+
+52 tests nuevos entre los 7 modelos.
+
+### Invitaciones
+
+Migración nueva en `user_invitations`: `company_id`, `role_id`, `token`, `invited_by`, `expires_at`, `accepted_at`. Al emitir (`ListUsers::inviteUser`): `company_id`/`invited_by` derivan del actor, `role_id` se elige en el formulario (default configurable), `expires_at` a 7 días. Al aceptar (`AcceptInvitation::create()`): transacción + `lockForUpdate()` de la Invitation + valida no aceptada/no expirada + crea el User con la compañía y el rol capturados + asocia `allowedCompanies` + marca `accepted_at`.
+
+`Invitation` deliberadamente no usa `HasCompanyScope`: la ruta de aceptación es de invitado (`signed` middleware, sin actor autenticado), y el scope automático falla cerrado sin usuario ni contexto, lo que bloquearía a cualquier invitado legítimo. La autorización de esa ruta específica es la URL firmada más las validaciones explícitas de estado (no aceptada, no expirada). Tampoco usa `HasStrictCompanyId` completo: ese trait reautoriza en cada `save()` incluso sin actor, exactamente lo que la propia aceptación de invitado necesita hacer al marcar `accepted_at`. Un `boot()` a medida autoriza `company_id` en creación y en cada actualización autenticada (cerrando el mismo IDOR que HasStrictCompanyId cierra en otros modelos), y omite esa reautorización solo cuando no hay actor ni contexto activo, es decir, exclusivamente en el flujo de aceptación de invitado.
+
+El modelo queda clasificado como gap real en el inventario (`has_company_id=true`, `uses_company_scope=false`): es una decisión consciente, no una omisión. Forzar una clasificación del manifest existente (`alias`, `parent_scoped`, `global_reference`, etc.) no describiría honestamente el mecanismo real. `InvitationFactory`/`InvitationResource` referenciaban columnas inexistentes (`role_id`, `token`, `expires_at`, `invited_by`, `accepted_at`) antes de esta migración: código nunca antes ejercitado, ahora alineado con el esquema real. 10 tests nuevos (`InvitationCompanyScopeTest`), incluidos 3 vía `Livewire::test()` sobre el flujo de aceptación real.
+
+### BankAccount
+
+Contrato aprobado: `BankAccount` permanece hijo de `global_party_identity` (Partner), sin `HasCompanyScope` ni `company_id` estricto. Tabla de membresía nueva `partners_bank_account_companies` (`bank_account_id`, `company_id`, único). Crear una `BankAccount` desde una compañía (actor autenticado o `CompanyContext::runForCompany`) habilita esa membresía automáticamente; `CompanyContext::runForAllCompanies`/bootstrap/sin contexto no habilita ninguna, dejando la fila inaccesible hasta remediación explícita.
+
+Dos mecanismos de validación distintos según el rol del referenciador, mismo patrón ya establecido para `Account`/`accounts_account_companies`:
+- `Journal.bank_account_id` (designa su propia cuenta operativa): `BankAccount::ensureEnabledForCompany()` habilita, igual que `Account::ensureEnabledForCompany()` para las cuentas por defecto/suspenso/ganancia/pérdida del mismo Journal.
+- `Payment/Move/PaymentRegister.partner_bank_id` y `Employee.bank_account_id` (referencian una cuenta ya vetada de un tercero): `BankAccount::assertEnabledForCompany()` rechaza si no está habilitada; adicionalmente `assertBelongsToPartner()` rechaza si la cuenta no pertenece al partner referenciado.
+
+Backfill determinista vía migración separada, desde `Employee.company_id + bank_account_id` y `PaymentRegister.company_id + partner_bank_id` (los únicos owners tenant con datos históricos identificados en la matriz de auditoría de esta ola; Payment/Move/Journal comparten la misma fila física pero no aportan backfill adicional en el modelo de despliegue fresh-install de este repositorio). Nunca `Partner.company_id`, `creator.default_company_id` ni `Company::first()` como fallback: una fila sin owner identificado queda sin membresía.
+
+Igual que `Invitation`, `BankAccount` queda clasificado como gap real en el inventario: no tiene `company_id` ni usa `HasCompanyScope`, por diseño. La protección real vive en la tabla de membresía y en las validaciones de escritura descritas arriba, no en un mecanismo que el auditor automático reconozca todavía. 11 tests nuevos (`BankAccountCompanyScopeTest`), incluidas pruebas directas de `assertBelongsToPartner()`/`assertEnabledForCompany()` dado que la cadena de fábricas de `Payment` (métodos/líneas de pago) tiene brechas propias preexistentes, no relacionadas a company-scope, nunca antes ejercitadas.
+
+### Inventario tras ola 4B
+
+```
+scoped: 112 → 126
+classified_exceptions: 123 → 129
+gaps reales: 69 (38+31) → 49 (25+24)
+```
+
+135 tests de company-scope nuevos entre las 6 familias, verificados también corriendo juntos en el mismo proceso (dos bugs de orden de fixtures encontrados y corregidos: creación de una fila antes de autenticar al actor cuando el modelo ya exige autorización explícita en create).
+
+---
+
 ## Estado
 
 ```
@@ -465,10 +553,38 @@ PR 4 (PR #18, feat/company-scope-remaining-plugins): checkpoint aprobado + ola 4
     una base limpia, sin depender del orden
   - CI: en freeze de presupuesto (workflow_dispatch only, PR #19 mergeado a main):
     validación 100% local por instrucción explícita
-Modelos de negocio aún no tocados (próximas olas): Time Off/Leave, Invitations, BankAccount,
-  Maintenance, ProjectStage, ActivityPlan, y todo hijo/pivote de un parent aún no escopado
+Ola 4B (local, sin push todavía): Maintenance, ProjectStage, ActivityPlan, Time Off/Leave,
+  Invitations, BankAccount
+  - Maintenance: Team/EquipmentCategory/Equipment/MaintenanceRequest (HasCompanyScope +
+    HasStrictCompanyId, relaciones validadas contra su propia compañía), Stage sin cambio
+  - ProjectStage: HasCompanyScope + IncludesSharedCompanyRows (patrón Route/Location) +
+    reautorización en cada update, gap encontrado en Route/Location mismos (no reautorizan
+    updates de filas no compartidas), señalado para una ola futura
+  - ActivityPlan: HasCompanyScope + IncludesSharedCompanyRows en el owner físico (Support),
+    4 alias heredan automáticamente; ActivityPlanTemplate parent-scoped vía plan_id;
+    ActivityType clasificado global_reference (catálogo cross-plugin por columna plugin)
+  - Time Off/Leave: Leave (deriva de Employee), LeaveType/LeaveAccrualPlan/LeaveMandatoryDay
+    (HasCompanyScope + HasStrictCompanyId propios), LeaveAllocation (employee_company_id,
+    scope propio sin HasCompanyScope), LeaveAccrualLevel/UserLeaveType (parent-scoped);
+    CalendarLeave excluido de esta ola (owner real es Calendar/scheduling, no Leave)
+  - Invitaciones: migración nueva (company_id/role_id/token/invited_by/expires_at/
+    accepted_at), emisión captura compañía/rol del actor, aceptación con transacción +
+    lockForUpdate + validación de estado, sin HasCompanyScope por diseño (ruta de invitado)
+  - BankAccount: tabla de membresía partners_bank_account_companies, creación desde una
+    compañía la habilita, Journal la habilita al designarla, Payment/Move/PaymentRegister/
+    Employee la validan sin habilitarla, backfill determinista desde Employee y
+    PaymentRegister, sin fallback implícito
+  - Invitation y BankAccount quedan clasificados como gap real en el inventario por diseño:
+    ninguno usa HasCompanyScope, la protección real vive en mecanismos que el auditor
+    automático todavía no reconoce
+  - docs/security/company-scope-pr4-inventory.json regenerado (304 filas): scoped 112→126,
+    classified_exceptions 123→129, gaps reales 69 (38+31)→49 (25+24)
+  - 135 tests de company-scope nuevos entre las 6 familias
+  - ~15 bugs preexistentes en factories/enums encontrados y corregidos porque bloqueaban
+    las fixtures de esta ola, ninguno relacionado a company-scope (detalle por familia arriba)
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
+Ola 4C: no autorizada
 #138 / #81: abiertos
 AGENTS.md: stashes intactos (ambos checkouts)
 ```

@@ -1,4 +1,3 @@
-{
     "plugins": [
         "accounting",
         "accounts",
@@ -29,10 +28,10 @@
     ],
     "summary": {
         "total": 304,
-        "scoped": 112,
-        "classified_exceptions": 123,
-        "real_gaps_with_company_id": 38,
-        "real_gaps_without_company_id": 31,
+        "scoped": 126,
+        "classified_exceptions": 129,
+        "real_gaps_with_company_id": 25,
+        "real_gaps_without_company_id": 24,
         "table_missing": 0,
         "inspection_errors": 0,
         "manifest_violations": 0
@@ -1004,11 +1003,11 @@
             "file": "plugins/webkul/employees/src/Models/ActivityPlan.php",
             "table": "activity_plans",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "employees",
@@ -1808,11 +1807,11 @@
             "file": "plugins/webkul/maintenance/src/Models/Equipment.php",
             "table": "maintenance_equipments",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "maintenance",
@@ -1820,11 +1819,11 @@
             "file": "plugins/webkul/maintenance/src/Models/EquipmentCategory.php",
             "table": "maintenance_equipment_categories",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "maintenance",
@@ -1832,11 +1831,11 @@
             "file": "plugins/webkul/maintenance/src/Models/MaintenanceRequest.php",
             "table": "maintenance_requests",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "maintenance",
@@ -1856,11 +1855,11 @@
             "file": "plugins/webkul/maintenance/src/Models/Team.php",
             "table": "maintenance_teams",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "manufacturing",
@@ -2372,11 +2371,11 @@
             "file": "plugins/webkul/projects/src/Models/ActivityPlan.php",
             "table": "activity_plans",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "projects",
@@ -2408,11 +2407,11 @@
             "file": "plugins/webkul/projects/src/Models/ProjectStage.php",
             "table": "projects_project_stages",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "projects",
@@ -2684,11 +2683,11 @@
             "file": "plugins/webkul/recruitments/src/Models/ActivityPlan.php",
             "table": "activity_plans",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "recruitments",
@@ -2936,11 +2935,11 @@
             "file": "plugins/webkul/sales/src/Models/ActivityPlan.php",
             "table": "activity_plans",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "sales",
@@ -3211,12 +3210,12 @@
             "class": "Webkul\\Security\\Models\\Invitation",
             "file": "plugins/webkul/security/src/Models/Invitation.php",
             "table": "user_invitations",
-            "has_company_id": false,
+            "has_company_id": true,
             "uses_company_scope": false,
-            "status": "not_company_scoped",
+            "status": "missing_scope",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "effective_status": "real_gap_company_column"
         },
         {
             "plugin": "security",
@@ -3272,11 +3271,11 @@
             "file": "plugins/webkul/support/src/Models/ActivityPlan.php",
             "table": "activity_plans",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "support",
@@ -3287,8 +3286,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "support",
@@ -3299,8 +3298,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "global_reference",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "support",
@@ -3551,8 +3550,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "alias",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "time-off",
@@ -3572,11 +3571,11 @@
             "file": "plugins/webkul/time-off/src/Models/Leave.php",
             "table": "time_off_leaves",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "time-off",
@@ -3587,8 +3586,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "time-off",
@@ -3596,11 +3595,11 @@
             "file": "plugins/webkul/time-off/src/Models/LeaveAccrualPlan.php",
             "table": "time_off_leave_accrual_plans",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "time-off",
@@ -3611,8 +3610,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "time-off",
@@ -3620,11 +3619,11 @@
             "file": "plugins/webkul/time-off/src/Models/LeaveMandatoryDay.php",
             "table": "time_off_leave_mandatory_days",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "time-off",
@@ -3632,11 +3631,11 @@
             "file": "plugins/webkul/time-off/src/Models/LeaveType.php",
             "table": "time_off_leave_types",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "time-off",
@@ -3647,8 +3646,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "timesheets",
