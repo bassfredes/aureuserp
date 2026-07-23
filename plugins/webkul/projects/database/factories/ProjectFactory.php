@@ -42,7 +42,17 @@ class ProjectFactory extends Factory
             'allow_milestones'        => false,
             'allow_task_dependencies' => false,
             'is_active'               => true,
-            'stage_id'                => ProjectStage::factory(),
+            // Reuses one of the shared (company_id-null) default stages
+            // seeded by ProjectStageSeeder instead of creating a fresh,
+            // independently-companied ProjectStage — since ProjectStage
+            // now authorizes its own company_id on create (#138 PR4
+            // ola4B), a bare ProjectStage::factory() default here would
+            // trip that check whenever Project is created under a
+            // specific CompanyContext (its own company_id and the fresh
+            // stage's randomly-generated one would never match). Falls
+            // back to null (a valid, nullable FK) when no shared stage is
+            // visible to the current actor/context.
+            'stage_id'                => ProjectStage::query()->whereNull('company_id')->value('id'),
             'partner_id'              => Partner::query()->value('id') ?? Partner::factory(),
             'company_id'              => Company::factory(),
             'user_id'                 => User::query()->value('id') ?? User::factory(),
