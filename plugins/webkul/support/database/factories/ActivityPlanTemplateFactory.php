@@ -4,6 +4,7 @@ namespace Webkul\Support\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\ActivityPlan;
 use Webkul\Support\Models\ActivityPlanTemplate;
 use Webkul\Support\Models\ActivityType;
 
@@ -23,7 +24,10 @@ class ActivityPlanTemplateFactory extends Factory
             'delay_count'      => fake()->numberBetween(0, 30),
             'delay_unit'       => fake()->randomElement(['days', 'weeks', 'months']),
             'delay_from'       => fake()->randomElement(['previous_activity', 'begin']),
-            'plan_id'          => null,
+            // ActivityPlanTemplate::saving() requires a resolvable,
+            // authorized ActivityPlan (#138 PR4 ola4B) — a bare null would
+            // now fail closed, unlike the pre-scoping factory default.
+            'plan_id'          => ActivityPlan::factory(),
             'activity_type_id' => ActivityType::factory(),
             'responsible_id'   => null,
             'creator_id'       => User::query()->value('id') ?? User::factory(),

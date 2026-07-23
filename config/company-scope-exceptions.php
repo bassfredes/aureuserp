@@ -60,6 +60,8 @@ use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\Role;
 use Webkul\Security\Models\Team;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\ActivityPlanTemplate;
+use Webkul\Support\Models\ActivityType;
 use Webkul\Support\Models\ActivityTypeSuggestion;
 use Webkul\Support\Models\Bank;
 use Webkul\Support\Models\Company;
@@ -348,6 +350,19 @@ return [
         'reason'         => 'Per-user favorite marker, never company data. user_id is always the caller\'s own Auth::id(), never accepted from the request. TableViewFavorite::toggleForOwnViewOrFail() additionally refuses to favorite a private view belonging to another user via TableView::assertVisibleOrFail(). Covered by plugins/webkul/table-views/tests/Feature/TableViewOwnershipTest.php.',
         'tracking'       => '#138 PR4 ola4A',
     ],
+    ActivityType::class => [
+        'table'          => 'activity_types',
+        'classification' => 'global_reference',
+        'reason'         => 'Cross-plugin Filament/Chatter activity-type catalog (mail.activity.type equivalent), partitioned only by the `plugin` string column, never by company — every plugin\'s ActivityTypeResource shows the subset tagged for its own plugin, not a per-company subset. No company_id column exists; adding one would not reflect how the table is actually consumed (#138 PR4 ola4B).',
+        'tracking'       => '#138 PR4 ola4B',
+    ],
+    Webkul\TimeOff\Models\ActivityType::class => [
+        'table'          => 'activity_types',
+        'classification' => 'alias',
+        'alias_of'       => ActivityType::class,
+        'reason'         => 'Plugin-scoped alias of Webkul\\Support\\Models\\ActivityType, no logic of its own.',
+        'tracking'       => '#138 PR4 ola4B',
+    ],
     ActivityTypeSuggestion::class => [
         'table'          => 'activity_type_suggestions',
         'classification' => 'not_tenancy',
@@ -604,6 +619,12 @@ return [
         'classification' => 'parent_scoped',
         'reason'         => 'Deliberately has no company_id column — its mandatory (non-nullable, cascadeOnDelete) parent Project is HasCompanyScope-enforced (plugins/webkul/projects/src/Models/Project.php), and Milestone::booted() adds a global scope requiring whereHas(\'project\') (plugins/webkul/projects/src/Models/Milestone.php), inheriting Project\'s own CompanyScope filter for reads. Writes are validated by resolveEffectiveCompanyIdOrFail() against the persisted Project, and MilestonePolicy::belongsToAllowedCompany() re-checks the same on every view/update/delete. Covered by plugins/webkul/projects/tests/Feature/MilestoneCompanyScopeTest.php.',
         'tracking'       => '#138 PR4 ola4A',
+    ],
+    ActivityPlanTemplate::class => [
+        'table'          => 'activity_plan_templates',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column — its mandatory (cascade-delete) parent ActivityPlan is HasCompanyScope-enforced (plugins/webkul/support/src/Models/ActivityPlan.php), and ActivityPlanTemplate::booted() adds a global scope requiring whereHas(\'activityPlan\') (plugins/webkul/support/src/Models/ActivityPlanTemplate.php), inheriting the parent\'s own CompanyScope filter for reads. Writes are validated by resolveEffectiveCompanyIdOrFail() against the persisted ActivityPlan, including its shared (company_id-null) case, which requires a super_admin/system actor. Covered by plugins/webkul/support/tests/Feature/ActivityPlanTemplateCompanyScopeTest.php.',
+        'tracking'       => '#138 PR4 ola4B',
     ],
     Webkul\Accounting\Models\Account::class => [
         'table'          => 'accounts_accounts',
