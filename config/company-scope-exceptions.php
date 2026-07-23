@@ -77,6 +77,9 @@ use Webkul\Support\Models\UTMSource;
 use Webkul\Support\Models\UtmStage;
 use Webkul\TableViews\Models\TableView;
 use Webkul\TableViews\Models\TableViewFavorite;
+use Webkul\TimeOff\Models\LeaveAccrualLevel;
+use Webkul\TimeOff\Models\LeaveAllocation;
+use Webkul\TimeOff\Models\UserLeaveType;
 use Webkul\Website\Models\Page;
 
 /**
@@ -624,6 +627,24 @@ return [
         'table'          => 'activity_plan_templates',
         'classification' => 'parent_scoped',
         'reason'         => 'Deliberately has no company_id column — its mandatory (cascade-delete) parent ActivityPlan is HasCompanyScope-enforced (plugins/webkul/support/src/Models/ActivityPlan.php), and ActivityPlanTemplate::booted() adds a global scope requiring whereHas(\'activityPlan\') (plugins/webkul/support/src/Models/ActivityPlanTemplate.php), inheriting the parent\'s own CompanyScope filter for reads. Writes are validated by resolveEffectiveCompanyIdOrFail() against the persisted ActivityPlan, including its shared (company_id-null) case, which requires a super_admin/system actor. Covered by plugins/webkul/support/tests/Feature/ActivityPlanTemplateCompanyScopeTest.php.',
+        'tracking'       => '#138 PR4 ola4B',
+    ],
+    LeaveAccrualLevel::class => [
+        'table'          => 'time_off_leave_accrual_levels',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column — its mandatory (cascade-delete) parent LeaveAccrualPlan is HasCompanyScope-enforced (plugins/webkul/time-off/src/Models/LeaveAccrualPlan.php), and LeaveAccrualLevel::booted() adds a global scope requiring whereHas(\'accrualPlan\') (plugins/webkul/time-off/src/Models/LeaveAccrualLevel.php), inheriting the parent\'s own CompanyScope filter for reads. Writes are validated by resolveEffectiveCompanyIdOrFail() against the persisted LeaveAccrualPlan. Covered by plugins/webkul/time-off/tests/Feature/LeaveAccrualLevelCompanyScopeTest.php.',
+        'tracking'       => '#138 PR4 ola4B',
+    ],
+    LeaveAllocation::class => [
+        'table'          => 'time_off_leave_allocations',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Approved contract: a child tenant-owned entity anchored on Employee, deliberately without a duplicate company_id column — its own employee_company_id is the tenant column, derived from the persisted Employee\'s company_id via resolveEffectiveCompanyIdOrFail() on every save (never the acting user\'s own default). LeaveAllocation::booted() registers a bespoke global scope filtering on employee_company_id (not the standard HasCompanyScope, since that hardcodes the column name company_id), replicating CompanyScope\'s exact precedence via its own public helpers. Covered by plugins/webkul/time-off/tests/Feature/LeaveAllocationCompanyScopeTest.php.',
+        'tracking'       => '#138 PR4 ola4B',
+    ],
+    UserLeaveType::class => [
+        'table'          => 'time_off_user_leave_types',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Bare pivot (no id/timestamps) between User and LeaveType — no company_id of its own; its tenant boundary is the LeaveType being notified about, not the User (a notified officer may legitimately belong to several companies). UserLeaveType::booted() adds a global scope requiring whereHas(\'leaveType\'), inheriting LeaveType\'s own CompanyScope filter for reads. Writes additionally require the notified User to actually have access (via allowedCompanies()/default_company_id) to the LeaveType\'s resolved company. Covered by plugins/webkul/time-off/tests/Feature/UserLeaveTypeCompanyScopeTest.php.',
         'tracking'       => '#138 PR4 ola4B',
     ],
     Webkul\Accounting\Models\Account::class => [

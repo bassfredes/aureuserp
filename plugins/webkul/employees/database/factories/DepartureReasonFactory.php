@@ -22,8 +22,12 @@ class DepartureReasonFactory extends Factory
     public function definition(): array
     {
         return [
-            'sequence'    => fake()->randomNumber(),
-            'reason_code' => fake()->word,
+            // employees_departure_reasons has 'sort' and an INTEGER
+            // 'reason_code', not 'sequence' — never hit before this
+            // factory's first real invocation (#138 PR4 ola4B, unrelated
+            // to company-scope).
+            'sort'        => fake()->randomNumber(),
+            'reason_code' => fake()->randomNumber(),
             'name'        => fake()->word,
         ];
     }

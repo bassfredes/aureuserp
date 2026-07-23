@@ -31,7 +31,12 @@ class EmployeeFactory extends Factory
     {
         return [
             'company_id'                     => Company::factory(),
-            'user_id'                        => User::query()->value('id') ?? User::factory(),
+            // employees_employees.user_id has a UNIQUE constraint — reusing
+            // the first existing User (like the other *_id fields below)
+            // broke the moment a test created a second Employee. Never hit
+            // before this factory's first real invocation (#138 PR4 ola4B,
+            // unrelated to company-scope).
+            'user_id'                        => User::factory(),
             'creator_id'                     => User::query()->value('id') ?? User::factory(),
             'calendar_id'                    => null,
             'department_id'                  => Department::factory(),
@@ -89,7 +94,6 @@ class EmployeeFactory extends Factory
             'work_permit_expiration_date'    => fake()->date(),
             'departure_date'                 => fake()->optional()->date(),
             'departure_description'          => fake()->optional()->text,
-            'employee_properties'            => fake()->optional()->json,
             'additional_note'                => fake()->optional()->text,
             'notes'                          => fake()->optional()->text,
             'is_active'                      => fake()->boolean(),

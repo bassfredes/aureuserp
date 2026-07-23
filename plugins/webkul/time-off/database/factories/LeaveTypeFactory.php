@@ -3,6 +3,8 @@
 namespace Webkul\TimeOff\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Webkul\Security\Models\User;
+use Webkul\Support\Models\Company;
 use Webkul\TimeOff\Models\LeaveType;
 
 class LeaveTypeFactory extends Factory
@@ -37,9 +39,13 @@ class LeaveTypeFactory extends Factory
         return [
             'sort'                                => fake()->numberBetween(1000, 500000),
             'color'                               => fake()->boolean(30) ? fake()->hexColor() : null,
-            'company_id'                          => fake()->numberBetween(1000, 5000),
+            // Real Company/User references, not arbitrary ids — HasStrictCompanyId
+            // now enforces both authorization and referential integrity on this
+            // column, which the previous random-int fakes would violate (#138
+            // PR4 ola4B).
+            'company_id'                          => Company::factory(),
             'max_allowed_negative'                => fake()->randomElement([1, 2, 3, 5, 10]),
-            'creator_id'                          => fake()->boolean(70) ? fake()->numberBetween(1, 5000) : null,
+            'creator_id'                          => User::query()->value('id') ?? User::factory(),
             'leave_validation_type'               => fake()->randomElement(['both', 'manager', 'hr']),
             'requires_allocation'                 => fake()->boolean(),
             'employee_requests'                   => fake()->boolean(),

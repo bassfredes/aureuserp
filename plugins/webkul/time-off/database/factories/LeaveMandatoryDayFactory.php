@@ -22,7 +22,12 @@ class LeaveMandatoryDayFactory extends Factory
     public function definition(): array
     {
         $startDate = fake()->dateTimeBetween('now', '+30 days');
-        $endDate = fake()->dateTimeBetween($startDate, '+7 days');
+        // '+7 days' is relative to *now*, not $startDate — when $startDate
+        // itself landed past now+7 days (most of the time, since it's
+        // drawn from a 30-day window), the range was inverted and Faker
+        // threw. Never hit before this factory's first real invocation
+        // (#138 PR4 ola4B, unrelated to company-scope).
+        $endDate = fake()->dateTimeBetween($startDate, (clone $startDate)->modify('+7 days'));
 
         return [
             'company_id' => Company::factory(),

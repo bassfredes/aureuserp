@@ -2,6 +2,7 @@
 
 namespace Webkul\TimeOff\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,12 +14,25 @@ use Webkul\Employee\Models\Employee;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Calendar;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
+use Webkul\TimeOff\Database\Factories\LeaveFactory;
 use Webkul\TimeOff\Enums\RequestDateFromPeriod;
 use Webkul\TimeOff\Enums\State;
 
+/**
+ * company_id and employee_company_id both derive from the persisted
+ * Employee — never from the acting user's own default_company_id — and
+ * manager/first_approver/second_approver/department must all belong to
+ * that same company (#138 PR4 ola4B, approved contract). employee_id is a
+ * mandatory FK (migration: restrictOnDelete), so resolveEffectiveCompanyIdOrFail
+ * is the strict variant, matching TaskStage/Milestone's own FK-anchored
+ * pattern from ola4A.
+ */
 class Leave extends Model
 {
-    use HasChatter, HasFactory, HasLogActivity;
+    use HasChatter, HasCompanyScope, HasFactory, HasLogActivity, ValidatesRelatedCompanyScope;
 
     public const ACTIVITY_PLAN_PLUGIN = 'time-off';
 
@@ -158,12 +172,45 @@ class Leave extends Model
     {
         parent::boot();
 
-        static::creating(function ($leave) {
-            $authUser = Auth::user();
-
-            $leave->creator_id = $authUser->id;
-
-            $leave->company_id ??= $authUser?->default_company_id;
+        static::creating(function (self $leave) {
+            $leave->creator_id ??= Auth::id();
         });
+
+        static::saving(function (self $leave): void {
+            $effectiveCompanyId = static::resolveEffectiveCompanyIdOrFail($leave->employee_id, Employee::class, $leave->company_id, 'Employee');
+
+            $leave->company_id = $effectiveCompanyId;
+            $leave->employee_company_id = $effectiveCompanyId;
+
+            static::assertRelatedBelongsToCompany($leave->manager_id, Employee::class, 'manager', $effectiveCompanyId);
+            static::assertRelatedBelongsToCompany($leave->first_approver_id, Employee::class, 'first approver', $effectiveCompanyId);
+            static::assertRelatedBelongsToCompany($leave->second_approver_id, Employee::class, 'second approver', $effectiveCompanyId);
+            static::assertRelatedBelongsToCompany($leave->department_id, Department::class, 'Department', $effectiveCompanyId);
+
+            if (! $leave->exists) {
+                return;
+            }
+
+            // Re-derive the ORIGINAL company from the row as it is actually
+            // persisted right now (never the in-memory $leave, whose
+            // employee_id may have already been reassigned) — closes the
+            // same retargeting IDOR class Milestone/TaskStage close in ola4A.
+            $persisted = static::withoutGlobalScope(CompanyScope::class)->find($leave->getKey());
+
+            if ($persisted === null) {
+                return;
+            }
+
+            $originalCompanyId = static::resolveEffectiveCompanyIdOrFail($persisted->employee_id, Employee::class, null, 'Employee');
+
+            if ($originalCompanyId !== $effectiveCompanyId) {
+                throw new AuthorizationException('Changing the company of this Leave (via employee_id) is forbidden — archive it and create a new one instead.');
+            }
+        });
+    }
+
+    protected static function newFactory(): LeaveFactory
+    {
+        return LeaveFactory::new();
     }
 }

@@ -31,11 +31,14 @@ class EmployeeJobPositionFactory extends Factory
             'requirements'       => fake()->text,
             'expected_employees' => fake()->randomNumber(),
             'no_of_employee'     => fake()->randomNumber(),
-            'status'             => true,
+            // 'status' and 'open_date' are not real columns on
+            // employees_job_positions (the actual flag is 'is_active') —
+            // never hit before this factory's first real invocation (#138
+            // PR4 ola4B, unrelated to company-scope).
+            'is_active'          => true,
             'no_of_recruitment'  => fake()->randomNumber(),
             'department_id'      => Department::factory(),
             'company_id'         => Company::factory(),
-            'open_date'          => fake()->date(),
             'creator_id'         => User::query()->value('id') ?? User::factory(),
         ];
     }

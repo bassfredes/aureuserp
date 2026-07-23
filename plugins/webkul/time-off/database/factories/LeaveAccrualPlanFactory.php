@@ -27,8 +27,13 @@ class LeaveAccrualPlanFactory extends Factory
     public function definition(): array
     {
         return [
-            'time_off_type_id'        => LeaveType::factory(),
             'company_id'              => Company::factory(),
+            // Resolved after 'company_id' above (factory attributes are
+            // evaluated in definition order) so the created LeaveType
+            // always shares this plan's company — an independent
+            // LeaveType::factory() default would generate its own company
+            // and trip the model's relation-integrity check (#138 PR4 ola4B).
+            'time_off_type_id'        => fn (array $attributes) => LeaveType::factory()->create(['company_id' => $attributes['company_id']])->id,
             'carryover_day'           => CarryoverDay::DAY_1,
             'creator_id'              => User::query()->value('id') ?? User::factory(),
             'name'                    => fake()->words(3, true),

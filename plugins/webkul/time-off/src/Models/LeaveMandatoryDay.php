@@ -8,10 +8,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\HasStrictCompanyId;
+use Webkul\TimeOff\Database\Factories\LeaveMandatoryDayFactory;
 
 class LeaveMandatoryDay extends Model
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory, HasStrictCompanyId;
 
     protected $table = 'time_off_leave_mandatory_days';
 
@@ -44,11 +47,12 @@ class LeaveMandatoryDay extends Model
         parent::boot();
 
         static::creating(function ($leaveMandatoryDay) {
-            $authUser = Auth::user();
-
-            $leaveMandatoryDay->creator_id ??= $authUser->id;
-
-            $leaveMandatoryDay->company_id ??= $authUser?->default_company_id;
+            $leaveMandatoryDay->creator_id ??= Auth::id();
         });
+    }
+
+    protected static function newFactory(): LeaveMandatoryDayFactory
+    {
+        return LeaveMandatoryDayFactory::new();
     }
 }
