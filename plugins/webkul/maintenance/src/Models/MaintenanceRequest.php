@@ -18,10 +18,13 @@ use Webkul\Security\Models\User;
 use Webkul\Security\Traits\HasPermissionScope;
 use Webkul\Support\Models\ActivityType;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\HasStrictCompanyId;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class MaintenanceRequest extends Model
 {
-    use HasChatter, HasFactory, HasLogActivity, HasPermissionScope, SoftDeletes;
+    use HasChatter, HasCompanyScope, HasFactory, HasLogActivity, HasPermissionScope, HasStrictCompanyId, SoftDeletes, ValidatesRelatedCompanyScope;
 
     public const ACTIVITY_PLAN_PLUGIN = 'maintenance';
 
@@ -129,13 +132,24 @@ class MaintenanceRequest extends Model
         parent::boot();
 
         static::creating(function (self $request): void {
-            $authUser = Auth::user();
-
             $request->stage_id ??= Stage::query()->orderBy('sort')->value('id');
 
-            $request->creator_id ??= $authUser?->id;
+            $request->creator_id ??= Auth::id();
+        });
 
-            $request->company_id ??= $authUser?->default_company_id;
+        // Runs after HasStrictCompanyId's own `saving` listener has already
+        // resolved/authorized $request->company_id (including on the
+        // recurring-maintenance replica below, which is a plain new model
+        // going through the same create path) — equipment_id, category_id
+        // and maintenance_team_id are each independently selectable with no
+        // server-side company check today, so a submitted or replicated
+        // combination could otherwise anchor a MaintenanceRequest to one
+        // company while referencing another company's Equipment/Team/
+        // EquipmentCategory (#138 PR4 ola4B).
+        static::saving(function (self $request): void {
+            static::assertRelatedBelongsToCompany($request->equipment_id, Equipment::class, 'Equipment', $request->company_id);
+            static::assertRelatedBelongsToCompany($request->maintenance_team_id, Team::class, 'Team', $request->company_id);
+            static::assertRelatedBelongsToCompany($request->category_id, EquipmentCategory::class, 'EquipmentCategory', $request->company_id);
         });
 
         static::updated(function (self $request): void {

@@ -47,7 +47,7 @@ class EquipmentFactory extends Factory
     public function withCategory(): static
     {
         return $this->state(fn (array $attributes) => [
-            'category_id' => EquipmentCategory::factory(),
+            'category_id' => EquipmentCategory::factory()->create(['company_id' => $attributes['company_id']])->id,
         ]);
     }
 
@@ -68,7 +68,7 @@ class EquipmentFactory extends Factory
     public function withTeam(): static
     {
         return $this->state(fn (array $attributes) => [
-            'maintenance_team_id' => Team::factory(),
+            'maintenance_team_id' => Team::factory()->create(['company_id' => $attributes['company_id']])->id,
         ]);
     }
 

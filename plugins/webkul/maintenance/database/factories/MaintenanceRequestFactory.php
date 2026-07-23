@@ -41,8 +41,15 @@ class MaintenanceRequestFactory extends Factory
             'stage_id'                 => null,
             'category_id'              => null,
             'user_id'                  => null,
-            'maintenance_team_id'      => Team::factory(),
             'company_id'               => Company::factory(),
+            // maintenance_team_id is a required FK (migration: NOT NULL) —
+            // the closure form resolves after 'company_id' above (factory
+            // attributes are evaluated in definition order) so the created
+            // Team always shares this request's company; a plain
+            // Team::factory() default would generate its own independent
+            // company and trip the model's relation-integrity check
+            // (#138 PR4 ola4B).
+            'maintenance_team_id'      => fn (array $attributes) => Team::factory()->create(['company_id' => $attributes['company_id']])->id,
             'creator_id'               => User::query()->value('id') ?? User::factory(),
         ];
     }
@@ -88,7 +95,7 @@ class MaintenanceRequestFactory extends Factory
     public function withEquipment(): static
     {
         return $this->state(fn (array $attributes) => [
-            'equipment_id' => Equipment::factory(),
+            'equipment_id' => Equipment::factory()->create(['company_id' => $attributes['company_id']])->id,
         ]);
     }
 
@@ -102,7 +109,7 @@ class MaintenanceRequestFactory extends Factory
     public function withCategory(): static
     {
         return $this->state(fn (array $attributes) => [
-            'category_id' => EquipmentCategory::factory(),
+            'category_id' => EquipmentCategory::factory()->create(['company_id' => $attributes['company_id']])->id,
         ]);
     }
 

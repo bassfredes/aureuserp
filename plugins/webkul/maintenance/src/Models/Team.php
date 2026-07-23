@@ -12,10 +12,12 @@ use Illuminate\Support\Facades\Auth;
 use Webkul\Maintenance\Database\Factories\TeamFactory;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\HasStrictCompanyId;
 
 class Team extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasCompanyScope, HasFactory, HasStrictCompanyId, SoftDeletes;
 
     protected $table = 'maintenance_teams';
 
@@ -66,10 +68,7 @@ class Team extends Model
         parent::boot();
 
         static::creating(function (self $team): void {
-            $authUser = Auth::user();
-
-            $team->creator_id ??= $authUser?->id;
-            $team->company_id ??= $authUser?->default_company_id;
+            $team->creator_id ??= Auth::id();
         });
     }
 }
