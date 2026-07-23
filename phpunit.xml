@@ -29,6 +29,32 @@
         <testsuite name="ManufacturingFeature">
             <directory>plugins/webkul/manufacturing/tests/Feature</directory>
         </testsuite>
+        <!--
+        #138 PR4 ola4B: this rollout's 3 new plugins (Maintenance/Security/
+        TimeOff) had a tests/Feature directory that was never actually run
+        by `vendor/bin/pest`/`composer test` (no explicit path argument)
+        until added here — phpunit.xml's own <testsuites> list, not tests/
+        Pest.php's `->in('Feature', '../plugins/*/*/tests/Feature')` glob,
+        is what determines which directories a bare `pest`/`composer test`
+        invocation actually scans. The same gap exists for 6 other plugins
+        (analytics, payments, plugin-manager, products, recruitments,
+        table-views) — confirmed by a one-off widened run that surfaced
+        dozens of pre-existing failures unrelated to company-scope in
+        those plugins' own test suites (some from real bugs, others from
+        cross-file bootstrap-ordering assumptions that only held by
+        accident of phpunit's previous directory list). Fixing those is
+        out of scope for this rollout; flagged as a discovered, deferred
+        infrastructure issue rather than silently expanded into here.
+        -->
+        <testsuite name="MaintenanceFeature">
+            <directory>plugins/webkul/maintenance/tests/Feature</directory>
+        </testsuite>
+        <testsuite name="SecurityFeature">
+            <directory>plugins/webkul/security/tests/Feature</directory>
+        </testsuite>
+        <testsuite name="TimeOffFeature">
+            <directory>plugins/webkul/time-off/tests/Feature</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>
