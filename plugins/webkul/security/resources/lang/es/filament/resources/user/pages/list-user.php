@@ -14,6 +14,7 @@ return [
             ],
             'form' => [
                 'email' => 'Correo electrónico',
+                'role'  => 'Rol',
             ],
             'notification' => [
                 'success' => [

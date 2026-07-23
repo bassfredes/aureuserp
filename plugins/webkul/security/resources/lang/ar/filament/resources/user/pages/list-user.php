@@ -14,6 +14,7 @@ return [
             ],
             'form' => [
                 'email' => 'البريد الإلكتروني',
+                'role'  => 'الدور',
             ],
             'notification' => [
                 'success' => [

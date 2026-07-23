@@ -58,4 +58,9 @@ return [
 
     ],
 
+    'errors' => [
+        'already-accepted'  => 'Esta invitación ya fue aceptada.',
+        'expired'           => 'Esta invitación expiró.',
+    ],
+
 ];

@@ -9,6 +9,7 @@ use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Pages\Concerns\InteractsWithFormActions;
 use Filament\Pages\SimplePage;
 use Filament\Schemas\Schema;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rules\Password;
 use Webkul\Project\Filament\Pages\Dashboard;
 use Webkul\Security\Models\Invitation;
@@ -31,6 +32,14 @@ class AcceptInvitation extends SimplePage
     public function mount(): void
     {
         $this->invitationModel = Invitation::findOrFail($this->invitation);
+
+        // The signed URL's own signature is this route's authorization —
+        // it proves the link came from the mail this invitation actually
+        // sent. Expiry/already-accepted state must still be enforced
+        // explicitly, since a valid signature says nothing about whether
+        // the invitation is still usable (#138 PR4 ola4B).
+        abort_if($this->invitationModel->isAccepted(), 410, __('security::livewire/accept-invitation.errors.already-accepted'));
+        abort_if($this->invitationModel->isExpired(), 410, __('security::livewire/accept-invitation.errors.expired'));
 
         $this->form->fill([
             'email' => $this->invitationModel->email,
@@ -67,18 +76,41 @@ class AcceptInvitation extends SimplePage
 
     public function create(): void
     {
-        $this->invitationModel = Invitation::find($this->invitation);
+        $formState = $this->form->getState();
 
-        $user = User::create([
-            'name'               => $this->form->getState()['name'],
-            'password'           => $this->form->getState()['password'],
-            'email'              => $this->invitationModel->email,
-            'default_company_id' => settings(UserSettings::class)->default_company_id,
-        ]);
+        DB::transaction(function () use ($formState): void {
+            // lockForUpdate() closes the race between two requests racing
+            // the same still-valid signed URL — without it, both could
+            // pass the not-accepted/not-expired checks below and both
+            // create a User from the same Invitation (#138 PR4 ola4B).
+            $invitation = Invitation::query()->lockForUpdate()->findOrFail($this->invitation);
 
-        $user->assignRole(settings(UserSettings::class)->default_role_id);
+            abort_if($invitation->isAccepted(), 410, __('security::livewire/accept-invitation.errors.already-accepted'));
+            abort_if($invitation->isExpired(), 410, __('security::livewire/accept-invitation.errors.expired'));
 
-        $this->invitationModel->delete();
+            // The company/role captured at issue time (Invitation::boot(),
+            // ListUsers::inviteUser action) are what the accepted User
+            // inherits — never a global UserSettings default, which would
+            // let any invitee land in whatever company happens to be
+            // configured at accept time rather than the one the inviter
+            // was actually authorized for (#138 PR4 ola4B).
+            $user = User::create([
+                'name'               => $formState['name'],
+                'password'           => $formState['password'],
+                'email'              => $invitation->email,
+                'default_company_id' => $invitation->company_id ?? settings(UserSettings::class)->default_company_id,
+            ]);
+
+            if ($invitation->company_id !== null) {
+                $user->allowedCompanies()->syncWithoutDetaching([$invitation->company_id]);
+            }
+
+            $user->assignRole($invitation->role_id ?? settings(UserSettings::class)->default_role_id);
+
+            $invitation->update(['accepted_at' => now()]);
+
+            $this->invitationModel = $invitation;
+        });
 
         $this->redirect(Dashboard::getUrl());
     }
