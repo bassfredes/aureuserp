@@ -30,7 +30,12 @@ Closes #
 
 ## 🧪 How Has This Been Tested?
 
-<!-- Describe the steps you took to test your changes. -->
+<!-- Describe the steps you took to test your changes.
+     TEMPORARY MANUAL-CI MODE (0.x): GitHub Actions no longer runs automatically on push/PR/merge_group.
+     Workflows (Pest Tests, Translations Check, Publish Docker Image) run only on manual workflow_dispatch.
+     Ordinary validation is LOCAL via the monorepo `make verify-local` gate: record the exact commands,
+     their results, and the DATE. If this PR freezes a release-candidate SHA, also record the SHA and the
+     URLs of the one-off manual runs. -->
 
 ## 📸 Screenshots (if applicable)
 

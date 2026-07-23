@@ -1,3 +1,15 @@
+<!--
+CI / Validation. TEMPORARY MANUAL-CI MODE (0.x budget freeze, since 2026-07-20).
+GitHub Actions does NOT run automatically on this submodule. The workflows Pest Tests,
+Translations Check and Publish Docker Image run only on manual `workflow_dispatch`.
+Ordinary validation is LOCAL via the monorepo `make verify-local` gate, which runs the ERP
+suite (assets build, Pest, gold-standard dataset, translations check) inside an isolated Compose
+project. PRs must record local commands, results and date in their Test plan and must not expect
+Actions to run. Publish Docker Image requires explicit authorization to dispatch. Automatic
+triggers must be restored before v1.0.0. See the monorepo docs/features/infra-ci-cd.md (issues
+#177 and #178). This note is intentionally kept outside the Laravel Boost block so it survives
+regeneration.
+-->
 <laravel-boost-guidelines>
 === foundation rules ===
 
