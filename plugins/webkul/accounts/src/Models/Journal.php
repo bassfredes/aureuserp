@@ -236,6 +236,11 @@ class Journal extends Model implements Sortable
             Account::ensureEnabledForCompany($journal->suspense_account_id, $journal->company_id);
             Account::ensureEnabledForCompany($journal->profit_account_id, $journal->company_id);
             Account::ensureEnabledForCompany($journal->loss_account_id, $journal->company_id);
+            // Same reasoning as the Account calls above (#138 PR4 ola4B):
+            // designating a BankAccount as this Journal's own operating
+            // account is itself the act that enables it for the journal's
+            // company.
+            BankAccount::ensureEnabledForCompany($journal->bank_account_id, $journal->company_id);
         });
     }
 

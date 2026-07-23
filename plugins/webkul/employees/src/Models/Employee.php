@@ -241,6 +241,13 @@ class Employee extends Model
     {
         parent::boot();
 
+        static::saving(function (self $employee) {
+            // bank_account_id must be enabled for this Employee's own
+            // company (#138 PR4 ola4B, approved contract) — BankAccount
+            // has no company_id of its own, only a membership pivot.
+            BankAccount::assertEnabledForCompany($employee->bank_account_id, $employee->company_id, 'Employee Bank Account');
+        });
+
         static::saved(function (self $employee) {
             $employee->creator_id ??= Auth::id();
 
