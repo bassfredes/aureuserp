@@ -16,6 +16,19 @@ use Webkul\Support\Traits\HasCompanyScope;
 use Webkul\TableViews\Models\TableView;
 use Webkul\TableViews\Models\TableViewFavorite;
 
+require_once __DIR__.'/../../../plugins/webkul/support/tests/Helpers/TestBootstrapHelper.php';
+
+// This file's fixtures read the real, already-migrated schema (accounts_
+// journals, accounts_account_tags, partners_partners, and the tables behind
+// every ExceptionManifest::default() entry exercised below) instead of
+// creating throwaway tables. Isolated (this file alone, after a canonical
+// reset) that schema previously existed only by accident of file-execution
+// order within the same Pest process — no other Feature test in this
+// suite's actual run order was guaranteed to install it first. Bootstrapping
+// explicitly here (#138 PR4 A4B-AUD-002) makes this file correct standalone,
+// inside composer test, and in any execution order.
+beforeEach(fn () => TestBootstrapHelper::ensureERPInstalled());
+
 /**
  * Runs the REAL CLI script (scripts/audit-company-scope.php) as a
  * subprocess against a temp fixture manifest, via
