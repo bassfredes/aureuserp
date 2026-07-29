@@ -29,10 +29,10 @@
     ],
     "summary": {
         "total": 304,
-        "scoped": 127,
-        "classified_exceptions": 133,
-        "real_gaps_with_company_id": 24,
-        "real_gaps_without_company_id": 20,
+        "scoped": 134,
+        "classified_exceptions": 134,
+        "real_gaps_with_company_id": 17,
+        "real_gaps_without_company_id": 19,
         "table_missing": 0,
         "inspection_errors": 0,
         "manifest_violations": 0
@@ -1052,11 +1052,11 @@
             "file": "plugins/webkul/employees/src/Models/Department.php",
             "table": "employees_departments",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "employees",
@@ -1076,11 +1076,11 @@
             "file": "plugins/webkul/employees/src/Models/Employee.php",
             "table": "employees_employees",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "employees",
@@ -1112,11 +1112,11 @@
             "file": "plugins/webkul/employees/src/Models/EmployeeJobPosition.php",
             "table": "employees_job_positions",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "employees",
@@ -1151,8 +1151,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "employees",
@@ -1220,11 +1220,11 @@
             "file": "plugins/webkul/employees/src/Models/WorkLocation.php",
             "table": "employees_work_locations",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "fields",
@@ -2804,11 +2804,11 @@
             "file": "plugins/webkul/recruitments/src/Models/Department.php",
             "table": "employees_departments",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "recruitments",
@@ -2828,11 +2828,11 @@
             "file": "plugins/webkul/recruitments/src/Models/JobByPosition.php",
             "table": "employees_job_positions",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "recruitments",
@@ -2840,11 +2840,11 @@
             "file": "plugins/webkul/recruitments/src/Models/JobPosition.php",
             "table": "employees_job_positions",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "recruitments",

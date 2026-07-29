@@ -24,6 +24,7 @@ use Webkul\Blog\Models\Tag;
 use Webkul\Employee\Models\DepartureReason;
 use Webkul\Employee\Models\EmployeeCategory;
 use Webkul\Employee\Models\EmployeeResumeLineType;
+use Webkul\Employee\Models\EmployeeSkill;
 use Webkul\Employee\Models\EmploymentType;
 use Webkul\Employee\Models\Skill;
 use Webkul\Employee\Models\SkillLevel;
@@ -669,6 +670,12 @@ return [
         'classification' => 'parent_scoped',
         'reason'         => 'Approved contract: a child tenant-owned entity anchored on Employee, deliberately without a duplicate company_id column — its own employee_company_id is the tenant column, derived from the persisted Employee\'s company_id via resolveEffectiveCompanyIdOrFail() on every save (never the acting user\'s own default). LeaveAllocation::booted() registers a bespoke global scope filtering on employee_company_id (not the standard HasCompanyScope, since that hardcodes the column name company_id), replicating CompanyScope\'s exact precedence via its own public helpers. Covered by plugins/webkul/time-off/tests/Feature/LeaveAllocationCompanyScopeTest.php.',
         'tracking'       => '#138 PR4 ola4B',
+    ],
+    EmployeeSkill::class => [
+        'table'          => 'employees_employee_skills',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column of its own — isolation is entirely derived from its Employee (HasCompanyScope-enforced, plugins/webkul/employees/src/Models/Employee.php). EmployeeSkill::boot() registers EmployeeSkillCompanyScope (plugins/webkul/employees/src/Models/Scopes/EmployeeSkillCompanyScope.php), a bespoke global scope filtering via whereHas(\'employee\') (not the standard HasCompanyScope, since the tenant column lives on the related model, not this one), replicating CompanyScope\'s exact precedence. Writes are validated by resolveEffectiveCompanyIdOrFail() against the persisted Employee on every create/update/delete/restore/forceDelete. Covered by plugins/webkul/employees/tests/Feature/EmployeeSkillCompanyScopeTest.php.',
+        'tracking'       => '#138 PR4 A4D',
     ],
     UserLeaveType::class => [
         'table'          => 'time_off_user_leave_types',

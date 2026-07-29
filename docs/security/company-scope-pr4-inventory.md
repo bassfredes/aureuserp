@@ -569,6 +569,26 @@ gaps reales: 45 (25+20) → 44 (24+20)
 
 Regresión verificada sin cambios: ola 4A 81/81, ola 4B 152/152, ola 4C 32/32 (focalizado), auditor 32/32, determinismo del harness 2/2, `ActivityPlanCompanyScopeTest`/`ProjectStageCompanyScopeTest` (precedente `company_or_shared`) sin cambios.
 
+## A4D: familia employees, aislamiento completo
+
+Cierra ocho filas del inventario asociadas a `Webkul\Employee\Models\Employee`, `Department`, `EmployeeJobPosition`, `WorkLocation` (owners) y `Webkul\Recruitment\Models\Department`, `JobPosition`, `JobByPosition` (alias heredados por late static binding) más `EmployeeSkill` (parent-scoped). Detalle técnico completo, matriz de relaciones y contrato por modelo en `docs/security/company-scope-pr4-wave-4d-plan.md`.
+
+Los cuatro owners usan `HasCompanyScope` + `HasStrictCompanyId` (mismo patrón que toda la familia desde ola 4A). Además de la inmutabilidad de `company_id` y la reautorización en cada update que `HasStrictCompanyId` ya provee, se agregó un concern local nuevo, `GuardsCompanyLifecycleOnSoftDelete` (`plugins/webkul/employees/src/Models/Concerns/`), que reautoriza el `company_id` persistido en `delete()`/`restore()`/`forceDelete()` - lifecycle que `HasStrictCompanyId` no cubre por sí solo. Cada relación tenant-aware de `Employee` (`department_id`, `job_id`, `work_location_id`, `calendar_id`, `parent_id`, `coach_id`) se valida contra el `company_id` ya autorizado vía `ValidatesRelatedCompanyScope::assertRelatedBelongsToCompany()`; `user_id`, `attendance_manager_id` y `leave_manager_id` se validan por membresía (`CompanyScope::allowedCompanyIds()`) ya que `User` no tiene una única `company_id` propia. `Department` corrige además un bug real preexistente: su recursión de jerarquía (`parent_id`/`master_department_id`/`complete_name`) usaba `static::find()`, que con el nuevo scope habría tratado un padre oculto como inexistente en vez de rechazarlo explícitamente - ahora resuelve el árbol vía `withoutGlobalScope(CompanyScope::class)` y compara compañía explícitamente.
+
+`EmployeeSkill` no tiene columna `company_id` propia: usa un scope bespoke nuevo, `EmployeeSkillCompanyScope` (mismo principio que `BankAccountCompanyMembershipScope` de ola 4C, aquí vía `whereHas('employee', ...)` en vez de un pivote), y su escritura se autoriza contra el Employee persistido vía `resolveEffectiveCompanyIdOrFail()`. `Recruitment\JobPosition` valida su propio `manager_id` (relación que el alias agrega, no heredada del owner); `Recruitment\Department` y `JobByPosition` son alias vacíos, heredan el contrato íntegro.
+
+Durante la implementación se encontraron y corrigieron tres bugs preexistentes, no relacionados al aislamiento por compañía en sí, todos dormidos hasta que esta ola los ejercitó por primera vez: `Employee::handlePartnerCreation()`/`handlePartnerUpdation()` pasaban el `parent_id` (un id de Employee) directamente como `Partner.parent_id` (que referencia otros Partners); `EmployeeFactory`/`EmployeeJobPositionFactory` generaban relaciones anidadas con compañías independientes entre sí (corregido con closures que derivan de la compañía ya resuelta); y el seeder `EmployeeSeeder` creaba diez Employees sin `company_id` ni actor/contexto, rompiendo `employees:install` en su totalidad.
+
+### Inventario tras A4D
+
+```
+scoped: 127 → 134 (+4 owners: Employee, Department, EmployeeJobPosition, WorkLocation; +3 alias heredados: Recruitment\Department/JobPosition/JobByPosition)
+classified_exceptions: 133 → 134 (+1: EmployeeSkill = parent_scoped)
+gaps reales: 44 (24+20) → 36 (17+19)
+```
+
+95 tests nuevos en `plugins/webkul/employees/tests/Feature/` (8 archivos): `EmployeeCompanyScopeTest.php`, `EmployeeCompanyRelationsTest.php`, `DepartmentCompanyScopeTest.php`, `EmployeeJobPositionCompanyScopeTest.php`, `WorkLocationCompanyScopeTest.php`, `EmployeeSkillCompanyScopeTest.php`, `RecruitmentEmployeeAliasesCompanyScopeTest.php`, `EmployeeFactoryCompanyCoherenceTest.php`. Regresión verificada sin cambio de aserciones: `LeaveCompanyScopeTest.php`/`LeaveAllocationCompanyScopeTest.php` (fixtures ajustadas: creaban Employee/Department sin actor ni contexto, o con una compañía distinta a la del actor ya autenticado - ambos casos ahora fallan cerrado bajo el nuevo contrato), `BankAccountCompanyScopeTest.php` (una fixture ajustada para que la excepción siga siendo causada por el guard de BankAccount, no por la nueva autorización de Employee), auditor 32/32, `composer test` completo.
+
 ---
 
 ## Estado
@@ -662,10 +682,35 @@ A4D-0 (hotfix, publicado): CurrencyRate, aislamiento company-or-shared
     classified_exceptions 133 (sin cambio), gaps reales 45 (25+20)->44 (24+20)
   - 33 tests nuevos (21 CurrencyRateCompanyScopeTest.php, 12 CurrencyRateApiCompanyScopeTest.php);
     CurrencyRateTest.php preexistente (11 tests) con fixtures ajustadas, sin cambio de asserts
-  - pendiente de revisión independiente antes de A4D (familia employees)
+  - aprobado mediante revisión técnica (review 4808109049)
+A4D (familia employees, publicada): Employee, Department, EmployeeJobPosition, WorkLocation,
+  EmployeeSkill, alias de Recruitment
+  - Employee/Department/EmployeeJobPosition/WorkLocation: HasCompanyScope + HasStrictCompanyId;
+    delete/restore/forceDelete autorizados vía concern nuevo GuardsCompanyLifecycleOnSoftDelete
+  - Employee: department_id/job_id/work_location_id/calendar_id/parent_id/coach_id validados
+    contra el company_id ya autorizado; user_id/attendance_manager_id/leave_manager_id
+    validados por membresía (User no tiene una única company_id propia)
+  - Department: corregido bug preexistente de static::find() en la jerarquía (parent oculto
+    ya no se trata como inexistente); manager_id validado contra Employee
+  - EmployeeSkill: sin company_id propio, scope bespoke EmployeeSkillCompanyScope (via
+    whereHas('employee'), mismo principio que BankAccountCompanyMembershipScope de ola 4C),
+    escritura autorizada vía resolveEffectiveCompanyIdOrFail() contra el Employee persistido
+  - Recruitment\Department/JobPosition/JobByPosition: heredan el contrato por late static
+    binding, verificado directamente; JobPosition valida su propio manager_id (no heredado)
+  - tres bugs preexistentes encontrados y corregidos (no relacionados al aislamiento en sí):
+    Employee.parent_id pasado como Partner.parent_id, EmployeeFactory/EmployeeJobPositionFactory
+    con relaciones anidadas de compañías independientes, EmployeeSeeder sin company_id/contexto
+  - manifest: EmployeeSkill clasificado parent_scoped; alias de Recruitment no se agregan al
+    manifest (se detectan directamente como scoped)
+  - docs/security/company-scope-pr4-inventory.json regenerado (304 filas): scoped 127->134,
+    classified_exceptions 133->134, gaps reales 44 (24+20)->36 (17+19)
+  - 95 tests nuevos en plugins/webkul/employees/tests/Feature/ (8 archivos); regresión de
+    LeaveCompanyScopeTest.php/LeaveAllocationCompanyScopeTest.php/BankAccountCompanyScopeTest.php
+    con fixtures ajustadas, sin cambio de aserciones de negocio
+  - pendiente de revisión técnica del diff publicado
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
-A4D (familia employees): no iniciada, pendiente de autorización propia tras revisión de A4D-0
+Ola 4E: no autorizada
 #138 / #81: abiertos
 AGENTS.md: stashes intactos (ambos checkouts)
 ```
