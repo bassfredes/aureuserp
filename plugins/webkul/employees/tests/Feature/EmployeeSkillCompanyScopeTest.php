@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Webkul\Employee\Models\Employee;
 use Webkul\Employee\Models\EmployeeSkill;
 use Webkul\Employee\Models\Scopes\EmployeeSkillCompanyScope;
@@ -154,6 +155,89 @@ it('allows creating an EmployeeSkill under an Employee the acting user is author
     $skill = EmployeeSkill::create(['employee_id' => $employeeA->id, 'skill_id' => null, 'skill_level_id' => null]);
 
     expect($skill->employee_id)->toBe($employeeA->id);
+});
+
+it('forbids creating an EmployeeSkill without an employee_id', function () {
+    // #138 PR4 A4D review 4811942781,
+    // CHANGES_REQUIRED_A4D_EMPLOYEES_FAIL_CLOSED_OWNER_RESOLUTION: an
+    // unresolvable parent must reject the mutation, not silently pass it
+    // through. authorizeAgainstPersistedEmployee() used to short-circuit
+    // to `return null` on a null employee_id, letting create() continue
+    // without an authorized parent.
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    expect(fn () => EmployeeSkill::create(['employee_id' => null, 'skill_id' => null, 'skill_level_id' => null]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('employees_employee_skills', ['employee_id' => null]);
+});
+
+it('forbids updating an EmployeeSkill whose persisted employee_id cannot be resolved', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $employeeA = Employee::factory()->create(['company_id' => $companyA->id]);
+    $skill = EmployeeSkill::create(['employee_id' => $employeeA->id, 'skill_id' => null, 'skill_level_id' => null]);
+
+    DB::table('employees_employee_skills')->where('id', $skill->id)->update(['employee_id' => null]);
+
+    $corrupted = EmployeeSkill::withoutGlobalScope(EmployeeSkillCompanyScope::class)->findOrFail($skill->id);
+
+    expect(fn () => $corrupted->update(['creator_id' => null]))->toThrow(AuthorizationException::class);
+});
+
+it('forbids deleting an EmployeeSkill whose persisted employee_id cannot be resolved', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $employeeA = Employee::factory()->create(['company_id' => $companyA->id]);
+    $skill = EmployeeSkill::create(['employee_id' => $employeeA->id, 'skill_id' => null, 'skill_level_id' => null]);
+
+    DB::table('employees_employee_skills')->where('id', $skill->id)->update(['employee_id' => null]);
+
+    $corrupted = EmployeeSkill::withoutGlobalScope(EmployeeSkillCompanyScope::class)->findOrFail($skill->id);
+
+    expect(fn () => $corrupted->delete())->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('employees_employee_skills', ['id' => $skill->id, 'deleted_at' => null]);
+});
+
+it('forbids restoring an EmployeeSkill whose persisted employee_id cannot be resolved', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $employeeA = Employee::factory()->create(['company_id' => $companyA->id]);
+    $skill = EmployeeSkill::create(['employee_id' => $employeeA->id, 'skill_id' => null, 'skill_level_id' => null]);
+
+    DB::table('employees_employee_skills')->where('id', $skill->id)->update(['employee_id' => null, 'deleted_at' => now()]);
+
+    $trashed = EmployeeSkill::withoutGlobalScope(EmployeeSkillCompanyScope::class)->withTrashed()->findOrFail($skill->id);
+
+    expect(fn () => $trashed->restore())->toThrow(AuthorizationException::class);
+
+    $this->assertSoftDeleted('employees_employee_skills', ['id' => $skill->id]);
+});
+
+it('forbids force-deleting an EmployeeSkill whose persisted employee_id cannot be resolved', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $employeeA = Employee::factory()->create(['company_id' => $companyA->id]);
+    $skill = EmployeeSkill::create(['employee_id' => $employeeA->id, 'skill_id' => null, 'skill_level_id' => null]);
+
+    DB::table('employees_employee_skills')->where('id', $skill->id)->update(['employee_id' => null]);
+
+    $corrupted = EmployeeSkill::withoutGlobalScope(EmployeeSkillCompanyScope::class)->findOrFail($skill->id);
+
+    expect(fn () => $corrupted->forceDelete())->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('employees_employee_skills', ['id' => $skill->id]);
 });
 
 it('forbids updating an unrelated field on an EmployeeSkill whose Employee is hidden in another company, obtained via runForAllCompanies', function () {

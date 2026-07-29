@@ -66,17 +66,19 @@ class EmployeeSkill extends Model
 
     /**
      * Authorizes against a given Employee id, returning its effective
-     * company_id. Returns null only when there is no employee_id to
-     * resolve at all (should not happen in practice — employee_id is
-     * required for any meaningful EmployeeSkill — but this helper does
-     * not itself enforce that requirement, only company authorization).
+     * company_id. EmployeeSkill is parent_scoped with no company_id of
+     * its own — a null or unresolvable $employeeId must reject the
+     * mutation, not silently pass it through. A previous version
+     * short-circuited to `return null` on a null $employeeId, which let
+     * create()/update()/delete()/restore()/forceDelete() continue
+     * without an authorized parent (review 4811942781,
+     * CHANGES_REQUIRED_A4D_EMPLOYEES_FAIL_CLOSED_OWNER_RESOLUTION).
+     * resolveEffectiveCompanyIdOrFail() itself already throws on a null
+     * id, a missing Employee, or an Employee with no company_id of its
+     * own — this helper no longer intercepts any of those cases.
      */
-    private static function authorizeAgainstPersistedEmployee(?int $employeeId): ?int
+    private static function authorizeAgainstPersistedEmployee(?int $employeeId): int
     {
-        if ($employeeId === null) {
-            return null;
-        }
-
         return static::resolveEffectiveCompanyIdOrFail($employeeId, Employee::class, null, 'Employee');
     }
 
@@ -123,7 +125,7 @@ class EmployeeSkill extends Model
             if ($employeeSkill->isDirty('employee_id')) {
                 $newCompanyId = static::authorizeAgainstPersistedEmployee($employeeSkill->employee_id);
 
-                if ($originalCompanyId !== null && $newCompanyId !== null && $originalCompanyId !== $newCompanyId) {
+                if ($originalCompanyId !== $newCompanyId) {
                     throw new AuthorizationException('Moving an EmployeeSkill to an Employee in a different company is forbidden.');
                 }
             }

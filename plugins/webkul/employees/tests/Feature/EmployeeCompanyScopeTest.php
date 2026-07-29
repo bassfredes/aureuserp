@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Webkul\Employee\Models\Employee;
 use Webkul\Security\Models\Role;
 use Webkul\Security\Models\User;
@@ -157,6 +158,59 @@ it('forbids a user in company A from deleting an Employee in company B fetched v
     expect(fn () => $employeeBPartial->delete())->toThrow(AuthorizationException::class);
 
     $this->assertDatabaseHas('employees_employees', ['id' => $employeeB->id, 'deleted_at' => null]);
+});
+
+it('forbids deleting a historically corrupted Employee whose company_id is null', function () {
+    // #138 PR4 A4D review 4811942781,
+    // CHANGES_REQUIRED_A4D_EMPLOYEES_FAIL_CLOSED_OWNER_RESOLUTION: a null
+    // persisted company_id (e.g. after a Company FK onDelete('set null'))
+    // must reject the lifecycle mutation, not silently let it through as
+    // "unauthorized-but-unblocked".
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $employee = Employee::factory()->create(['company_id' => $companyA->id]);
+
+    DB::table('employees_employees')->where('id', $employee->id)->update(['company_id' => null]);
+
+    $corrupted = Employee::withoutGlobalScope(CompanyScope::class)->findOrFail($employee->id);
+
+    expect(fn () => $corrupted->delete())->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('employees_employees', ['id' => $employee->id, 'deleted_at' => null]);
+});
+
+it('forbids restoring a historically corrupted Employee whose company_id is null', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $employee = Employee::factory()->create(['company_id' => $companyA->id]);
+
+    DB::table('employees_employees')->where('id', $employee->id)->update(['company_id' => null, 'deleted_at' => now()]);
+
+    $trashed = Employee::withoutGlobalScope(CompanyScope::class)->withTrashed()->findOrFail($employee->id);
+
+    expect(fn () => $trashed->restore())->toThrow(AuthorizationException::class);
+
+    $this->assertSoftDeleted('employees_employees', ['id' => $employee->id]);
+});
+
+it('forbids force-deleting a historically corrupted Employee whose company_id is null', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $employee = Employee::factory()->create(['company_id' => $companyA->id]);
+
+    DB::table('employees_employees')->where('id', $employee->id)->update(['company_id' => null]);
+
+    $corrupted = Employee::withoutGlobalScope(CompanyScope::class)->findOrFail($employee->id);
+
+    expect(fn () => $corrupted->forceDelete())->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('employees_employees', ['id' => $employee->id]);
 });
 
 it('allows a user in company A to delete and restore their own Employee', function () {
