@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Webkul\Employee\Models\Department;
 use Webkul\Employee\Models\Employee;
 use Webkul\Security\Models\User;
@@ -138,6 +139,32 @@ it('correctly builds parent_path/complete_name/master_department_id for a valid 
     expect($grandchild->complete_name)->toBe('Root / Child / Grandchild');
     expect($grandchild->master_department_id)->toBe($root->id);
     expect($grandchild->parent_path)->toBe("/{$root->id}/{$child->id}/");
+});
+
+it('rejects a further ancestor hop that belongs to a different company, not only the immediate parent', function () {
+    // #138 PR4 A4D review 4811425870, finding 4: handleDepartmentData()
+    // only validated the immediate parent; findTopLevelParentId() and
+    // getCompleteName() re-traversed the rest of the chain with no
+    // existence/company check at each hop. Simulates a historically
+    // corrupted row (raw update, bypassing model events entirely, the
+    // way a pre-existing bad row could already exist in the database)
+    // where the root's own parent_id was retargeted at a Department in a
+    // different company, two hops away from a still-valid save.
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $foreignB = CompanyContext::runForAllCompanies(reason: 'fixture', caller: __FILE__, callback: fn () => Department::factory()->create(['company_id' => $companyB->id, 'name' => 'ForeignRoot']));
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $root = Department::factory()->create(['company_id' => $companyA->id, 'name' => 'Root']);
+    $child = Department::factory()->create(['company_id' => $companyA->id, 'name' => 'Child', 'parent_id' => $root->id]);
+
+    DB::table('employees_departments')->where('id', $root->id)->update(['parent_id' => $foreignB->id]);
+
+    expect(fn () => Department::factory()->create(['company_id' => $companyA->id, 'name' => 'Grandchild', 'parent_id' => $child->id]))
+        ->toThrow(AuthorizationException::class);
 });
 
 it('rejects a direct self-parent Department', function () {

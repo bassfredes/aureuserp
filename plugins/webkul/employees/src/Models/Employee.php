@@ -304,13 +304,18 @@ class Employee extends Model
 
             // partner_id is managed exclusively by handlePartnerCreation()/
             // handlePartnerUpdation() below — once linked, it must never be
-            // replaced by a request pointing at an arbitrary, unrelated
-            // Partner identity (#138 PR4 A4D). The internal flow only ever
-            // sets partner_id when it was previously null, so this cannot
-            // conflict with the nested save it performs.
+            // replaced (including cleared to null) by a request pointing at
+            // an arbitrary, unrelated Partner identity, or unlinked entirely
+            // (#138 PR4 A4D review 4811425870, finding 3 — the previous
+            // check exempted the existing-to-null transition, which let a
+            // cleared partner_id silently trigger handlePartnerCreation()
+            // into creating a brand new Partner, replacing the "immutable"
+            // link). The internal flow only ever sets partner_id when it
+            // was previously null, so this cannot conflict with the nested
+            // save it performs.
             $originalPartnerId = $employee->getOriginal('partner_id');
 
-            if ($originalPartnerId !== null && $employee->partner_id !== null && (int) $originalPartnerId !== (int) $employee->partner_id) {
+            if ($originalPartnerId !== null && (int) $originalPartnerId !== (int) $employee->partner_id) {
                 throw new AuthorizationException("Changing an Employee's linked Partner is forbidden — it is managed automatically.");
             }
 

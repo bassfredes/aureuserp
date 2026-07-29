@@ -137,6 +137,28 @@ it('forbids a user in company A from deleting an Employee in company B obtained 
     $this->assertDatabaseHas('employees_employees', ['id' => $employeeB->id, 'deleted_at' => null]);
 });
 
+it('forbids a user in company A from deleting an Employee in company B fetched via a partial column projection', function () {
+    // #138 PR4 A4D review 4811425870, finding 1: getOriginal('company_id')
+    // silently returns null (not the real value) when the model was
+    // fetched via a limited column projection, since the column was never
+    // populated on the instance at all — this must not be mistaken for
+    // "no company_id yet" and skip authorization.
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $employeeB = CompanyContext::runForAllCompanies(reason: 'fixture', caller: __FILE__, callback: fn () => Employee::factory()->create(['company_id' => $companyB->id]));
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $employeeBPartial = Employee::withoutGlobalScope(CompanyScope::class)->select('id')->findOrFail($employeeB->id);
+
+    expect($employeeBPartial->getOriginal('company_id'))->toBeNull();
+    expect(fn () => $employeeBPartial->delete())->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('employees_employees', ['id' => $employeeB->id, 'deleted_at' => null]);
+});
+
 it('allows a user in company A to delete and restore their own Employee', function () {
     $companyA = Company::factory()->create();
     $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));

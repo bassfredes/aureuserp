@@ -65,13 +65,11 @@ class EmployeeSkill extends Model
     }
 
     /**
-     * Authorizes against the Employee persisted at the time of the call
-     * (getOriginal('employee_id') for update/delete/restore/forceDelete,
-     * never the in-memory attribute), returning its effective company_id.
-     * Returns null only when there is no employee_id to resolve at all
-     * (should not happen in practice — employee_id is required for any
-     * meaningful EmployeeSkill — but this helper does not itself enforce
-     * that requirement, only company authorization).
+     * Authorizes against a given Employee id, returning its effective
+     * company_id. Returns null only when there is no employee_id to
+     * resolve at all (should not happen in practice — employee_id is
+     * required for any meaningful EmployeeSkill — but this helper does
+     * not itself enforce that requirement, only company authorization).
      */
     private static function authorizeAgainstPersistedEmployee(?int $employeeId): ?int
     {
@@ -80,6 +78,30 @@ class EmployeeSkill extends Model
         }
 
         return static::resolveEffectiveCompanyIdOrFail($employeeId, Employee::class, null, 'Employee');
+    }
+
+    /**
+     * Re-queries employee_id fresh by primary key, bypassing this
+     * model's own scope AND soft-delete scope, never getOriginal() and
+     * never the in-memory attribute. getOriginal() is not enough: a row
+     * fetched via a partial projection (e.g. ::select('id')->find(...))
+     * never has employee_id populated at all, so getOriginal('employee_id')
+     * silently returns null and every guard below would have skipped
+     * authorization entirely for exactly the row it exists to protect
+     * (#138 PR4 A4D review 4811425870, finding 2).
+     */
+    private static function resolvePersistedEmployeeId(self $employeeSkill): ?int
+    {
+        if (! $employeeSkill->exists) {
+            return null;
+        }
+
+        $employeeId = static::withTrashed()
+            ->withoutGlobalScope(EmployeeSkillCompanyScope::class)
+            ->whereKey($employeeSkill->getKey())
+            ->value('employee_id');
+
+        return $employeeId !== null ? (int) $employeeId : null;
     }
 
     protected static function boot()
@@ -95,7 +117,7 @@ class EmployeeSkill extends Model
         });
 
         static::updating(function (self $employeeSkill) {
-            $originalEmployeeId = $employeeSkill->getOriginal('employee_id');
+            $originalEmployeeId = static::resolvePersistedEmployeeId($employeeSkill);
             $originalCompanyId = static::authorizeAgainstPersistedEmployee($originalEmployeeId);
 
             if ($employeeSkill->isDirty('employee_id')) {
@@ -108,15 +130,15 @@ class EmployeeSkill extends Model
         });
 
         static::deleting(function (self $employeeSkill) {
-            static::authorizeAgainstPersistedEmployee($employeeSkill->getOriginal('employee_id'));
+            static::authorizeAgainstPersistedEmployee(static::resolvePersistedEmployeeId($employeeSkill));
         });
 
         static::restoring(function (self $employeeSkill) {
-            static::authorizeAgainstPersistedEmployee($employeeSkill->getOriginal('employee_id'));
+            static::authorizeAgainstPersistedEmployee(static::resolvePersistedEmployeeId($employeeSkill));
         });
 
         static::forceDeleting(function (self $employeeSkill) {
-            static::authorizeAgainstPersistedEmployee($employeeSkill->getOriginal('employee_id'));
+            static::authorizeAgainstPersistedEmployee(static::resolvePersistedEmployeeId($employeeSkill));
         });
     }
 

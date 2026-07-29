@@ -219,6 +219,29 @@ it('forbids deleting an EmployeeSkill whose Employee is hidden in another compan
     $this->assertDatabaseHas('employees_employee_skills', ['id' => $skillB->id, 'deleted_at' => null]);
 });
 
+it('forbids deleting an EmployeeSkill whose Employee is hidden in another company, fetched via a partial column projection', function () {
+    // #138 PR4 A4D review 4811425870, finding 2: getOriginal('employee_id')
+    // silently returns null (not the real value) when the model was
+    // fetched via a limited column projection, since the column was never
+    // populated on the instance at all — this must not be mistaken for
+    // "no employee_id" and skip authorization against the persisted Employee.
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $employeeB = CompanyContext::runForAllCompanies(reason: 'fixture', caller: __FILE__, callback: fn () => Employee::factory()->create(['company_id' => $companyB->id]));
+    $skillB = CompanyContext::runForAllCompanies(reason: 'fixture', caller: __FILE__, callback: fn () => EmployeeSkill::create(['employee_id' => $employeeB->id, 'skill_id' => null, 'skill_level_id' => null]));
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $skillBPartial = EmployeeSkill::withoutGlobalScope(EmployeeSkillCompanyScope::class)->select('id')->findOrFail($skillB->id);
+
+    expect($skillBPartial->getOriginal('employee_id'))->toBeNull();
+    expect(fn () => $skillBPartial->delete())->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('employees_employee_skills', ['id' => $skillB->id, 'deleted_at' => null]);
+});
+
 it('allows delete, restore and forceDelete for an EmployeeSkill under the acting user own company', function () {
     $companyA = Company::factory()->create();
     $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));

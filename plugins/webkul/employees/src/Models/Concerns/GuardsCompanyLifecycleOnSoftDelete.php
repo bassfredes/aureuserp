@@ -31,17 +31,26 @@ trait GuardsCompanyLifecycleOnSoftDelete
     }
 
     /**
-     * Resolves the persisted company_id (getOriginal(), never the
-     * in-memory attribute) so an actor cannot bypass authorization by
-     * mutating company_id in memory before calling delete()/restore()/
-     * forceDelete(). A null persisted company_id is out of scope for this
-     * wave (these 4 owners are strict_company, not company_or_shared) and
-     * is left unauthorized-but-unblocked here, matching HasStrictCompanyId's
-     * own update-time behavior of only comparing when the original is set.
+     * Re-queries company_id fresh by primary key, bypassing the model's
+     * own CompanyScope AND any soft-delete scope (deleting/forceDeleting
+     * can run on an already-trashed row, restoring always does) — never
+     * getOriginal() and never the in-memory attribute. getOriginal() is
+     * not enough: a row fetched via a partial projection (e.g.
+     * ::select('id')->find(...)) never has company_id populated at all,
+     * so getOriginal('company_id') silently returns null and this guard
+     * would have skipped authorization entirely for exactly the row it
+     * exists to protect (#138 PR4 A4D review 4811425870, finding 1). A
+     * null persisted company_id is out of scope for this wave (these 4
+     * owners are strict_company, not company_or_shared) and is left
+     * unauthorized-but-unblocked here, matching HasStrictCompanyId's own
+     * update-time behavior of only comparing when the original is set.
      */
     protected static function assertCanMutateLifecycleCompany($model): void
     {
-        $companyId = $model->getOriginal('company_id');
+        $companyId = static::withTrashed()
+            ->withoutGlobalScope(CompanyScope::class)
+            ->whereKey($model->getKey())
+            ->value('company_id');
 
         if ($companyId !== null) {
             CompanyScope::assertCanWriteCompany((int) $companyId);

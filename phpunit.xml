@@ -65,6 +65,9 @@
         <testsuite name="TimeOffFeature">
             <directory>plugins/webkul/time-off/tests/Feature</directory>
         </testsuite>
+        <testsuite name="EmployeesFeature">
+            <directory>plugins/webkul/employees/tests/Feature</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>

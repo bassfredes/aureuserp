@@ -159,48 +159,63 @@ class Department extends Model
     }
 
     /**
-     * The parent chain is resolved bypassing CompanyScope (not yet
-     * registered when this was written without one, now required so a
-     * cross-company or nonexistent parent_id is explicitly rejected rather
-     * than silently treated as "no parent" via a null-safe operator —
-     * #138 PR4 A4D).
+     * Resolves and validates a single ancestor hop: existence and company
+     * match against $expectedCompanyId (the department's own, immutable,
+     * already-authorized company_id). Bypasses CompanyScope like the rest
+     * of this hierarchy, since a Department must be able to see its own
+     * company's full ancestor chain regardless of the querying actor's
+     * active CompanyContext. Used consistently by handleDepartmentData(),
+     * findTopLevelParentId() and getCompleteName() so every ancestor hop —
+     * not only the immediate parent — is validated the same way (#138 PR4
+     * A4D review 4811425870, finding 4: a corrupted/historical chain could
+     * otherwise incorporate a cross-company ancestor further up the tree,
+     * or crash on a null access).
      */
+    protected static function resolveValidatedAncestor(int $parentId, int $expectedCompanyId): self
+    {
+        $parent = static::withoutGlobalScope(CompanyScope::class)->find($parentId);
+
+        if (! $parent) {
+            throw new AuthorizationException('An ancestor Department could not be found.');
+        }
+
+        if ((int) $parent->company_id !== $expectedCompanyId) {
+            throw new AuthorizationException('An ancestor Department belongs to a different company.');
+        }
+
+        return $parent;
+    }
+
     protected static function handleDepartmentData($department)
     {
+        $companyId = (int) $department->company_id;
+
         if ($department->parent_id) {
-            $parent = static::withoutGlobalScope(CompanyScope::class)->find($department->parent_id);
-
-            if (! $parent) {
-                throw new AuthorizationException('The parent Department could not be found.');
-            }
-
-            if ((int) $parent->company_id !== (int) $department->company_id) {
-                throw new AuthorizationException('The parent Department belongs to a different company.');
-            }
+            $parent = static::resolveValidatedAncestor((int) $department->parent_id, $companyId);
 
             $department->parent_path = $parent->parent_path.$parent->id.'/';
 
-            $department->master_department_id = static::findTopLevelParentId($parent);
+            $department->master_department_id = static::findTopLevelParentId($parent, $companyId);
         } else {
             $department->parent_path = '/';
             $department->master_department_id = null;
         }
 
-        $department->complete_name = static::getCompleteName($department);
+        $department->complete_name = static::getCompleteName($department, $companyId);
     }
 
-    protected static function findTopLevelParentId($department)
+    protected static function findTopLevelParentId($department, int $expectedCompanyId)
     {
         $currentDepartment = $department;
 
         while ($currentDepartment->parent_id) {
-            $currentDepartment = static::withoutGlobalScope(CompanyScope::class)->find($currentDepartment->parent_id);
+            $currentDepartment = static::resolveValidatedAncestor((int) $currentDepartment->parent_id, $expectedCompanyId);
         }
 
         return $currentDepartment->id;
     }
 
-    protected static function getCompleteName($department)
+    protected static function getCompleteName($department, int $expectedCompanyId)
     {
         $names = [];
 
@@ -209,7 +224,7 @@ class Department extends Model
         $currentDepartment = $department;
 
         while ($currentDepartment->parent_id) {
-            $currentDepartment = static::withoutGlobalScope(CompanyScope::class)->find($currentDepartment->parent_id);
+            $currentDepartment = static::resolveValidatedAncestor((int) $currentDepartment->parent_id, $expectedCompanyId);
 
             array_unshift($names, $currentDepartment->name);
         }

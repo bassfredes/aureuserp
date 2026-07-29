@@ -226,6 +226,26 @@ it('forbids replacing an Employee linked partner_id with an arbitrary different 
     expect($employee->fresh()->partner_id)->not->toBe($otherPartner->id);
 });
 
+it('forbids clearing an Employee linked partner_id back to null', function () {
+    // #138 PR4 A4D review 4811425870, finding 3: clearing an existing
+    // partner_id to null used to slip past the immutability check (it
+    // only rejected existing-to-different-non-null), and a null
+    // partner_id then made handlePartnerCreation() silently create a
+    // brand new Partner, replacing the supposedly-immutable link.
+    $companyA = Company::factory()->create();
+    employeesActingUser($companyA);
+
+    $employee = Employee::factory()->create(['company_id' => $companyA->id]);
+    $originalPartnerId = $employee->partner_id;
+    $partnerCountBefore = Partner::count();
+
+    expect(fn () => $employee->update(['partner_id' => null]))
+        ->toThrow(AuthorizationException::class);
+
+    expect($employee->fresh()->partner_id)->toBe($originalPartnerId);
+    expect(Partner::count())->toBe($partnerCountBefore);
+});
+
 it('keeps the Partner company synced with the Employee immutable company_id', function () {
     $companyA = Company::factory()->create();
     employeesActingUser($companyA);
