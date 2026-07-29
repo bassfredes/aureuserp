@@ -41,6 +41,7 @@ use Webkul\Manufacturing\Models\WorkCenterProductivityLoss;
 use Webkul\Manufacturing\Models\WorkCenterTag;
 use Webkul\Manufacturing\Models\WorkOrder;
 use Webkul\Partner\Models\Address;
+use Webkul\Partner\Models\BankAccount;
 use Webkul\Partner\Models\Industry;
 use Webkul\Partner\Models\Partner;
 use Webkul\Partner\Models\Title;
@@ -127,17 +128,18 @@ use Webkul\Website\Models\Page;
  *     real, cited code — never used just because "nothing queries it
  *     directly" without a concrete mechanism.
  *   - root_company_entity: the Company model itself — cannot scope itself.
- *   - multi_company_membership: User — company assignment lives in
- *     default_company_id + the user_allowed_companies pivot, read by
- *     CompanyScope::allowedCompanyIds() itself.
+ *   - multi_company_membership: isolated by an explicit membership pivot
+ *     rather than a single company_id — User (default_company_id + the
+ *     user_allowed_companies pivot, read by CompanyScope::allowedCompanyIds()
+ *     itself), BankAccount (partners_bank_account_companies pivot, read by
+ *     BankAccountCompanyMembershipScope).
  *
  * Models that are real, unresolved gaps (including ones with an approved
- * future contract not yet implemented — Leave/LeaveAllocation, Invitation,
- * BankAccount, Maintenance, ActivityPlan/ActivityType/Calendar family,
- * CurrencyRate, Chatter, UtmCampaign, and every plugin-specific child of a
- * still-unscoped parent) are deliberately NOT in this file — declaring a
- * classification without real enforcement code would defeat the point of
- * the auditor. See docs/security/company-scope-pr4-inventory.md.
+ * future contract not yet implemented — Invitation, ActivityType/Calendar
+ * family, CurrencyRate, Chatter, UtmCampaign, and every plugin-specific
+ * child of a still-unscoped parent) are deliberately NOT in this file —
+ * declaring a classification without real enforcement code would defeat
+ * the point of the auditor. See docs/security/company-scope-pr4-inventory.md.
  *
  * @return array<class-string, array{table: string, classification: string, reason: string, tracking: string, alias_of?: class-string}>
  */
@@ -280,6 +282,33 @@ return [
         'table'          => 'users',
         'classification' => 'multi_company_membership',
         'reason'         => 'The membership root CompanyScope::allowedCompanyIds() itself reads: default_company_id (nullable FK) + the user_allowed_companies pivot. A user can legitimately belong to multiple companies — there is no single company_id to scope by design.',
+        'tracking'       => '#138',
+    ],
+    BankAccount::class => [
+        'table'          => 'partners_bank_accounts',
+        'classification' => 'multi_company_membership',
+        'reason'         => 'Child of Partner (global_party_identity) with no company_id column by design — real isolation now comes from an explicit membership pivot (partners_bank_account_companies), enforced on every read by BankAccountCompanyMembershipScope and validated on every write by ensureEnabledForCompany()/assertEnabledForCompany()/assertBelongsToPartner() (#138 PR4 ola4B write side, ola4C read side).',
+        'tracking'       => '#138',
+    ],
+    Webkul\Contact\Models\BankAccount::class => [
+        'table'          => 'partners_bank_accounts',
+        'classification' => 'alias',
+        'alias_of'       => BankAccount::class,
+        'reason'         => 'Zero-logic subclass of Webkul\\Partner\\Models\\BankAccount, same table/identity. Inherits BankAccountCompanyMembershipScope via late static binding (no boot() override of its own).',
+        'tracking'       => '#138',
+    ],
+    Webkul\Accounting\Models\BankAccount::class => [
+        'table'          => 'partners_bank_accounts',
+        'classification' => 'alias',
+        'alias_of'       => BankAccount::class,
+        'reason'         => 'Zero-logic subclass of Webkul\\Partner\\Models\\BankAccount, same table/identity. Inherits BankAccountCompanyMembershipScope via late static binding (no boot() override of its own).',
+        'tracking'       => '#138',
+    ],
+    Webkul\Invoice\Models\BankAccount::class => [
+        'table'          => 'partners_bank_accounts',
+        'classification' => 'alias',
+        'alias_of'       => BankAccount::class,
+        'reason'         => 'Zero-logic subclass of Webkul\\Partner\\Models\\BankAccount, same table/identity. Inherits BankAccountCompanyMembershipScope via late static binding (no boot() override of its own).',
         'tracking'       => '#138',
     ],
 

@@ -3,13 +3,16 @@
 namespace Webkul\Partner\Models;
 
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Webkul\Partner\Database\Factories\BankAccountFactory;
+use Webkul\Partner\Models\Scopes\BankAccountCompanyMembershipScope;
 use Webkul\Security\Models\User;
 use Webkul\Support\Enums\CompanyContextMode;
 use Webkul\Support\Models\Bank;
@@ -24,6 +27,12 @@ use Webkul\Support\Services\CompanyContext;
  * Company only once enabled for it. Absence of a membership row is not an
  * oversight to paper over: it means inaccessible until explicit
  * remediation (#138 PR4 ola4B, approved contract).
+ *
+ * Read isolation (#138 PR4 ola4C): BankAccountCompanyMembershipScope
+ * enforces that same membership pivot on every query, registered here on
+ * the physical owner only — the three zero-schema subclasses
+ * (Contact\BankAccount, Accounting\BankAccount, Invoice\BankAccount) inherit
+ * it via late static binding, since none of them override boot().
  */
 class BankAccount extends Model
 {
@@ -95,7 +104,7 @@ class BankAccount extends Model
             return;
         }
 
-        $bankAccount = static::query()->find($bankAccountId);
+        $bankAccount = static::withoutGlobalScope(BankAccountCompanyMembershipScope::class)->find($bankAccountId);
 
         $bankAccount?->enableForCompany($companyId);
     }
@@ -119,6 +128,7 @@ class BankAccount extends Model
         }
 
         $enabled = static::withTrashed()
+            ->withoutGlobalScope(BankAccountCompanyMembershipScope::class)
             ->whereKey($bankAccountId)
             ->whereHas('enabledCompanies', fn ($query) => $query->where('companies.id', $companyId))
             ->exists();
@@ -139,16 +149,47 @@ class BankAccount extends Model
             return;
         }
 
-        $bankAccount = static::withTrashed()->find($bankAccountId);
+        $bankAccount = static::withTrashed()->withoutGlobalScope(BankAccountCompanyMembershipScope::class)->find($bankAccountId);
 
         if ($bankAccount && (int) $bankAccount->partner_id !== (int) $partnerId) {
             throw new AuthorizationException("The related {$label} does not belong to the referenced partner.");
         }
     }
 
+    /**
+     * Explicit, audited bypass of BankAccountCompanyMembershipScope for
+     * cross-company reporting. Restricted to super_admin; every call is
+     * logged. Mirrors HasCompanyScope::forAllCompanies() (#138 PR4 ola4B),
+     * reimplemented locally since this model does not use that trait (its
+     * isolation column isn't company_id).
+     */
+    public static function forAllCompanies(): Builder
+    {
+        $user = Auth::user();
+
+        abort_unless(static::actingUserIsSuperAdmin(), 403);
+
+        Log::channel(config('logging.default'))->warning('cross-company query bypass', [
+            'model'   => static::class,
+            'user_id' => $user->id,
+        ]);
+
+        return static::withoutGlobalScope(BankAccountCompanyMembershipScope::class);
+    }
+
+    public static function actingUserIsSuperAdmin(): bool
+    {
+        $user = Auth::user();
+
+        return (bool) $user?->roles->pluck('name')
+            ->contains(fn ($name) => strtolower($name) === 'super_admin');
+    }
+
     protected static function boot()
     {
         parent::boot();
+
+        static::addGlobalScope(new BankAccountCompanyMembershipScope);
 
         static::creating(function ($bankAccount) {
             $bankAccount->creator_id ??= Auth::id();

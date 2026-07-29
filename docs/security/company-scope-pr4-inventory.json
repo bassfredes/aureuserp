@@ -30,9 +30,9 @@
     "summary": {
         "total": 304,
         "scoped": 126,
-        "classified_exceptions": 129,
+        "classified_exceptions": 133,
         "real_gaps_with_company_id": 25,
-        "real_gaps_without_company_id": 24,
+        "real_gaps_without_company_id": 20,
         "table_missing": 0,
         "inspection_errors": 0,
         "manifest_violations": 0
@@ -71,8 +71,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "alias",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "accounting",
@@ -947,8 +947,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "alias",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "contacts",
@@ -1619,8 +1619,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "alias",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "invoices",
@@ -2123,8 +2123,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "multi_company_membership",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "partners",

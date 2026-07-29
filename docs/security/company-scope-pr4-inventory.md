@@ -518,6 +518,37 @@ gaps reales: 69 (38+31) → 49 (25+24)
 
 135 tests de company-scope nuevos entre las 6 familias, verificados también corriendo juntos en el mismo proceso (dos bugs de orden de fixtures encontrados y corregidos: creación de una fila antes de autenticar al actor cuando el modelo ya exige autorización explícita en create).
 
+## Ola 4C: BankAccount, aislamiento de lectura
+
+Checkpoint de planificación read-only (agente Explore, sin cambios de código) mapeó el owner físico y los tres alias de `BankAccount`, confirmando que ninguno de los tres tiene lógica propia ni migración propia, y que ningún Resource/Página Filament sobrescribe `getEloquentQuery()`. Alcance autorizado localmente: cerrar exclusivamente las 4 filas del auditor asociadas a `partners_bank_accounts`. `Invitation` queda fuera del delta de esta ola.
+
+```
+Webkul\Partner\Models\BankAccount (owner físico): scope de lectura nuevo, BankAccountCompanyMembershipScope
+Webkul\Contact\Models\BankAccount, Webkul\Accounting\Models\BankAccount, Webkul\Invoice\Models\BankAccount: alias sin lógica, heredan el scope por late static binding, verificado empíricamente (ningún boot() propio necesario)
+```
+
+`BankAccountCompanyMembershipScope` (nuevo, `plugins/webkul/partners/src/Models/Scopes/`) replica la misma precedencia que `CompanyScope::apply()` (ADR 0007) filtrando por la membresía `enabledCompanies()` en vez de una columna `company_id` (que esta tabla no tiene por diseño): usuario autenticado sin contexto usa `CompanyScope::allowedCompanyIds()`; usuario autenticado con un `CompanyContext` simultáneo lanza `LogicException`; sin usuario y `CompanyContext::COMPANY` filtra por esa compañía exacta; `ALL_COMPANIES`/`BOOTSTRAP` sin filtro; sin usuario ni contexto, vacío (fail-closed).
+
+`BankAccount::forAllCompanies()` agrega el mismo bypass explícito y auditado que `HasCompanyScope::forAllCompanies()` (reimplementado localmente, ya que este modelo no usa ese trait): restringido a `super_admin`, cada llamada queda registrada en el log, retorna la query sin `BankAccountCompanyMembershipScope` únicamente (SoftDeletes y cualquier otro scope se mantienen).
+
+Las tres funciones de integridad ya existentes (`ensureEnabledForCompany()`, `assertEnabledForCompany()`, `assertBelongsToPartner()`) ahora excluyen explícitamente solo `BankAccountCompanyMembershipScope` (`withoutGlobalScope(BankAccountCompanyMembershipScope::class)`), preservando su capacidad de operar sobre una fila que el actor no puede leer directamente: sin este ajuste, el nuevo scope de lectura habría roto silenciosamente su propio propósito (validar/habilitar una cuenta física que, por diseño, aún no es visible para el actor).
+
+`Partner\BankAccount` se clasifica en el manifest como `multi_company_membership` (mismo taxonomy ya usado para `User`, generalizado en el comentario del archivo a "aislado por un pivote de membresía explícito"); los tres alias se clasifican como `alias` apuntando a él. No se tocó `app/Support/CompanyScopeAudit/ExceptionManifest.php`.
+
+28 tests en `BankAccountCompanyScopeTest.php` (17 nuevos sobre los 11 existentes): lectura misma compañía, lectura multi-compañía, oculto para compañía no habilitada, vacío sin compañías/sin actor/sin contexto, `CompanyContext::COMPANY`/`ALL_COMPANIES`/`BOOTSTRAP`, conflicto usuario+contexto (`LogicException`), `forAllCompanies()` para super_admin y su rechazo (403) para un usuario ordinario, herencia del scope verificada directamente en las 3 clases alias, y regresión de las 3 funciones de integridad contra una cuenta oculta para el actor. 3 tests adicionales en un archivo nuevo, `BankAccountReadIntegrationTest.php` (autorizado como archivo de integración separado): la query de `BankAccountResource` no enumera una cuenta de otra compañía, y el índice/show de la API REST (`admin/api/v1/partners/{partner}/bank-accounts`) tampoco la enumera ni la revela (404).
+
+### Inventario tras ola 4C
+
+```
+scoped: 126 (sin cambio, BankAccount se clasifica como excepción, no como scoped, igual que User)
+classified_exceptions: 129 → 133
+gaps reales: 49 (25+24) → 45 (25+20)
+```
+
+31 tests nuevos (28 en BankAccountCompanyScopeTest.php + 3 en BankAccountReadIntegrationTest.php). Regresión verificada sin cambios: ola 4A 81/81, ola 4B 152/152 (135 originales + 17 nuevos de BankAccount), auditor 32/32, determinismo del harness 2/2.
+
+Quedan 45 gaps reales para olas futuras, incluida `Invitation` (fuera de esta ola: su único read-path es un `findOrFail` de un solo registro vía URL firmada de invitado, sin superficie de enumeración; cerrar su clasificación en el manifest requeriría una categoría de taxonomía nueva en `ExceptionManifest::CLASSIFICATIONS`, código core compartido, no un cambio de un solo plugin, por lo que queda diferida a su propia autorización explícita).
+
 ---
 
 ## Estado
@@ -582,9 +613,26 @@ Ola 4B (local, sin push todavía): Maintenance, ProjectStage, ActivityPlan, Time
   - 135 tests de company-scope nuevos entre las 6 familias
   - ~15 bugs preexistentes en factories/enums encontrados y corregidos porque bloqueaban
     las fixtures de esta ola, ninguno relacionado a company-scope (detalle por familia arriba)
+Ola 4C (local, sin push todavía): BankAccount, aislamiento de lectura
+  - Webkul\Partner\Models\BankAccount (owner físico): BankAccountCompanyMembershipScope nuevo,
+    misma precedencia que CompanyScope::apply() filtrando por enabledCompanies() en vez de
+    company_id; forAllCompanies() explícito y auditado, restringido a super_admin
+  - Contact\BankAccount, Accounting\BankAccount, Invoice\BankAccount: heredan el scope por late
+    static binding, verificado empíricamente, sin cambios propios
+  - ensureEnabledForCompany()/assertEnabledForCompany()/assertBelongsToPartner() excluyen
+    explícitamente solo el nuevo scope, preservando su capacidad de operar sobre filas ocultas
+    para el actor
+  - manifest: Partner\BankAccount clasificado multi_company_membership, 3 alias clasificados
+    alias; ExceptionManifest.php (core) no se tocó
+  - Invitation queda fuera de esta ola: sin superficie de enumeración real, cerrar su
+    clasificación requeriría una categoría de taxonomía nueva en código core compartido,
+    diferido a su propia autorización explícita
+  - docs/security/company-scope-pr4-inventory.json regenerado (304 filas): scoped 126 (sin
+    cambio), classified_exceptions 129→133, gaps reales 49 (25+24)→45 (25+20)
+  - 31 tests nuevos (28 en BankAccountCompanyScopeTest.php, 3 en BankAccountReadIntegrationTest.php)
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
-Ola 4C: no autorizada
+Ola 4D: no autorizada
 #138 / #81: abiertos
 AGENTS.md: stashes intactos (ambos checkouts)
 ```
