@@ -37,8 +37,15 @@ class EmployeeJobPositionFactory extends Factory
             // PR4 ola4B, unrelated to company-scope).
             'is_active'          => true,
             'no_of_recruitment'  => fake()->randomNumber(),
-            'department_id'      => Department::factory(),
             'company_id'         => Company::factory(),
+            // Derived from the already-resolved company_id (see key order —
+            // company_id above resolves first) rather than an independent
+            // random Company, so a bare factory call satisfies the model's
+            // own department_id/company_id match validation (#138 PR4 A4D,
+            // employees family). Accepts an explicit override: a caller
+            // passing a different-company Department is not corrected here
+            // silently, the model itself rejects the mismatch.
+            'department_id'      => fn (array $attributes) => Department::factory()->create(['company_id' => $attributes['company_id']])->id,
             'creator_id'         => User::query()->value('id') ?? User::factory(),
         ];
     }

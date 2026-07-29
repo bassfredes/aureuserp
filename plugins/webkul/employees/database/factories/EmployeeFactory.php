@@ -31,21 +31,39 @@ class EmployeeFactory extends Factory
     {
         return [
             'company_id'                     => Company::factory(),
-            // employees_employees.user_id has a UNIQUE constraint — reusing
-            // the first existing User (like the other *_id fields below)
-            // broke the moment a test created a second Employee. Never hit
-            // before this factory's first real invocation (#138 PR4 ola4B,
-            // unrelated to company-scope).
-            'user_id'                        => User::factory(),
+            // Tenant-aware defaults derive from the Employee's own
+            // company_id (already resolved by the time these closures run —
+            // Eloquent factories resolve definition() attributes in array
+            // order, merging each into $attributes before the next one
+            // runs) rather than each nested factory's own independent
+            // random Company: the model now validates that department_id/
+            // job_id/work_location_id belong to the same company as the
+            // Employee, and that user_id/attendance_manager_id reference a
+            // User enabled for that company (#138 PR4 A4D, employees
+            // family). employees_employees.user_id also has a UNIQUE
+            // constraint, hence a fresh User per Employee rather than
+            // reusing an existing one. Wrapped in User::withoutEvents():
+            // User::handlePartnerCreation() spreads the model's own
+            // toArray() into Partner::create() (a pre-existing bug,
+            // partners_partners has no default_company_id column) —
+            // every other User::factory()->create() call in this codebase
+            // already avoids it the same way, this is not a new pattern.
+            'user_id'                        => fn (array $attributes) => User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $attributes['company_id']]))->id,
             'creator_id'                     => User::query()->value('id') ?? User::factory(),
             'calendar_id'                    => null,
-            'department_id'                  => Department::factory(),
-            'attendance_manager_id'          => User::query()->value('id') ?? User::factory(),
-            'job_id'                         => EmployeeJobPosition::factory(),
+            'department_id'                  => fn (array $attributes) => Department::factory()->create(['company_id' => $attributes['company_id']])->id,
+            'attendance_manager_id'          => fn (array $attributes) => User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $attributes['company_id']]))->id,
+            'job_id'                         => fn (array $attributes) => EmployeeJobPosition::factory()->create(['company_id' => $attributes['company_id'], 'department_id' => $attributes['department_id']])->id,
             'partner_id'                     => null,
-            'work_location_id'               => WorkLocation::factory(),
-            'parent_id'                      => User::query()->value('id') ?? User::factory(),
-            'coach_id'                       => User::query()->value('id') ?? User::factory(),
+            'work_location_id'               => fn (array $attributes) => WorkLocation::factory()->create(['company_id' => $attributes['company_id']])->id,
+            // parent_id/coach_id are self-relations to Employee, not User —
+            // the previous defaults mistakenly assigned User ids to an
+            // Employee FK. Nullable by design; hierarchical relations are
+            // built explicitly in tests/states that need them, to avoid an
+            // infinite factory cycle (same reasoning already documented on
+            // Department.manager_id's own factory below).
+            'parent_id'                      => null,
+            'coach_id'                       => null,
             'country_id'                     => Country::factory(),
             'private_state_id'               => State::factory(),
             'private_country_id'             => Country::factory(),

@@ -94,9 +94,16 @@ it('forbids assigning an Employee a bank_account_id not enabled for its own comp
     $companyA = Company::factory()->create();
     $companyB = Company::factory()->create();
     $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyB->id]));
+    // Employee now enforces its own HasStrictCompanyId (#138 PR4 A4D) — the
+    // acting user must also be authorized to write company A (via the
+    // allowedCompanies pivot, default_company_id stays B so BankAccount
+    // still auto-enables for B only), so the sole remaining reason this
+    // throws is the BankAccount-not-enabled-for-A check this test targets,
+    // not an incidental Employee-company mismatch.
+    $user->allowedCompanies()->syncWithoutDetaching([$companyA->id]);
     test()->actingAs($user);
 
-    $bankAccount = BankAccount::factory()->create(); // enabled for companyB only
+    $bankAccount = BankAccount::factory()->create(); // enabled for companyB only (auto-enables for the actor's default_company_id)
 
     expect(fn () => Employee::factory()->create(['company_id' => $companyA->id, 'bank_account_id' => $bankAccount->id]))
         ->toThrow(AuthorizationException::class);

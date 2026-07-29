@@ -20,11 +20,15 @@ beforeEach(function () {
 
 afterEach(fn () => SecurityHelper::restoreUserEvents());
 
-// Employee itself carries no scope trait yet — no CompanyContext needed to
-// create one directly.
+// Employee now enforces HasStrictCompanyId (#138 PR4 A4D employees family):
+// creating one needs an authenticated actor or an active CompanyContext.
+// withSystemContextIfNoUser() opens a system context only when no actor is
+// authenticated yet; every already-authenticated call site in this file
+// requests the acting user's own company, so no context is needed there
+// (opening one while authenticated is refused outright, ADR 0007).
 function allocationEmployeeIn(int $companyId): Employee
 {
-    return Employee::factory()->create(['company_id' => $companyId]);
+    return TestBootstrapHelper::withSystemContextIfNoUser(fn () => Employee::factory()->create(['company_id' => $companyId]));
 }
 
 function allocationCompanylessEmployeeFixture(): Employee
@@ -79,11 +83,13 @@ it('fails closed when creating a LeaveAllocation under an Employee that itself h
 it('forbids creating a LeaveAllocation whose department belongs to a different company than the Employee', function () {
     $companyA = Company::factory()->create();
     $companyB = Company::factory()->create();
+
+    $departmentB = CompanyContext::runForAllCompanies(reason: 'fixture', caller: __FILE__, callback: fn () => Department::factory()->create(['company_id' => $companyB->id]));
+
     $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
     test()->actingAs($user);
 
     $employeeA = allocationEmployeeIn($companyA->id);
-    $departmentB = Department::factory()->create(['company_id' => $companyB->id]);
 
     expect(fn () => LeaveAllocation::factory()->create(['employee_id' => $employeeA->id, 'department_id' => $departmentB->id]))
         ->toThrow(AuthorizationException::class);

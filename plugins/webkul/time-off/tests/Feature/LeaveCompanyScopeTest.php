@@ -20,13 +20,15 @@ beforeEach(function () {
 
 afterEach(fn () => SecurityHelper::restoreUserEvents());
 
-// Employee itself carries no scope trait yet (a future, unauthorized wave
-// — #138 PR4 ola4B leaves it untouched) — creating one has no
-// authorization check of its own, so no CompanyContext wrapper is needed
-// here regardless of whether an actor is already authenticated.
+// Employee now enforces HasStrictCompanyId (#138 PR4 A4D employees family):
+// creating one needs an authenticated actor or an active CompanyContext.
+// withSystemContextIfNoUser() opens a system context only when no actor is
+// authenticated yet; every already-authenticated call site in this file
+// requests the acting user's own company, so no context is needed there
+// (opening one while authenticated is refused outright, ADR 0007).
 function leaveEmployeeIn(int $companyId): Employee
 {
-    return Employee::factory()->create(['company_id' => $companyId]);
+    return TestBootstrapHelper::withSystemContextIfNoUser(fn () => Employee::factory()->create(['company_id' => $companyId]));
 }
 
 // Employee.company_id is NOT NULL in this rollout's write paths, but
@@ -96,11 +98,13 @@ it('fails closed when creating a Leave under an Employee that itself has no comp
 it('forbids creating a Leave whose manager belongs to a different company than the Employee', function () {
     $companyA = Company::factory()->create();
     $companyB = Company::factory()->create();
+
+    $managerB = CompanyContext::runForAllCompanies(reason: 'fixture', caller: __FILE__, callback: fn () => Employee::factory()->create(['company_id' => $companyB->id]));
+
     $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
     test()->actingAs($user);
 
     $employeeA = leaveEmployeeIn($companyA->id);
-    $managerB = leaveEmployeeIn($companyB->id);
 
     expect(fn () => Leave::factory()->create(['employee_id' => $employeeA->id, 'manager_id' => $managerB->id]))
         ->toThrow(AuthorizationException::class);
@@ -109,13 +113,16 @@ it('forbids creating a Leave whose manager belongs to a different company than t
 it('forbids creating a Leave whose department belongs to a different company than the Employee', function () {
     $companyA = Company::factory()->create();
     $companyB = Company::factory()->create();
+
+    // Department now enforces HasStrictCompanyId too (#138 PR4 A4D) —
+    // created under a system context before authenticating, since the
+    // acting user (company A) is never authorized to write company B.
+    $departmentB = CompanyContext::runForAllCompanies(reason: 'fixture', caller: __FILE__, callback: fn () => Department::factory()->create(['company_id' => $companyB->id]));
+
     $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
     test()->actingAs($user);
 
     $employeeA = leaveEmployeeIn($companyA->id);
-    // Department, like Employee, carries no scope trait yet — no
-    // CompanyContext needed to create one directly.
-    $departmentB = Department::factory()->create(['company_id' => $companyB->id]);
 
     expect(fn () => Leave::factory()->create(['employee_id' => $employeeA->id, 'department_id' => $departmentB->id]))
         ->toThrow(AuthorizationException::class);

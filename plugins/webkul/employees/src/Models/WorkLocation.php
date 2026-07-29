@@ -10,13 +10,20 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Employee\Database\Factories\WorkLocationFactory;
 use Webkul\Employee\Enums\WorkLocation as WorkLocationEnum;
+use Webkul\Employee\Models\Concerns\GuardsCompanyLifecycleOnSoftDelete;
 use Webkul\Field\Traits\HasCustomFields;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\HasStrictCompanyId;
 
+/**
+ * HasCompanyScope + HasStrictCompanyId (#138 PR4 A4D) — no tenant-aware FK
+ * relations beyond company_id itself to validate.
+ */
 class WorkLocation extends Model
 {
-    use HasCustomFields, HasFactory, SoftDeletes;
+    use GuardsCompanyLifecycleOnSoftDelete, HasCompanyScope, HasCustomFields, HasFactory, HasStrictCompanyId, SoftDeletes;
 
     protected $table = 'employees_work_locations';
 
