@@ -589,6 +589,12 @@ gaps reales: 44 (24+20) → 36 (17+19)
 
 95 tests nuevos en `plugins/webkul/employees/tests/Feature/` (8 archivos): `EmployeeCompanyScopeTest.php`, `EmployeeCompanyRelationsTest.php`, `DepartmentCompanyScopeTest.php`, `EmployeeJobPositionCompanyScopeTest.php`, `WorkLocationCompanyScopeTest.php`, `EmployeeSkillCompanyScopeTest.php`, `RecruitmentEmployeeAliasesCompanyScopeTest.php`, `EmployeeFactoryCompanyCoherenceTest.php`. Regresión verificada sin cambio de aserciones: `LeaveCompanyScopeTest.php`/`LeaveAllocationCompanyScopeTest.php` (fixtures ajustadas: creaban Employee/Department sin actor ni contexto, o con una compañía distinta a la del actor ya autenticado - ambos casos ahora fallan cerrado bajo el nuevo contrato), `BankAccountCompanyScopeTest.php` (una fixture ajustada para que la excepción siga siendo causada por el guard de BankAccount, no por la nueva autorización de Employee), auditor 32/32, `composer test` completo.
 
+### Corrección de revisión A4D employees (review 4811425870)
+
+La revisión técnica sobre el head `692c000af815e8b4b7dc0ef7e0b108e760fedbe8` devolvió `CHANGES_REQUIRED_A4D_EMPLOYEES` con cinco hallazgos bloqueantes, todos cerrados en el commit `a185195b2` fast-forward: (1) `GuardsCompanyLifecycleOnSoftDelete` usaba `getOriginal('company_id')`, que retorna `null` de forma indistinguible de "nulo real" bajo una proyección parcial de columnas (`::select('id')->find(...)`), corregido con una reconsulta fresca por PK que bypassea el propio `CompanyScope` y el soft-delete scope; (2) `EmployeeSkill` tenía el mismo problema con `employee_id`, corregido con el mismo patrón (`resolvePersistedEmployeeId()`); (3) `Employee.partner_id` no rechazaba la transición de un Partner existente hacia `null` (disparaba silenciosamente `handlePartnerCreation()`, creando un Partner nuevo), corregido para rechazar cualquier cambio del `partner_id` original, incluida la transición a `null`; (4) `Department` sólo validaba el padre inmediato, `findTopLevelParentId()`/`getCompleteName()` recorrían el resto de la cadena sin validar existencia ni compañía en cada salto, corregido con un helper compartido `resolveValidatedAncestor()` usado por los tres métodos de recorrido; (5) los 95 tests de `employees` no estaban registrados en `phpunit.xml`, corregido con una nueva entrada `EmployeesFeature`.
+
+Se agregaron 4 tests de regresión probando cada hallazgo corregido. Suite `employees` completa: 99/99 tests, 151 assertions. `composer test` ahora ejecuta 1980/1980 tests (4888 assertions, antes 1881/1881), incluyendo `employees` de forma canónica. Inventario sin cambio (correcciones de autorización, no de clasificación): `scoped` 134, `classified_exceptions` 134, gaps reales 36 (17+19), verificado con dos regeneraciones independientes byte a byte idénticas. Pendiente de re-review sobre el head `a185195b2246a8b5ece3f49dde0179d8df27ac03`, no aprobada.
+
 ---
 
 ## Estado
@@ -707,7 +713,22 @@ A4D (familia employees, publicada): Employee, Department, EmployeeJobPosition, W
   - 95 tests nuevos en plugins/webkul/employees/tests/Feature/ (8 archivos); regresión de
     LeaveCompanyScopeTest.php/LeaveAllocationCompanyScopeTest.php/BankAccountCompanyScopeTest.php
     con fixtures ajustadas, sin cambio de aserciones de negocio
-  - pendiente de revisión técnica del diff publicado
+  - revisión técnica (review 4811425870) sobre 692c000af815e8b4b7dc0ef7e0b108e760fedbe8:
+    CHANGES_REQUIRED_A4D_EMPLOYEES, 5 hallazgos bloqueantes
+Corrección de revisión A4D employees (publicada en a185195b2246a8b5ece3f49dde0179d8df27ac03):
+  - GuardsCompanyLifecycleOnSoftDelete: getOriginal('company_id') reemplazado por reconsulta
+    fresca por PK (bypass CompanyScope + soft-delete scope) - null bajo proyección parcial
+  - EmployeeSkill: mismo problema con employee_id, mismo patrón (resolvePersistedEmployeeId())
+  - Employee.partner_id: ahora rechaza también la transición existente->null, no solo
+    existente->distinto (evitaba que handlePartnerCreation() creara un Partner nuevo)
+  - Department: findTopLevelParentId()/getCompleteName() ahora validan cada salto de la
+    cadena de ancestros (resolveValidatedAncestor()), no solo el padre inmediato
+  - phpunit.xml: nueva suite EmployeesFeature; composer test pasa de 1881/1881 a 1980/1980
+    tests (4888 assertions), employees incorporado de forma canónica
+  - 4 tests de regresión nuevos, uno por hallazgo; suite employees completa 99/99, 151 asserts
+  - inventario sin cambio (correcciones de autorización, no de clasificación): scoped 134,
+    classified_exceptions 134, gaps reales 36 (17+19)
+  - pendiente de re-review sobre el head corregido, no aprobada
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
 Ola 4E: no autorizada
