@@ -593,7 +593,13 @@ gaps reales: 44 (24+20) → 36 (17+19)
 
 La revisión técnica sobre el head `692c000af815e8b4b7dc0ef7e0b108e760fedbe8` devolvió `CHANGES_REQUIRED_A4D_EMPLOYEES` con cinco hallazgos bloqueantes, todos cerrados en el commit `a185195b2` fast-forward: (1) `GuardsCompanyLifecycleOnSoftDelete` usaba `getOriginal('company_id')`, que retorna `null` de forma indistinguible de "nulo real" bajo una proyección parcial de columnas (`::select('id')->find(...)`), corregido con una reconsulta fresca por PK que bypassea el propio `CompanyScope` y el soft-delete scope; (2) `EmployeeSkill` tenía el mismo problema con `employee_id`, corregido con el mismo patrón (`resolvePersistedEmployeeId()`); (3) `Employee.partner_id` no rechazaba la transición de un Partner existente hacia `null` (disparaba silenciosamente `handlePartnerCreation()`, creando un Partner nuevo), corregido para rechazar cualquier cambio del `partner_id` original, incluida la transición a `null`; (4) `Department` sólo validaba el padre inmediato, `findTopLevelParentId()`/`getCompleteName()` recorrían el resto de la cadena sin validar existencia ni compañía en cada salto, corregido con un helper compartido `resolveValidatedAncestor()` usado por los tres métodos de recorrido; (5) los 95 tests de `employees` no estaban registrados en `phpunit.xml`, corregido con una nueva entrada `EmployeesFeature`.
 
-Se agregaron 4 tests de regresión probando cada hallazgo corregido. Suite `employees` completa: 99/99 tests, 151 assertions. `composer test` ahora ejecuta 1980/1980 tests (4888 assertions, antes 1881/1881), incluyendo `employees` de forma canónica. Inventario sin cambio (correcciones de autorización, no de clasificación): `scoped` 134, `classified_exceptions` 134, gaps reales 36 (17+19), verificado con dos regeneraciones independientes byte a byte idénticas. Pendiente de re-review sobre el head `a185195b2246a8b5ece3f49dde0179d8df27ac03`, no aprobada.
+Se agregaron 4 tests de regresión probando cada hallazgo corregido. Suite `employees` completa: 99/99 tests, 151 assertions. `composer test` ahora ejecuta 1980/1980 tests (4888 assertions, antes 1881/1881), incluyendo `employees` de forma canónica. Inventario sin cambio (correcciones de autorización, no de clasificación): `scoped` 134, `classified_exceptions` 134, gaps reales 36 (17+19), verificado con dos regeneraciones independientes byte a byte idénticas.
+
+### Segunda corrección de revisión A4D employees (review 4811942781, fail-closed owner resolution)
+
+Una segunda revisión técnica sobre el head corregido `4500d8dba9cbc8ea10893f37406bf10abec2e9ee` devolvió `CHANGES_REQUIRED_A4D_EMPLOYEES_FAIL_CLOSED_OWNER_RESOLUTION`: la corrección anterior, al reconsultar el owner por PK, dejaba pasar sin autorización los casos en que el owner no podía resolverse en absoluto, no solo los casos de proyección parcial. `GuardsCompanyLifecycleOnSoftDelete` trataba un `company_id` persistido en `null` (owner inexistente, o corrupción histórica tras un Company FK `onDelete('set null')`) como "unauthorized-but-unblocked" en vez de rechazar la mutación de lifecycle; `EmployeeSkill` retornaba `null` sin autorizar cuando `employee_id` era `null`, dejando pasar create/update/delete/restore/forceDelete sin un parent autorizado.
+
+Cerrado en el commit `f9af800bd` (fast-forward): ambos ahora lanzan `AuthorizationException` cuando el owner no puede resolverse (sin PK, fila inexistente, o `company_id`/`employee_id` persistido en `null`), en vez de omitir el guard. Se agregaron 8 tests de regresión: Employee con `company_id` históricamente `null` (delete/restore/forceDelete rechazados, base intacta) y EmployeeSkill sin `employee_id` resoluble (create/update/delete/restore/forceDelete rechazados). Se preserva el movimiento same-company y el rechazo cross-company ya cubiertos por la primera corrección. Suite `employees` completa: 107/107 tests, 166 assertions. `composer test`: 1988/1988 tests, 4903 assertions. `CompanyScopeAuditorTest`: 32/32. Inventario sin cambio (corrección de autorización, no de clasificación): `scoped` 134, `classified_exceptions` 134, gaps reales 36 (17+19), verificado con dos regeneraciones independientes byte a byte idénticas. Pendiente de re-review sobre el head `f9af800bd1d6fd96cf6d78e8a56907d6ab1c3c77`, no aprobada.
 
 ---
 
@@ -727,6 +733,21 @@ Corrección de revisión A4D employees (publicada en a185195b2246a8b5ece3f49dde0
     tests (4888 assertions), employees incorporado de forma canónica
   - 4 tests de regresión nuevos, uno por hallazgo; suite employees completa 99/99, 151 asserts
   - inventario sin cambio (correcciones de autorización, no de clasificación): scoped 134,
+    classified_exceptions 134, gaps reales 36 (17+19)
+  - revisión técnica (review 4811942781) sobre 4500d8dba9cbc8ea10893f37406bf10abec2e9ee:
+    CHANGES_REQUIRED_A4D_EMPLOYEES_FAIL_CLOSED_OWNER_RESOLUTION, 1 hallazgo bloqueante
+Segunda corrección de revisión A4D employees (publicada en f9af800bd1d6fd96cf6d78e8a56907d6ab1c3c77):
+  - GuardsCompanyLifecycleOnSoftDelete: un company_id resuelto en null (owner inexistente o
+    corrupción histórica) ya no queda unauthorized-but-unblocked, ahora lanza
+    AuthorizationException; solo con company_id válido se llama assertCanWriteCompany()
+  - EmployeeSkill: authorizeAgainstPersistedEmployee() ya no intercepta un employee_id null
+    retornando null, delega siempre en resolveEffectiveCompanyIdOrFail() (que ya falla
+    cerrado); afecta create/update/delete/restore/forceDelete por igual
+  - 8 tests de regresión nuevos: Employee con company_id históricamente null (delete/restore/
+    forceDelete rechazados), EmployeeSkill sin employee_id resoluble (create/update/delete/
+    restore/forceDelete rechazados); suite employees completa 107/107, 166 asserts
+  - composer test: 1988/1988 tests, 4903 assertions; CompanyScopeAuditorTest: 32/32
+  - inventario sin cambio (corrección de autorización, no de clasificación): scoped 134,
     classified_exceptions 134, gaps reales 36 (17+19)
   - pendiente de re-review sobre el head corregido, no aprobada
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
