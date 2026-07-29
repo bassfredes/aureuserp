@@ -91,7 +91,7 @@ Nota: las 3 relaciones propias de `Recruitment\JobPosition` (`address()`, `manag
 
 ## A4D-0: CurrencyRate security hotfix
 
-Etapa previa a la ola `employees`, priorizada por severidad (fuga activa de datos financieros via API, no solo ausencia de scope). No se implementa junto con la familia `employees` para no mezclar dominios ni ocultar su urgencia dentro de un paquete mas grande.
+**Estado: implementado localmente y publicado, pendiente de revision independiente.** Etapa previa a la ola `employees`, priorizada por severidad (fuga activa de datos financieros via API, no solo ausencia de scope). Implementada en un commit separado, sin mezclar con la familia `employees` (todavia sin iniciar) para no ocultar su urgencia dentro de un paquete mas grande.
 
 Hechos verificados (lectura directa de `Support\CurrencyRate`, `CurrencyRateController`, `CurrencyRateRequest`, `support/routes/api.php`):
 
@@ -100,16 +100,30 @@ Hechos verificados (lectura directa de `Support\CurrencyRate`, `CurrencyRateCont
 - `show()`/`update()`/`destroy()`: obtienen la fila por `id` + `currency_id`, nunca comparan `company_id` contra el actor. Un actor autorizado a nivel de `Currency` puede leer/editar/borrar la tasa de cualquier compania por id.
 - `store()`/`update()`: `CurrencyRateRequest` valida `company_id` solo como `nullable|integer|exists:companies,id`, sin restringirlo a las companias permitidas del actor.
 
-Contrato del hotfix:
+Contrato implementado:
 
-- **Lectura company-or-shared**: un actor ve las filas con `company_id IS NULL` (compartidas) mas las filas cuyo `company_id` este en `CompanyScope::allowedCompanyIds()`. Mismo principio que `IncludesSharedCompanyRows` (ya usado en ola 4B para `ActivityPlan`/`ProjectStage`), aplicado aqui sobre `CurrencyRate`.
-- **Restriccion del filtro `company_id`**: `AllowedFilter::exact('company_id')` debe interseccionarse con `allowedCompanyIds() ∪ {null}`; un valor fuera de ese conjunto no debe filtrar hacia datos ajenos (ignorar el filtro invalido o devolver vacio, nunca las filas de la compania solicitada).
-- **`index`/`show`/`update`/`destroy` aislados**: cada handler debe verificar que la fila objetivo tenga `company_id IS NULL` o pertenezca a una compania permitida antes de devolverla/mutarla; fuera de ese conjunto, `404` (no `403`, para no confirmar existencia de filas ajenas, mismo patron ya usado en `BankAccountReadIntegrationTest` de ola 4C).
-- **Creacion y actualizacion autorizadas**: `store`/`update` deben validar que el `company_id` recibido (si no es `null`) pertenezca a las companias permitidas del actor, equivalente a `CompanyScope::assertCanWriteCompany()`.
-- **Tratamiento explicito de `company_id = null`**: las filas compartidas son legibles por cualquier actor autenticado con acceso a la `Currency`, pero solo mutables por `super_admin` o proceso de sistema, mismo patron de `guardSharedRowMutation()` ya usado para filas `company_id IS NULL` en `ProjectStage` (ola 4B).
-- **Tests API requeridos**: actor de compania A no ve/edita/borra una tasa de compania B (index/show/update/destroy, los 4 verbos); actor de compania A y actor de compania B ven ambos la misma fila compartida (`company_id = null`); un actor sin companias permitidas ve solo las filas compartidas (lista no vacia si existen, pero ninguna especifica de compania); intento de escritura de un no-`super_admin` sobre una fila compartida es rechazado.
+- **Lectura company-or-shared**: `CurrencyRate` ahora usa `HasCompanyScope` + `IncludesSharedCompanyRows`. Un actor autenticado ve las filas con `company_id IS NULL` (compartidas) mas las filas cuyo `company_id` este en `CompanyScope::allowedCompanyIds()`. Mismo principio que `ActivityPlan`/`ProjectStage` (ola 4B). **Corregido tras revision**: un actor sin companias permitidas ve CERO filas, incluidas las compartidas - `CompanyScope::apply()` retorna `1=0` para ese caso antes de aplicar el filtro `company_or_shared`, no una lista limitada a las compartidas como se planteo originalmente en este documento.
+- **Filtro `company_id` nunca amplia la visibilidad del scope**: no se modifico el controller para restringir `AllowedFilter::exact('company_id')` explicitamente porque no hace falta - el filtro se aplica SOBRE la query ya scopeada por el modelo, asi que pedir `filter[company_id]=B` desde la compania A siempre intersecta con un conjunto vacio y retorna una coleccion vacia, nunca las filas de B. Verificado con un test API dedicado.
+- **`index`/`show`/`update`/`destroy` aislados**: no se modifico el controller para esto tampoco - `CurrencyRate::where(...)->firstOrFail()` ya usa la query scopeada, asi que una fila de otra compania simplemente no se encuentra y `firstOrFail()` produce `404` automaticamente, sin necesitar un chequeo `company_id` explicito en el controller.
+- **Creacion y actualizacion autorizadas**: implementado en el modelo, no en el controller/request - `CurrencyRate::boot()` reautoriza `CompanyScope::assertCanWriteCompany()` en `creating`/`updating`/`deleting` para filas con compania, resolviendo siempre el valor persistido (`getOriginal('company_id')`) en `updating`/`deleting`, nunca el valor mutable en memoria.
+- **`company_id` inmutable tras crear**: `updating()` rechaza incondicionalmente cualquier `isDirty('company_id')`, cubriendo las 3 transiciones prohibidas (A a B, A a null, null a A) por igual, incluso para un `super_admin` - mover una fila de compania requiere archivarla y recrearla, no mutarla.
+- **Tratamiento de `company_id = null`**: mutacion (crear/actualizar/borrar) restringida a `super_admin`, o a un proceso sin usuario dentro de `CompanyContext::ALL_COMPANIES`/`BOOTSTRAP` explicito. **Mas estricto que el precedente `ProjectStage`/`ActivityPlan`** (que permiten cualquier proceso sin usuario, sin exigir un contexto especifico): aqui un proceso sin usuario y sin contexto activo tambien se rechaza, por instruccion explicita dado que `CurrencyRate` es informacion financiera.
+- **No hay `restore()`/`force-delete()`**: `currency_rates` no tiene columna `deleted_at` (confirmado en su migracion) y agregarla habria requerido una migracion nueva, fuera de alcance de esta ronda. Autorizado explicitamente reducir el contrato a `create`/`update`/`delete` (borrado definitivo, sin soft-delete) - ver seccion de validacion para el detalle de esta decision.
 
-Cambio de codigo esperado: `Support\CurrencyRate` (agregar `HasCompanyScope` + `IncludesSharedCompanyRows`, sin nueva migracion ya que `company_id` ya existe y ya es nullable) y `CurrencyRateController`/`CurrencyRateRequest` (cerrar el filtro abierto y las validaciones de escritura). No se implementa en esta ronda: este documento solo especifica el contrato, la implementacion queda para su propia autorizacion.
+Conteos reales obtenidos (auditor real, dos regeneraciones independientes byte-identicas contra `db_aureuserp_audit_fresh`):
+
+```
+scoped: 126 -> 127
+classified_exceptions: 133 (sin cambio, CurrencyRate no se clasifico como excepcion - al usar HasCompanyScope aparece directamente como scoped)
+real_gap_company_column: 25 -> 24
+real_gap_without_company_column: 20 (sin cambio)
+gaps reales: 45 -> 44
+table_missing / inspection_errors / manifest_violations: 0 / 0 / 0
+```
+
+`--fail-on-missing`: exit 1, exclusivamente por los 44 gaps reales conocidos.
+
+Archivos modificados: `plugins/webkul/support/src/Models/CurrencyRate.php` (produccion), `plugins/webkul/support/tests/Feature/CurrencyRateCompanyScopeTest.php` y `plugins/webkul/support/tests/Feature/CurrencyRateApiCompanyScopeTest.php` (tests nuevos), `plugins/webkul/support/tests/Feature/API/V1/CurrencyRateTest.php` (fixtures existentes ajustadas: creaban filas `company_id: null` como actor no-`super_admin`, incompatible con el nuevo guard - autorizado explicitamente tras detectar la regresion), `docs/security/company-scope-pr4-inventory.json`/`.md` (regenerados). `CurrencyRateController.php`/`CurrencyRateRequest.php` no requirieron cambios: la autoridad real vive en el modelo (scope + boot()), no en el controller, tal como exigia el contrato ("el modelo, no solo controller/request, debe ser la autoridad").
 
 ## Ranking de riesgo
 
@@ -182,7 +196,7 @@ Nota: `Support\CurrencyRate` ya NO esta en "fuera de alcance" sin mas - tiene su
 
 Secuenciar en dos etapas, no una sola ola:
 
-1. **`A4D-0` (CurrencyRate security hotfix, ver seccion propia arriba)**: fuga activa de datos financieros via API explotable hoy; se prioriza antes que cualquier empaquetado por dominio, precisamente por su severidad. No se implementa junto con `employees` para no diluir su urgencia dentro de un paquete mas grande ni mezclar dominios.
-2. **`A4D` (familia `employees`)**: `Employee`, `Department`, `EmployeeJobPosition`, `WorkLocation` con `HasCompanyScope` + `HasStrictCompanyId` y la matriz completa de relaciones same-company especificada arriba; `EmployeeSkill` con el contrato parent-derived corregido (sin `HasStrictCompanyId`, sin migracion). Cubre el mayor riesgo real restante (PII de empleados directamente listable sin scope) y sigue el mismo patron ya probado en 4A/4B/4C, sin introducir cambios transversales de `CompanyScope`, taxonomia nueva, backfill ni ampliacion de runner.
+1. **`A4D-0` (CurrencyRate security hotfix, ver seccion propia arriba) - implementado y publicado, pendiente de revision independiente.** Fuga activa de datos financieros via API explotable hoy; se prioriza antes que cualquier empaquetado por dominio, precisamente por su severidad. Implementado en un commit separado, sin mezclar con `employees` para no diluir su urgencia dentro de un paquete mas grande ni mezclar dominios.
+2. **`A4D` (familia `employees`) - sin iniciar.** `Employee`, `Department`, `EmployeeJobPosition`, `WorkLocation` con `HasCompanyScope` + `HasStrictCompanyId` y la matriz completa de relaciones same-company especificada arriba; `EmployeeSkill` con el contrato parent-derived corregido (sin `HasStrictCompanyId`, sin migracion). Cubre el mayor riesgo real restante (PII de empleados directamente listable sin scope) y sigue el mismo patron ya probado en 4A/4B/4C, sin introducir cambios transversales de `CompanyScope`, taxonomia nueva, backfill ni ampliacion de runner. Pendiente de autorizacion propia, posterior a la revision de A4D-0.
 
 `ActivityType` (2 alias) puede reclasificarse en el manifest de forma puramente documental en cualquier momento (no depende de ninguna ola de codigo). `Recruitment\Stage` y `Security\Invitation` se mantienen sin cambio de clasificacion: el primero pendiente de una decision de producto explicita, el segundo como gap real de bajo riesgo diferido. Ninguno de los tres se descuenta del conteo de gaps residuales hasta que exista una decision o implementacion real que lo justifique. El bug de `OrderTemplateProduct::boot()` se registra como hallazgo de severidad independiente, con su propio commit de fix, fuera de cualquier ola de scope.

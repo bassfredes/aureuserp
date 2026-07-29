@@ -29,9 +29,9 @@
     ],
     "summary": {
         "total": 304,
-        "scoped": 126,
+        "scoped": 127,
         "classified_exceptions": 133,
-        "real_gaps_with_company_id": 25,
+        "real_gaps_with_company_id": 24,
         "real_gaps_without_company_id": 20,
         "table_missing": 0,
         "inspection_errors": 0,
@@ -3404,11 +3404,11 @@
             "file": "plugins/webkul/support/src/Models/CurrencyRate.php",
             "table": "currency_rates",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "support",

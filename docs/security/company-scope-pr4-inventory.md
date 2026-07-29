@@ -549,6 +549,26 @@ gaps reales: 49 (25+24) → 45 (25+20)
 
 Quedan 45 gaps reales para olas futuras, incluida `Invitation` (fuera de esta ola: su único read-path es un `findOrFail` de un solo registro vía URL firmada de invitado, sin superficie de enumeración; cerrar su clasificación en el manifest requeriría una categoría de taxonomía nueva en `ExceptionManifest::CLASSIFICATIONS`, código core compartido, no un cambio de un solo plugin, por lo que queda diferida a su propia autorización explícita).
 
+## A4D-0: CurrencyRate, aislamiento company-or-shared
+
+Hotfix de seguridad priorizado por severidad (no un empaquetado por dominio como las olas anteriores): `CurrencyRateController@index` exponía un filtro `filter[company_id]` sin restricción, autorizado solo a nivel de `Currency` (no de `company_id`), y `show`/`update`/`destroy` no comparaban el `company_id` de la fila contra el actor en absoluto. Un actor autenticado con permiso sobre la `Currency` podía leer, editar o borrar la tasa de cambio de cualquier otra compañía por id o por parámetro de filtro. Detalle técnico completo, contrato y conteos en `docs/security/company-scope-pr4-wave-4d-plan.md` (sección `A4D-0`).
+
+`Support\CurrencyRate` ahora usa `HasCompanyScope` + `IncludesSharedCompanyRows` (mismo patrón que `ActivityPlan`/`ProjectStage` en ola 4B, sin migración nueva ya que `company_id` ya existía y ya era nullable). El controller y el request no requirieron ningún cambio: al vivir la autoridad real en el modelo, `CurrencyRate::where(...)->firstOrFail()` ya scopeado hace que una fila ajena simplemente no se encuentre (`404` automático), y el filtro `filter[company_id]` se aplica sobre una query que ya excluye las filas de otras compañías, por lo que nunca puede ampliar la visibilidad.
+
+`boot()` reautoriza `CompanyScope::assertCanWriteCompany()` en `creating`/`updating`/`deleting` para filas con compañía (resolviendo siempre el valor persistido, nunca el mutable en memoria), rechaza incondicionalmente cualquier cambio de `company_id` tras la creación (cubre las 3 transiciones prohibidas: A→B, A→null, null→A, incluso para un `super_admin`), y restringe la mutación de filas compartidas (`company_id IS NULL`) a `super_admin` o a un proceso sin usuario dentro de un `CompanyContext::ALL_COMPANIES`/`BOOTSTRAP` explícito, más estricto que el precedente `ProjectStage`/`ActivityPlan` (que permiten cualquier proceso sin usuario), por instrucción explícita dado que esta tabla es información financiera. Sin `restore()`/`force-delete()`: `currency_rates` no tiene columna `deleted_at` y agregarla habría requerido una migración nueva, fuera de alcance de este hotfix; el contrato se redujo explícitamente a `create`/`update`/`delete` (borrado definitivo).
+
+33 tests nuevos (21 en `CurrencyRateCompanyScopeTest.php` a nivel de modelo, 12 en `CurrencyRateApiCompanyScopeTest.php` a nivel de API). El archivo preexistente `CurrencyRateTest.php` (11 tests) requirió ajustar sus fixtures: creaban filas `company_id: null` como un actor autenticado no-`super_admin`, incompatible con el nuevo guard de filas compartidas; corregido usando el patrón ya establecido de auto-grant de compañías nuevas tras autenticar (mismo mecanismo documentado desde ola 4C), sin cambiar ninguna aserción de negocio.
+
+### Inventario tras A4D-0
+
+```
+scoped: 126 → 127 (CurrencyRate usa HasCompanyScope real, no se clasificó como excepción)
+classified_exceptions: 133 (sin cambio)
+gaps reales: 45 (25+20) → 44 (24+20)
+```
+
+Regresión verificada sin cambios: ola 4A 81/81, ola 4B 152/152, ola 4C 32/32 (focalizado), auditor 32/32, determinismo del harness 2/2, `ActivityPlanCompanyScopeTest`/`ProjectStageCompanyScopeTest` (precedente `company_or_shared`) sin cambios.
+
 ---
 
 ## Estado
@@ -631,9 +651,21 @@ Ola 4C (publicada en 3fed913b090d824960d9ed84040bd0b9e570a06c): BankAccount, ais
     cambio), classified_exceptions 129→133, gaps reales 49 (25+24)→45 (25+20)
   - 21 tests añadidos por la ola 4C (17 en BankAccountCompanyScopeTest.php, 4 en
     BankAccountReadIntegrationTest.php); 32/32 focalizados, 47 assertions
+A4D-0 (hotfix, publicado): CurrencyRate, aislamiento company-or-shared
+  - Support\CurrencyRate: HasCompanyScope + IncludesSharedCompanyRows, sin migración nueva
+  - controller/request sin cambios: autoridad completa en el modelo (scope + boot())
+  - company_id inmutable tras crear (A->B, A->null, null->A rechazados, incluso para
+    super_admin); filas compartidas (company_id null) mutables solo por super_admin o
+    proceso sin usuario en ALL_COMPANIES/BOOTSTRAP explícito
+  - sin restore()/force-delete(): currency_rates no tiene deleted_at, fuera de alcance
+  - docs/security/company-scope-pr4-inventory.json regenerado (304 filas): scoped 126->127,
+    classified_exceptions 133 (sin cambio), gaps reales 45 (25+20)->44 (24+20)
+  - 33 tests nuevos (21 CurrencyRateCompanyScopeTest.php, 12 CurrencyRateApiCompanyScopeTest.php);
+    CurrencyRateTest.php preexistente (11 tests) con fixtures ajustadas, sin cambio de asserts
+  - pendiente de revisión independiente antes de A4D (familia employees)
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
-Ola 4D: no autorizada
+A4D (familia employees): no iniciada, pendiente de autorización propia tras revisión de A4D-0
 #138 / #81: abiertos
 AGENTS.md: stashes intactos (ambos checkouts)
 ```
