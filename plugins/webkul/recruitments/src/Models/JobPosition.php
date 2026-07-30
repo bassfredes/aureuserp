@@ -54,7 +54,12 @@ class JobPosition extends BaseJobPosition
 
     public function interviewers()
     {
-        return $this->belongsToMany(User::class, 'recruitments_job_position_interviewers', 'job_position_id', 'user_id');
+        // ->using(JobPositionInterviewer::class): without it, attach()/
+        // detach() run a raw query-builder insert/delete on the pivot
+        // table, bypassing every company-scope/membership guard
+        // JobPositionInterviewer declares entirely (#138 PR4 A4E).
+        return $this->belongsToMany(User::class, 'recruitments_job_position_interviewers', 'job_position_id', 'user_id')
+            ->using(JobPositionInterviewer::class);
     }
 
     public function manager(): BelongsTo

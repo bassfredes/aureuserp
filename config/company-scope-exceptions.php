@@ -54,9 +54,15 @@ use Webkul\Product\Models\ProductAttributeValue;
 use Webkul\Product\Models\ProductCombination;
 use Webkul\Project\Models\Milestone;
 use Webkul\Purchase\Models\OrderGroup;
+use Webkul\Recruitment\Models\ApplicantApplicantCategory;
 use Webkul\Recruitment\Models\ApplicantCategory;
+use Webkul\Recruitment\Models\ApplicantInterviewer;
+use Webkul\Recruitment\Models\CandidateApplicantCategory;
+use Webkul\Recruitment\Models\CandidateSkill;
 use Webkul\Recruitment\Models\Degree;
+use Webkul\Recruitment\Models\JobPositionInterviewer;
 use Webkul\Recruitment\Models\RefuseReason;
+use Webkul\Recruitment\Models\StageJob;
 use Webkul\Sale\Models\OrderLine;
 use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\Role;
@@ -1051,4 +1057,58 @@ return [
     // deliberately NOT in this manifest. It remains a real gap — the
     // approved contract adds a partners_bank_account_companies membership
     // pivot, not yet implemented (see docs/security/company-scope-pr4-inventory.md).
+
+    // #138 PR4 A4E: recruitments — Applicant/Candidate became scoped
+    // owners (HasCompanyScope + HasStrictCompanyId), closing the family's
+    // last real gaps. The eight entries below are the classified
+    // exceptions that round out that ola.
+    Webkul\Recruitment\Models\ActivityType::class => [
+        'table'          => 'activity_types',
+        'classification' => 'alias',
+        'alias_of'       => ActivityType::class,
+        'reason'         => 'Plugin-scoped alias of Webkul\\Support\\Models\\ActivityType, no logic of its own.',
+        'tracking'       => '#138 PR4 A4E',
+    ],
+    Webkul\Recruitment\Models\Stage::class => [
+        'table'          => 'recruitments_stages',
+        'classification' => 'global_reference',
+        'reason'         => 'Kanban pipeline-stage catalog, reused across every company by design — a distinct physical table from utm_stages/maintenance_stages/projects\' own kanban stages, no company dimension of its own. The tenant-aware association lives on StageJob (parent_scoped, derived from JobPosition), not on Stage itself.',
+        'tracking'       => '#138 PR4 A4E',
+    ],
+    ApplicantApplicantCategory::class => [
+        'table'          => 'recruitments_applicant_applicant_categories',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column of its own — isolation is entirely derived from its Applicant (HasCompanyScope-enforced). Pivot (not a plain Model), wired via Applicant::categories()->using(), so attach()/detach() run through its own save()/delete() and ParentDerivedCompanyScope rather than a raw query-builder insert/delete. Writes validated by resolveEffectiveCompanyIdOrFail() against the persisted Applicant on create/delete.',
+        'tracking'       => '#138 PR4 A4E',
+    ],
+    ApplicantInterviewer::class => [
+        'table'          => 'recruitments_applicant_interviewers',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column of its own — isolation is entirely derived from its Applicant (HasCompanyScope-enforced). Pivot (not a plain Model), wired via Applicant::interviewer()->using(), so attach()/detach() run through its own save()/delete() and ParentDerivedCompanyScope. interviewer_id additionally validated by membership (User has no single company_id of its own) on create.',
+        'tracking'       => '#138 PR4 A4E',
+    ],
+    CandidateApplicantCategory::class => [
+        'table'          => 'recruitments_candidate_applicant_categories',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column of its own — isolation is entirely derived from its Candidate (HasCompanyScope-enforced). Pivot (not a plain Model), wired via Candidate::categories()->using(), so attach()/detach() run through its own save()/delete() and ParentDerivedCompanyScope. Writes validated by resolveEffectiveCompanyIdOrFail() against the persisted Candidate on create/delete.',
+        'tracking'       => '#138 PR4 A4E',
+    ],
+    CandidateSkill::class => [
+        'table'          => 'recruitments_candidate_skills',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column of its own — isolation is entirely derived from its Candidate (HasCompanyScope-enforced), via a bespoke ParentDerivedCompanyScope (same principle as EmployeeSkillCompanyScope, ola A4D). Writes reauthorize against the persisted Candidate on create/update/delete, re-querying candidate_id fresh by primary key rather than trusting getOriginal() or the in-memory attribute. user_id additionally validated by membership.',
+        'tracking'       => '#138 PR4 A4E',
+    ],
+    JobPositionInterviewer::class => [
+        'table'          => 'recruitments_job_position_interviewers',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column of its own — isolation is entirely derived from its JobPosition (HasCompanyScope-enforced). Pivot (not a plain Model), wired via JobPosition::interviewers()->using(), so attach()/detach() run through its own save()/delete() and ParentDerivedCompanyScope. user_id additionally validated by membership on create.',
+        'tracking'       => '#138 PR4 A4E',
+    ],
+    StageJob::class => [
+        'table'          => 'recruitments_stages_jobs',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column of its own — isolation is derived from the JobPosition side of the pivot, NOT from Stage (a global, cross-company kanban catalog). Pivot (not a plain Model), wired via Stage::jobs()->using(), so attach()/detach() run through its own save()/delete() and ParentDerivedCompanyScope. Writes validated by resolveEffectiveCompanyIdOrFail() against the persisted JobPosition on create/delete.',
+        'tracking'       => '#138 PR4 A4E',
+    ],
 ];

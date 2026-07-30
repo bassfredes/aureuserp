@@ -68,6 +68,15 @@
         <testsuite name="EmployeesFeature">
             <directory>plugins/webkul/employees/tests/Feature</directory>
         </testsuite>
+        <!--
+        #138 PR4 A4E: only the new CompanyScope subdirectory is registered,
+        not all of plugins/webkul/recruitments/tests/Feature — the rest of
+        that plugin's historical suite has known preexisting failures
+        unrelated to company-scope, out of scope for this wave.
+        -->
+        <testsuite name="RecruitmentCompanyScopeFeature">
+            <directory>plugins/webkul/recruitments/tests/Feature/CompanyScope</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>

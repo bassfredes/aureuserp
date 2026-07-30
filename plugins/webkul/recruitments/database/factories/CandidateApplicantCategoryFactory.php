@@ -17,8 +17,12 @@ class CandidateApplicantCategoryFactory extends Factory
     public function definition(): array
     {
         return [
-            'candidate_id'          => Candidate::factory(),
-            'applicant_category_id' => ApplicantCategory::factory(),
+            'candidate_id' => Candidate::factory(),
+            // The real column is 'category_id' (2025_01_10_045048
+            // migration) — 'applicant_category_id' never existed on this
+            // table, dormant until this wave activated real writes
+            // through this factory (#138 PR4 A4E).
+            'category_id'  => ApplicantCategory::factory(),
         ];
     }
 }
