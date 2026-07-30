@@ -601,6 +601,14 @@ Una segunda revisión técnica sobre el head corregido `4500d8dba9cbc8ea10893f37
 
 Cerrado en el commit `f9af800bd` (fast-forward): ambos ahora lanzan `AuthorizationException` cuando el owner no puede resolverse (sin PK, fila inexistente, o `company_id`/`employee_id` persistido en `null`), en vez de omitir el guard. Se agregaron 8 tests de regresión: Employee con `company_id` históricamente `null` (delete/restore/forceDelete rechazados, base intacta) y EmployeeSkill sin `employee_id` resoluble (create/update/delete/restore/forceDelete rechazados). Se preserva el movimiento same-company y el rechazo cross-company ya cubiertos por la primera corrección. Suite `employees` completa: 107/107 tests, 166 assertions. `composer test`: 1988/1988 tests, 4903 assertions. `CompanyScopeAuditorTest`: 32/32. Inventario sin cambio (corrección de autorización, no de clasificación): `scoped` 134, `classified_exceptions` 134, gaps reales 36 (17+19), verificado con dos regeneraciones independientes byte a byte idénticas. Pendiente de re-review sobre el head `f9af800bd1d6fd96cf6d78e8a56907d6ab1c3c77`, no aprobada.
 
+### Corrección de aislamiento del harness de determinismo (review 4814881805)
+
+El re-review de A4D employees (review 4812409030) aprobó el head `e2aa28519993fdd3f9860d9a9912b733a34b4963` y autorizó un dispatch manual de CI (run `30506048590`). Ese run terminó en `failure`: `TestBootstrapHelperDeterminismTest.php` lanzó `ProcessTimedOutException` en su subproceso `run_bootstrap_order.php` (180s, instalando `["accounting","website","projects","manufacturing","employees"]`), y ese test ejecutaba `Schema::dropAllTables()` directamente sobre la base COMPARTIDA usada por el resto de la suite antes de cada escenario. El timeout dejó esa base a medio migrar, y las ~1988 pruebas restantes del job `PHP 8.4 test on ubuntu-latest` fallaron en cascada con `QueryException: table not found` en dominios totalmente ajenos (manufacturing, analytics, maintenance, website), 1699 pasaron, 289 fallaron. Nada relacionado con `employees` ni con la corrección de revisión previa.
+
+Corregido en el commit `test(ci): aislar bootstrap determinista en bases efímeras`: cada escenario de `TestBootstrapHelperDeterminismTest.php` crea ahora su propia base MySQL efímera, única, vía una conexión PDO privilegiada que replica el mismo patrón de `scripts/reset-test-database.php` (usa `TEST_BOOTSTRAP_DB_ROOT_USER`/`TEST_BOOTSTRAP_DB_ROOT_PASSWORD` si están configuradas, o cae de vuelta a `DB_USERNAME`/`DB_PASSWORD` de la app, exactamente el caso de CI, donde ya son `root`/`root`, sin necesitar ningún cambio en el workflow). La base efímera se pasa al subproceso vía `DB_DATABASE` y se incluye explícitamente en `TEST_BOOTSTRAP_ALLOWED_DATABASES`; `run_bootstrap_order.php` valida ahora explícitamente que su conexión real coincide con la base esperada, en vez de asumirlo. El test de doble bootstrap usa su propia tercera base efímera (primera ejecución exitosa, segunda ejecución sobre la misma base rechazada por el guard, huella estructural intacta después). Cada base efímera se elimina en un bloque `finally`, incluso ante timeout o excepción. La huella de la base principal se captura antes y después de cada escenario y debe ser idéntica, nunca se toca. El timeout individual sube de 180 a 300 segundos. Ya no queda ninguna llamada a `Schema::dropAllTables()` sobre la base compartida en este archivo.
+
+Verificado: determinismo 2/2 en dos ejecuciones consecutivas (sin bases efímeras remanentes al finalizar), `CompanyScopeAuditorTest` 32/32, `composer test` 1988/1988 (4904 assertions), auditor regenerado dos veces byte a byte idéntico al inventario committeado (`scoped` 134, `classified_exceptions` 134, gaps reales 36 sin cambio), `git diff --check` limpio. Pendiente de revisión del diff antes de cualquier nuevo dispatch de CI.
+
 ---
 
 ## Estado
@@ -749,7 +757,28 @@ Segunda corrección de revisión A4D employees (publicada en f9af800bd1d6fd96cf6
   - composer test: 1988/1988 tests, 4903 assertions; CompanyScopeAuditorTest: 32/32
   - inventario sin cambio (corrección de autorización, no de clasificación): scoped 134,
     classified_exceptions 134, gaps reales 36 (17+19)
-  - pendiente de re-review sobre el head corregido, no aprobada
+  - re-review (4812409030) aprobado sobre e2aa28519993fdd3f9860d9a9912b733a34b4963,
+    A4D_EMPLOYEES_APPROVED_FOR_CI
+Dispatch de CI (run 30506048590, workflow_dispatch, head e2aa28519993fdd3f9860d9a9912b733a34b4963):
+  - conclusion: failure. Frontend Assets Build y Company Scope Global Audit: success
+  - PHP 8.4 test on ubuntu-latest: failure. TestBootstrapHelperDeterminismTest.php lanzo
+    ProcessTimedOutException (180s) en run_bootstrap_order.php, Schema::dropAllTables()
+    sobre la base COMPARTIDA dejo esa base a medio migrar, cascada de 289 QueryException
+    no relacionadas a employees (manufacturing/analytics/maintenance/website); 1699 passed
+  - no relacionado con employees ni con ninguna de las dos correcciones previas
+Correccion de aislamiento del harness de determinismo (review 4814881805):
+  - TestBootstrapHelperDeterminismTest.php: cada escenario crea su propia base MySQL
+    efimera via PDO privilegiado (mismo patron que scripts/reset-test-database.php,
+    cae de vuelta a DB_USERNAME/DB_PASSWORD cuando no hay TEST_BOOTSTRAP_DB_ROOT_* -
+    exactamente el caso de CI, root/root, sin cambio de workflow)
+  - run_bootstrap_order.php valida explicitamente que la base conectada coincida con
+    la esperada, ya no la asume
+  - test de doble bootstrap usa su propia tercera base efimera; timeout individual
+    180 -> 300 segundos; cada base efimera se elimina en finally
+  - huella de la base principal capturada antes/despues de cada escenario, identica
+  - determinismo 2/2 (sin bases efimeras remanentes), CompanyScopeAuditorTest 32/32,
+    composer test 1988/1988 (4904 assertions), auditor sin cambio (134/134/36)
+  - pendiente de revision del diff antes de cualquier nuevo dispatch de CI
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
 Ola 4E: no autorizada
