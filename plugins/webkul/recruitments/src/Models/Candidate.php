@@ -198,10 +198,26 @@ class Candidate extends Model
             // the start). The internal flow only ever sets partner_id when
             // it was previously null, so this cannot conflict with the
             // nested save it performs.
-            $originalPartnerId = $candidate->getOriginal('partner_id');
+            //
+            // On create, getOriginal() is always null regardless of what
+            // partner_id was passed in, so a caller could hand
+            // Candidate::create() a pre-existing (same- or cross-company)
+            // Partner id and have handlePartnerUpdation() below silently
+            // overwrite that Partner's data on `saved` — a distinct bypass
+            // from the "changing an already-linked partner_id" case this
+            // guard originally covered (#138 PR4 review 4818602853, finding
+            // 1). A brand-new Candidate must always start unlinked; only
+            // the internal flow may link it once persisted.
+            if (! $candidate->exists) {
+                if ($candidate->partner_id !== null) {
+                    throw new AuthorizationException('A new Candidate cannot be created with a pre-existing partner_id — it is linked automatically.');
+                }
+            } else {
+                $originalPartnerId = $candidate->getOriginal('partner_id');
 
-            if ($originalPartnerId !== null && (int) $originalPartnerId !== (int) $candidate->partner_id) {
-                throw new AuthorizationException("Changing a Candidate's linked Partner is forbidden — it is managed automatically.");
+                if ($originalPartnerId !== null && (int) $originalPartnerId !== (int) $candidate->partner_id) {
+                    throw new AuthorizationException("Changing a Candidate's linked Partner is forbidden — it is managed automatically.");
+                }
             }
         });
 

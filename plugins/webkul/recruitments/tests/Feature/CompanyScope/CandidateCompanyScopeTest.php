@@ -311,6 +311,36 @@ it('allows a Candidate.employee_id pointing at an Employee in the same company',
 
 // ── partner_id: model-managed, immutable once linked (#138 PR4 A4D contract) ──
 
+it('forbids creating a Candidate with a pre-existing same-company Partner id, leaving that Partner untouched', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $existingPartner = Partner::factory()->create(['sub_type' => 'partner', 'company_id' => $companyA->id, 'name' => 'Original Name']);
+
+    expect(fn () => Candidate::factory()->create(['company_id' => $companyA->id, 'partner_id' => $existingPartner->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('recruitments_candidates', ['partner_id' => $existingPartner->id]);
+    $this->assertDatabaseHas('partners_partners', ['id' => $existingPartner->id, 'name' => 'Original Name']);
+});
+
+it('forbids creating a Candidate with a pre-existing cross-company Partner id, leaving that Partner untouched', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $existingPartnerB = CompanyContext::runForAllCompanies(reason: 'fixture', caller: __FILE__, callback: fn () => Partner::factory()->create(['sub_type' => 'partner', 'company_id' => $companyB->id, 'name' => 'Original Name B']));
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    expect(fn () => Candidate::factory()->create(['company_id' => $companyA->id, 'partner_id' => $existingPartnerB->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('recruitments_candidates', ['partner_id' => $existingPartnerB->id]);
+    $this->assertDatabaseHas('partners_partners', ['id' => $existingPartnerB->id, 'name' => 'Original Name B']);
+});
+
 it('forbids replacing a Candidate linked partner_id with an arbitrary different Partner', function () {
     $companyA = Company::factory()->create();
     $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));

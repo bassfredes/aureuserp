@@ -2,6 +2,7 @@
 
 namespace Webkul\Recruitment\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\Pivot;
 use Webkul\Recruitment\Models\Scopes\ParentDerivedCompanyScope;
@@ -42,6 +43,20 @@ class ApplicantApplicantCategory extends Pivot
 
         static::creating(function (self $pivot) {
             static::resolveEffectiveCompanyIdOrFail($pivot->applicant_id, Applicant::class, null, 'Applicant');
+        });
+
+        // This pivot's only columns are its two keys — creating()/
+        // deleting() authorize attach()/detach(), but neither guards a
+        // retarget of an already-persisted row (updateExistingPivot(),
+        // or a direct ->update() on a fetched instance), which could move
+        // the row to an unauthorized Applicant/category without ever
+        // re-checking company (#138 PR4 review 4818602853, finding 2).
+        // The only legitimate way to change either key is detach+attach,
+        // both of which are already guarded above.
+        static::updating(function (self $pivot) {
+            if ($pivot->isDirty(['applicant_id', 'category_id'])) {
+                throw new AuthorizationException('Retargeting an ApplicantApplicantCategory is forbidden — detach and attach instead.');
+            }
         });
 
         static::deleting(function (self $pivot) {

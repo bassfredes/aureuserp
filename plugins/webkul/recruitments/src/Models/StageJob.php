@@ -2,6 +2,7 @@
 
 namespace Webkul\Recruitment\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\Pivot;
@@ -45,6 +46,16 @@ class StageJob extends Pivot
 
         static::creating(function (self $pivot) {
             static::resolveEffectiveCompanyIdOrFail($pivot->job_id, EmployeeJobPosition::class, null, 'Job Position');
+        });
+
+        // See ApplicantApplicantCategory::boot() — same retargeting gap
+        // (#138 PR4 review 4818602853, finding 2). stage_id points at the
+        // global Stage catalog and job_id at the tenant-aware JobPosition
+        // — either changing after creation is a retarget, not an update.
+        static::updating(function (self $pivot) {
+            if ($pivot->isDirty(['stage_id', 'job_id'])) {
+                throw new AuthorizationException('Retargeting a StageJob is forbidden — detach and attach instead.');
+            }
         });
 
         static::deleting(function (self $pivot) {

@@ -66,6 +66,16 @@ class ApplicantInterviewer extends Pivot
             static::assertUserBelongsToCompany($pivot->interviewer_id, $companyId, 'Interviewer');
         });
 
+        // See ApplicantApplicantCategory::boot() — same retargeting gap
+        // (#138 PR4 review 4818602853, finding 2): both keys are fillable
+        // and creating()/deleting() alone never re-check a retarget of an
+        // already-persisted row. Only detach+attach may change either.
+        static::updating(function (self $pivot) {
+            if ($pivot->isDirty(['applicant_id', 'interviewer_id'])) {
+                throw new AuthorizationException('Retargeting an ApplicantInterviewer is forbidden — detach and attach instead.');
+            }
+        });
+
         static::deleting(function (self $pivot) {
             static::resolveEffectiveCompanyIdOrFail($pivot->applicant_id, Applicant::class, null, 'Applicant');
         });

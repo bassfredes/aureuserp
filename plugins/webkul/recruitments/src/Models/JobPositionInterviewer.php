@@ -67,6 +67,14 @@ class JobPositionInterviewer extends Pivot
             static::assertUserBelongsToCompany($pivot->user_id, $companyId, 'User');
         });
 
+        // See ApplicantApplicantCategory::boot() — same retargeting gap
+        // (#138 PR4 review 4818602853, finding 2).
+        static::updating(function (self $pivot) {
+            if ($pivot->isDirty(['job_position_id', 'user_id'])) {
+                throw new AuthorizationException('Retargeting a JobPositionInterviewer is forbidden — detach and attach instead.');
+            }
+        });
+
         static::deleting(function (self $pivot) {
             static::resolveEffectiveCompanyIdOrFail($pivot->job_position_id, JobPosition::class, null, 'Job Position');
         });

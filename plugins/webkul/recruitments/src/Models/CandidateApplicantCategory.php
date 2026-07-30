@@ -2,6 +2,7 @@
 
 namespace Webkul\Recruitment\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\Pivot;
 use Webkul\Recruitment\Models\Scopes\ParentDerivedCompanyScope;
@@ -42,6 +43,14 @@ class CandidateApplicantCategory extends Pivot
 
         static::creating(function (self $pivot) {
             static::resolveEffectiveCompanyIdOrFail($pivot->candidate_id, Candidate::class, null, 'Candidate');
+        });
+
+        // See ApplicantApplicantCategory::boot() — same retargeting gap
+        // (#138 PR4 review 4818602853, finding 2).
+        static::updating(function (self $pivot) {
+            if ($pivot->isDirty(['candidate_id', 'category_id'])) {
+                throw new AuthorizationException('Retargeting a CandidateApplicantCategory is forbidden — detach and attach instead.');
+            }
         });
 
         static::deleting(function (self $pivot) {

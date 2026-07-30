@@ -123,6 +123,40 @@ it('forbids attaching an interviewer with no membership in the JobPosition compa
     ]);
 });
 
+it('forbids retargeting a JobPositionInterviewer to a different JobPosition', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $job = JobPositionFactory::new()->create(['company_id' => $companyA->id]);
+    $otherJob = JobPositionFactory::new()->create(['company_id' => $companyA->id]);
+    $interviewerUser = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $row = JobPositionInterviewer::create(['job_position_id' => $job->id, 'user_id' => $interviewerUser->id]);
+
+    expect(fn () => $row->update(['job_position_id' => $otherJob->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('recruitments_job_position_interviewers', ['job_position_id' => $job->id, 'user_id' => $interviewerUser->id]);
+    $this->assertDatabaseMissing('recruitments_job_position_interviewers', ['job_position_id' => $otherJob->id, 'user_id' => $interviewerUser->id]);
+});
+
+it('forbids retargeting a JobPositionInterviewer to a different user', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $job = JobPositionFactory::new()->create(['company_id' => $companyA->id]);
+    $interviewerUser = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $otherInterviewerUser = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $row = JobPositionInterviewer::create(['job_position_id' => $job->id, 'user_id' => $interviewerUser->id]);
+
+    expect(fn () => $row->update(['user_id' => $otherInterviewerUser->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('recruitments_job_position_interviewers', ['job_position_id' => $job->id, 'user_id' => $interviewerUser->id]);
+    $this->assertDatabaseMissing('recruitments_job_position_interviewers', ['job_position_id' => $job->id, 'user_id' => $otherInterviewerUser->id]);
+});
+
 // ── StageJob: parent_scoped via JobPosition, NOT via the global Stage (#138 PR4 A4E) ──
 
 it('shows a user only StageJob rows of JobPositions in their own company, regardless of the shared global Stage', function () {
@@ -216,4 +250,38 @@ it('forbids attaching a JobPosition in another company through the real Stage::j
         'stage_id' => $stage->id,
         'job_id'   => $jobB->id,
     ]);
+});
+
+it('forbids retargeting a StageJob to a different JobPosition', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $stage = StageFactory::new()->withLegend()->create();
+    $job = JobPosition::factory()->create(['company_id' => $companyA->id]);
+    $otherJob = JobPosition::factory()->create(['company_id' => $companyA->id]);
+    $row = StageJob::create(['stage_id' => $stage->id, 'job_id' => $job->id]);
+
+    expect(fn () => $row->update(['job_id' => $otherJob->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('recruitments_stages_jobs', ['stage_id' => $stage->id, 'job_id' => $job->id]);
+    $this->assertDatabaseMissing('recruitments_stages_jobs', ['stage_id' => $stage->id, 'job_id' => $otherJob->id]);
+});
+
+it('forbids retargeting a StageJob to a different Stage', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $stage = StageFactory::new()->withLegend()->create();
+    $otherStage = StageFactory::new()->withLegend()->create();
+    $job = JobPosition::factory()->create(['company_id' => $companyA->id]);
+    $row = StageJob::create(['stage_id' => $stage->id, 'job_id' => $job->id]);
+
+    expect(fn () => $row->update(['stage_id' => $otherStage->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('recruitments_stages_jobs', ['stage_id' => $stage->id, 'job_id' => $job->id]);
+    $this->assertDatabaseMissing('recruitments_stages_jobs', ['stage_id' => $otherStage->id, 'job_id' => $job->id]);
 });

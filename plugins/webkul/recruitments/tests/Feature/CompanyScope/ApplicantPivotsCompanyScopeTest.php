@@ -92,6 +92,40 @@ it('attaches and detaches an ApplicantCategory through the real Applicant::categ
     ]);
 });
 
+it('forbids retargeting an ApplicantApplicantCategory to a different Applicant', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $applicant = Applicant::factory()->create(['company_id' => $companyA->id]);
+    $otherApplicant = Applicant::factory()->create(['company_id' => $companyA->id]);
+    $category = ApplicantCategoryFactory::new()->create();
+    $row = ApplicantApplicantCategory::create(['applicant_id' => $applicant->id, 'category_id' => $category->id]);
+
+    expect(fn () => $row->update(['applicant_id' => $otherApplicant->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('recruitments_applicant_applicant_categories', ['applicant_id' => $applicant->id, 'category_id' => $category->id]);
+    $this->assertDatabaseMissing('recruitments_applicant_applicant_categories', ['applicant_id' => $otherApplicant->id, 'category_id' => $category->id]);
+});
+
+it('forbids retargeting an ApplicantApplicantCategory to a different category', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $applicant = Applicant::factory()->create(['company_id' => $companyA->id]);
+    $category = ApplicantCategoryFactory::new()->create();
+    $otherCategory = ApplicantCategoryFactory::new()->create();
+    $row = ApplicantApplicantCategory::create(['applicant_id' => $applicant->id, 'category_id' => $category->id]);
+
+    expect(fn () => $row->update(['category_id' => $otherCategory->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('recruitments_applicant_applicant_categories', ['applicant_id' => $applicant->id, 'category_id' => $category->id]);
+    $this->assertDatabaseMissing('recruitments_applicant_applicant_categories', ['applicant_id' => $applicant->id, 'category_id' => $otherCategory->id]);
+});
+
 // ── ApplicantInterviewer: parent_scoped via Applicant + membership (#138 PR4 A4E) ──
 
 it('forbids creating an ApplicantInterviewer whose interviewer has no membership in the Applicant company', function () {
@@ -175,4 +209,38 @@ it('forbids attaching an interviewer with no membership in the Applicant company
         'applicant_id'   => $applicant->id,
         'interviewer_id' => $outsiderUser->id,
     ]);
+});
+
+it('forbids retargeting an ApplicantInterviewer to a different Applicant', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $applicant = Applicant::factory()->create(['company_id' => $companyA->id]);
+    $otherApplicant = Applicant::factory()->create(['company_id' => $companyA->id]);
+    $interviewerUser = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $row = ApplicantInterviewer::create(['applicant_id' => $applicant->id, 'interviewer_id' => $interviewerUser->id]);
+
+    expect(fn () => $row->update(['applicant_id' => $otherApplicant->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('recruitments_applicant_interviewers', ['applicant_id' => $applicant->id, 'interviewer_id' => $interviewerUser->id]);
+    $this->assertDatabaseMissing('recruitments_applicant_interviewers', ['applicant_id' => $otherApplicant->id, 'interviewer_id' => $interviewerUser->id]);
+});
+
+it('forbids retargeting an ApplicantInterviewer to a different interviewer', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $applicant = Applicant::factory()->create(['company_id' => $companyA->id]);
+    $interviewerUser = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $otherInterviewerUser = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $row = ApplicantInterviewer::create(['applicant_id' => $applicant->id, 'interviewer_id' => $interviewerUser->id]);
+
+    expect(fn () => $row->update(['interviewer_id' => $otherInterviewerUser->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('recruitments_applicant_interviewers', ['applicant_id' => $applicant->id, 'interviewer_id' => $interviewerUser->id]);
+    $this->assertDatabaseMissing('recruitments_applicant_interviewers', ['applicant_id' => $applicant->id, 'interviewer_id' => $otherInterviewerUser->id]);
 });

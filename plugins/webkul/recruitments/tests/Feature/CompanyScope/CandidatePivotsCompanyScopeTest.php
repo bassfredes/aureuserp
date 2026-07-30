@@ -122,6 +122,40 @@ it('attaches and detaches an ApplicantCategory through the real Candidate::categ
     ]);
 });
 
+it('forbids retargeting a CandidateApplicantCategory to a different Candidate', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $candidate = Candidate::factory()->create(['company_id' => $companyA->id]);
+    $otherCandidate = Candidate::factory()->create(['company_id' => $companyA->id]);
+    $category = ApplicantCategoryFactory::new()->create();
+    $row = CandidateApplicantCategory::create(['candidate_id' => $candidate->id, 'category_id' => $category->id]);
+
+    expect(fn () => $row->update(['candidate_id' => $otherCandidate->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('recruitments_candidate_applicant_categories', ['candidate_id' => $candidate->id, 'category_id' => $category->id]);
+    $this->assertDatabaseMissing('recruitments_candidate_applicant_categories', ['candidate_id' => $otherCandidate->id, 'category_id' => $category->id]);
+});
+
+it('forbids retargeting a CandidateApplicantCategory to a different category', function () {
+    $companyA = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $candidate = Candidate::factory()->create(['company_id' => $companyA->id]);
+    $category = ApplicantCategoryFactory::new()->create();
+    $otherCategory = ApplicantCategoryFactory::new()->create();
+    $row = CandidateApplicantCategory::create(['candidate_id' => $candidate->id, 'category_id' => $category->id]);
+
+    expect(fn () => $row->update(['category_id' => $otherCategory->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('recruitments_candidate_applicant_categories', ['candidate_id' => $candidate->id, 'category_id' => $category->id]);
+    $this->assertDatabaseMissing('recruitments_candidate_applicant_categories', ['candidate_id' => $candidate->id, 'category_id' => $otherCategory->id]);
+});
+
 // ── CandidateSkill: parent_scoped via Candidate + membership (#138 PR4 A4E) ──
 
 it('shows a user only CandidateSkills of Candidates in their own company', function () {
