@@ -29,10 +29,10 @@
     ],
     "summary": {
         "total": 304,
-        "scoped": 134,
-        "classified_exceptions": 134,
-        "real_gaps_with_company_id": 17,
-        "real_gaps_without_company_id": 19,
+        "scoped": 136,
+        "classified_exceptions": 142,
+        "real_gaps_with_company_id": 15,
+        "real_gaps_without_company_id": 11,
         "table_missing": 0,
         "inspection_errors": 0,
         "manifest_violations": 0
@@ -2699,8 +2699,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "alias",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "recruitments",
@@ -2708,11 +2708,11 @@
             "file": "plugins/webkul/recruitments/src/Models/Applicant.php",
             "table": "recruitments_applicants",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "recruitments",
@@ -2723,8 +2723,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "recruitments",
@@ -2747,8 +2747,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "recruitments",
@@ -2756,11 +2756,11 @@
             "file": "plugins/webkul/recruitments/src/Models/Candidate.php",
             "table": "recruitments_candidates",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "recruitments",
@@ -2771,8 +2771,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "recruitments",
@@ -2783,8 +2783,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "recruitments",
@@ -2855,8 +2855,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "recruitments",
@@ -2891,8 +2891,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "global_reference",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "recruitments",
@@ -2903,8 +2903,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "recruitments",

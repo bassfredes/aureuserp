@@ -611,6 +611,52 @@ Verificado: determinismo 2/2 en dos ejecuciones consecutivas (sin bases efímera
 
 ---
 
+## A4E: familia recruitments, cierre de gaps residuales
+
+Cierra los diez gaps residuales de `recruitments`: `Webkul\Recruitment\Models\ActivityType`, `Applicant`, `ApplicantApplicantCategory`, `ApplicantInterviewer`, `Candidate`, `CandidateApplicantCategory`, `CandidateSkill`, `JobPositionInterviewer`, `Stage`, `StageJob`.
+
+### Decisiones arquitectónicas
+
+- `Stage` (catálogo kanban) y `ActivityType` (alias de `Webkul\Support\Models\ActivityType`) quedan `global_reference`/`alias`: catálogos compartidos entre compañías por diseño, sin `company_id` propio, sin cambio de código.
+- La asociación tenant-aware del kanban vive en `StageJob`, derivada de `JobPosition` (el lado tenant-aware del pivote), no de `Stage`.
+
+### Diseño
+
+- `Applicant`/`Candidate`: `HasCompanyScope` + `HasStrictCompanyId` + `HasFactory` (ninguno de los dos tenía factory funcional antes de esta ola) + un concern local nuevo, `GuardsCompanyLifecycleOnSoftDelete` (mismo patrón que la familia `employees`, ola A4D, duplicado localmente en `recruitments` en vez de importado entre plugins).
+- `Applicant`: `candidate_id`/`job_id`/`department_id` validados contra el `company_id` ya autorizado; `recruiter_id` validado por membresía (`User` no tiene una única `company_id`). `stage_id`/`last_stage_id` quedan sin validar a propósito: `Stage` es un catálogo global.
+- `Candidate`: `manager_id` validado por membresía; `employee_id`, cuando existe, validado contra el `company_id` ya autorizado. `partner_id` queda administrado por el modelo, igual que el contrato de `Employee` (ola A4D): una vez vinculado, no puede sustituirse por otro Partner ni vaciarse a `null`.
+- Seis hijos/pivotes `parent_scoped`: `ApplicantApplicantCategory`/`ApplicantInterviewer` derivan de `Applicant`; `CandidateApplicantCategory`/`CandidateSkill` derivan de `Candidate`; `JobPositionInterviewer`/`StageJob` derivan de `JobPosition` (no de `Stage`). Cinco de los seis son `Pivot` (no `Model` plano), wired vía `->using()` en la relación `belongsToMany` correspondiente (`Applicant::categories()`, `Applicant::interviewer()`, `Candidate::categories()`, `JobPosition::interviewers()`, `Stage::jobs()`), sin ese wiring, `attach()`/`detach()` corren un insert/delete de query builder crudo que evita por completo cualquier guard declarado en la clase pivote. `CandidateSkill` es la excepción: un hijo real (`hasMany`, no pivote), con su propia clave primaria.
+- Lectura: un scope genérico nuevo y compartido, `ParentDerivedCompanyScope` (parametrizado por nombre de relación), reemplaza seis clases de scope bespoke casi idénticas, mismo principio que `EmployeeSkillCompanyScope` (ola A4D), generalizado aquí porque los seis casos necesitan exactamente la misma lógica contra una relación distinta.
+- `interviewer_id`/`user_id` en los pivotes con FK a `User` (`ApplicantInterviewer`, `JobPositionInterviewer`, `CandidateSkill`) validados por membresía además de por compañía del padre.
+
+### Bugs preexistentes encontrados y corregidos
+
+- `Applicant::createEmployee()`/`Candidate::createEmployee()`: la clave `'company_id'` aparecía duplicada en el array de creación del Employee, un array literal de PHP solo conserva el último valor duplicado, descartando el primero sin ningún indicio de que ambos pudieran divergir. Corregido a una única fuente de verdad; en `Applicant::createEmployee()` se agrega además un rechazo explícito si `Applicant.company_id` y `Candidate.company_id` alguna vez divergen.
+- `Candidate::handlePartnerCreation()`/`handlePartnerUpdation()`: el fallback de `creator_id` era `Auth::user()->id ?? $candidate->id`, leer una propiedad de `null` degrada a warning, no a error fatal, así que sin actor autenticado (el caso exacto de un fixture creado dentro de `CompanyContext::runForAllCompanies()`) esto caía silenciosamente hasta `$candidate->id`, la propia clave primaria del Candidate, no un id de usuario, violando la FK `creator_id` de `partners_partners` en cuanto ese id no coincidía por casualidad con un usuario real. Corregido para caer a `$candidate->creator_id` (ya resuelto, también nullable).
+
+### Bugs preexistentes dormidos, encontrados y evitados sin tocar el archivo dueño
+
+Ninguno de estos está en los diez modelos autorizados; se evitaron con factories directas (`::create()`) o overrides explícitos en los tests nuevos, sin modificar el archivo dueño:
+
+- `Degree`, `ApplicantCategory` y `Stage` no tenían `HasFactory`/`newFactory()` en absoluto, el resolver de nombre de factory por defecto de Laravel solo maneja modelos bajo el namespace raíz de la app, nunca `Webkul\...`, así que `Modelo::factory()` fallaba con una clase inexistente para cualquier modelo de un plugin sin `newFactory()` explícito.
+- `StageFactory::definition()` deja `legend_blocked`/`legend_done`/`legend_normal` en `null`, pero esas tres columnas son `NOT NULL` sin default, se usa `->withLegend()` explícitamente en cada `StageFactory::new()->create()`.
+- `SkillTypeFactory::definition()` fija una columna `status` que nunca existió en `employees_skill_types` (la columna real es `is_active`), evitado creando `SkillType` directamente con solo columnas reales.
+- `SkillLevelFactory`/`SkillFactory` anidan su propio default roto de `skill_type_id`/`SkillTypeFactory::factory()` (ya conocido de la ola A4D), evitado igual, con `::create()` directo.
+
+### Resultados verificados
+
+- `scoped`: 134 -> 136 (+2: `Applicant`, `Candidate`).
+- `classified_exceptions`: 134 -> 142 (+8: `ActivityType`, `Stage`, `ApplicantApplicantCategory`, `ApplicantInterviewer`, `CandidateApplicantCategory`, `CandidateSkill`, `JobPositionInterviewer`, `StageJob`).
+- gaps reales: 36 (17+19) -> 26 (15+11).
+- 81 tests nuevos en `plugins/webkul/recruitments/tests/Feature/CompanyScope/` (5 archivos): `ApplicantCompanyScopeTest`, `ApplicantPivotsCompanyScopeTest`, `CandidateCompanyScopeTest`, `CandidatePivotsCompanyScopeTest`, `JobPositionPivotsCompanyScopeTest`.
+- `phpunit.xml`: nueva suite `RecruitmentCompanyScopeFeature` (solo el subdirectorio nuevo, no el resto de la suite histórica de `recruitments`, que tiene fallos preexistentes no relacionados).
+- `composer test`: 2069/2069 tests, 5032 assertions (antes 1988/1988).
+- Auditor: regenerado dos veces, salida byte a byte idéntica; `--fail-on-missing`: exit 1 únicamente por los 26 gaps reales conocidos.
+- `git diff --check`: limpio. Pint: limpio en los ~31 archivos tocados/nuevos.
+- Pendiente de revisión técnica del diff publicado.
+
+---
+
 ## Estado
 
 ```
@@ -779,9 +825,43 @@ Correccion de aislamiento del harness de determinismo (review 4814881805):
   - determinismo 2/2 (sin bases efimeras remanentes), CompanyScopeAuditorTest 32/32,
     composer test 1988/1988 (4904 assertions), auditor sin cambio (134/134/36)
   - pendiente de revision del diff antes de cualquier nuevo dispatch de CI
+Ola A4E (familia recruitments, publicada): ActivityType, Applicant, ApplicantApplicantCategory,
+  ApplicantInterviewer, Candidate, CandidateApplicantCategory, CandidateSkill,
+  JobPositionInterviewer, Stage, StageJob
+  - Stage/ActivityType: global_reference/alias, catalogos compartidos sin cambio de codigo;
+    StageJob deriva de JobPosition, no de Stage
+  - Applicant/Candidate: HasCompanyScope + HasStrictCompanyId + HasFactory (ninguno tenia
+    factory funcional antes); concern local GuardsCompanyLifecycleOnSoftDelete (duplicado de
+    employees, no compartido entre plugins)
+  - Applicant: candidate_id/job_id/department_id validados contra el company_id ya
+    autorizado; recruiter_id por membresia; stage_id/last_stage_id sin validar (catalogo
+    global)
+  - Candidate: manager_id por membresia; employee_id validado contra el company_id ya
+    autorizado; partner_id administrado por el modelo (mismo contrato que Employee, A4D)
+  - seis hijos/pivotes parent_scoped: ApplicantApplicantCategory/ApplicantInterviewer
+    derivan de Applicant; CandidateApplicantCategory/CandidateSkill derivan de Candidate;
+    JobPositionInterviewer/StageJob derivan de JobPosition; cinco son Pivot wired via
+    ->using() (attach/detach reales respetan los guards, no un insert/delete crudo);
+    CandidateSkill es hijo real (hasMany), no pivote
+  - scope generico nuevo ParentDerivedCompanyScope (parametrizado por relacion) en vez de
+    seis scopes bespoke casi identicos
+  - dos bugs preexistentes corregidos: company_id duplicado en createEmployee() de
+    Applicant/Candidate (un array literal solo conserva la ultima clave duplicada);
+    Candidate.handlePartnerCreation()/handlePartnerUpdation() usaba $candidate->id (la
+    propia PK) como fallback de creator_id sin actor autenticado
+  - bugs dormidos evitados sin tocar el archivo dueno (fuera de los diez modelos
+    autorizados): Degree/ApplicantCategory/Stage sin HasFactory; StageFactory con
+    legend_blocked/legend_done/legend_normal en null contra columnas NOT NULL;
+    SkillTypeFactory con columna status inexistente; SkillLevelFactory/SkillFactory con el
+    mismo default roto de A4D
+  - docs/security/company-scope-pr4-inventory.json regenerado (304 filas): scoped 134->136,
+    classified_exceptions 134->142, gaps reales 36 (17+19)->26 (15+11)
+  - 81 tests nuevos en plugins/webkul/recruitments/tests/Feature/CompanyScope/ (5 archivos);
+    phpunit.xml incorpora RecruitmentCompanyScopeFeature (solo el subdirectorio nuevo)
+  - composer test: 2069/2069 tests, 5032 assertions (antes 1988/1988)
+  - pendiente de revision tecnica del diff publicado
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
-Ola 4E: no autorizada
 #138 / #81: abiertos
 AGENTS.md: stashes intactos (ambos checkouts)
 ```
