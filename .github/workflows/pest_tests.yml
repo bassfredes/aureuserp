@@ -55,7 +55,7 @@ jobs:
   pest_tests:
     needs: frontend_assets
     runs-on: ${{ matrix.operating-systems }}
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     strategy:
       matrix:
@@ -144,6 +144,7 @@ jobs:
             --admin-password="Admin123456"
 
       - name: Running Pest Test (resto de la suite)
+        timeout-minutes: 55
         run: vendor/bin/pest --exclude-group=gold-standard-dataset --colors=always
 
       - name: Running Pest Test (gold-standard-dataset, isolated process)
