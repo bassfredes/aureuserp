@@ -65,9 +65,12 @@ class AdvancedPaymentInvoice extends Model
     /**
      * creator_id defaults to the acting user but is still fillable, so an
      * explicit value must be re-checked: an actor must not be able to
-     * attribute the invoice to an arbitrary user with no membership in its
-     * own company (#138 A4F, mirrors the recruitments family's
-     * assertUserBelongsToCompany pattern).
+     * attribute the invoice to an arbitrary or nonexistent user, nor one
+     * with no membership in its own company (#138 A4F review 4827999112,
+     * finding CHANGES_REQUIRED_A4F_CREATOR_WRITE_PATH — the original
+     * version of this check only ran in `creating()` and silently no-opped
+     * on a nonexistent id, mirrors the recruitments family's
+     * assertUserBelongsToCompany pattern otherwise).
      */
     private static function assertCreatorBelongsToCompany(?int $creatorId, ?int $companyId): void
     {
@@ -78,7 +81,7 @@ class AdvancedPaymentInvoice extends Model
         $creator = User::find($creatorId);
 
         if (! $creator) {
-            return;
+            throw new AuthorizationException('The creator does not exist.');
         }
 
         if ($companyId === null || ! CompanyScope::allowedCompanyIds($creator)->contains((int) $companyId)) {
@@ -93,11 +96,29 @@ class AdvancedPaymentInvoice extends Model
         // Fires after HasStrictCompanyId's own `saving` listener (registered
         // earlier via bootHasStrictCompanyId(), a distinct event) has
         // already resolved and authorized company_id, so it is safe to
-        // trust here on both create and update.
-        static::creating(function ($advancedPaymentInvoice) {
-            $advancedPaymentInvoice->creator_id ??= Auth::id();
+        // trust here on both create and update. Same exists()-branching
+        // shape as HasStrictCompanyId itself: default+authorize on create,
+        // reject any change to an already-persisted value on update —
+        // creator_id is corrected to be immutable after creation rather
+        // than merely re-validated, since "who created this" has no
+        // legitimate reason to change (#138 A4F review 4827999112: the
+        // original creating()-only check let a later update(['creator_id'
+        // => ...]) attribute the invoice to an arbitrary user with no
+        // re-check at all).
+        static::saving(function ($advancedPaymentInvoice) {
+            if (! $advancedPaymentInvoice->exists) {
+                $advancedPaymentInvoice->creator_id ??= Auth::id();
 
-            static::assertCreatorBelongsToCompany($advancedPaymentInvoice->creator_id, $advancedPaymentInvoice->company_id);
+                static::assertCreatorBelongsToCompany($advancedPaymentInvoice->creator_id, $advancedPaymentInvoice->company_id);
+
+                return;
+            }
+
+            $originalCreatorId = $advancedPaymentInvoice->getOriginal('creator_id');
+
+            if ($originalCreatorId !== null && (int) $originalCreatorId !== (int) $advancedPaymentInvoice->creator_id) {
+                throw new AuthorizationException("Changing this AdvancedPaymentInvoice's creator is forbidden.");
+            }
         });
 
         // Delete authorization does not fire from HasStrictCompanyId (which

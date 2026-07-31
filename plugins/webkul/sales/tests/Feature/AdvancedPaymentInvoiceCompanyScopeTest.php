@@ -98,6 +98,68 @@ it('forbids changing an AdvancedPaymentInvoice\'s company_id on update', functio
     $this->assertDatabaseHas('sales_advance_payment_invoices', ['id' => $invoice->id, 'company_id' => $companyA->id]);
 });
 
+// ── AdvancedPaymentInvoice: creator_id write path (#138 A4F review 4827999112) ─
+
+it('forbids creating an AdvancedPaymentInvoice with an explicit creator_id that has no membership in the target company', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $outsider = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyB->id]));
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    expect(fn () => AdvancedPaymentInvoice::factory()->create(['company_id' => $companyA->id, 'creator_id' => $outsider->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('sales_advance_payment_invoices', ['creator_id' => $outsider->id]);
+});
+
+it('forbids creating an AdvancedPaymentInvoice with a nonexistent creator_id', function () {
+    $companyA = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    expect(fn () => AdvancedPaymentInvoice::factory()->create(['company_id' => $companyA->id, 'creator_id' => 999999999]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseCount('sales_advance_payment_invoices', 0);
+});
+
+it('forbids changing an AdvancedPaymentInvoice\'s creator_id on update, leaving the original row intact', function () {
+    $companyA = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $otherMember = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $invoice = AdvancedPaymentInvoice::factory()->create(['company_id' => $companyA->id]);
+    $originalCreatorId = $invoice->creator_id;
+
+    // Even a same-company, otherwise-legitimate member is rejected — the
+    // guard is immutability, not merely re-checking membership.
+    expect(fn () => $invoice->update(['creator_id' => $otherMember->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('sales_advance_payment_invoices', ['id' => $invoice->id, 'creator_id' => $originalCreatorId]);
+});
+
+it('forbids updating an AdvancedPaymentInvoice to a nonexistent creator_id, leaving the original row intact', function () {
+    $companyA = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $invoice = AdvancedPaymentInvoice::factory()->create(['company_id' => $companyA->id]);
+    $originalCreatorId = $invoice->creator_id;
+
+    expect(fn () => $invoice->update(['creator_id' => 999999999]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('sales_advance_payment_invoices', ['id' => $invoice->id, 'creator_id' => $originalCreatorId]);
+});
+
 // ── AdvancedPaymentInvoice: delete (test 5) ─────────────────────────────────
 
 it('forbids deleting an AdvancedPaymentInvoice from a different company than the acting user', function () {
