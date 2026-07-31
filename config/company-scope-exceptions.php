@@ -63,6 +63,7 @@ use Webkul\Recruitment\Models\Degree;
 use Webkul\Recruitment\Models\JobPositionInterviewer;
 use Webkul\Recruitment\Models\RefuseReason;
 use Webkul\Recruitment\Models\StageJob;
+use Webkul\Sale\Models\AdvancedPaymentInvoiceOrderSale;
 use Webkul\Sale\Models\OrderLine;
 use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\Role;
@@ -1110,5 +1111,11 @@ return [
         'classification' => 'parent_scoped',
         'reason'         => 'Deliberately has no company_id column of its own — isolation is derived from the JobPosition side of the pivot, NOT from Stage (a global, cross-company kanban catalog). Pivot (not a plain Model), wired via Stage::jobs()->using(), so attach()/detach() run through its own save()/delete() and ParentDerivedCompanyScope. Writes validated by resolveEffectiveCompanyIdOrFail() against the persisted JobPosition on create/delete.',
         'tracking'       => '#138 PR4 A4E',
+    ],
+    AdvancedPaymentInvoiceOrderSale::class => [
+        'table'          => 'sales_advance_payment_invoice_order_sales',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column of its own — isolation is derived from the AdvancedPaymentInvoice side of the pivot (own company_id, HasStrictCompanyId-enforced), cross-checked against the referenced Order\'s own company_id. Pivot (not a plain Model), wired via AdvancedPaymentInvoice::orders()->using(), so attach()/detach()/sync()/updateExistingPivot() run through its own save()/delete() and ParentDerivedCompanyScope. Writes validated by resolveEffectiveCompanyIdOrFail() against the persisted AdvancedPaymentInvoice on create/delete, and assertRelatedBelongsToCompany() against the referenced Order.',
+        'tracking'       => '#138 A4F',
     ],
 ];
