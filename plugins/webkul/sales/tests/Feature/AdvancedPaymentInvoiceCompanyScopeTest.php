@@ -2,6 +2,7 @@
 
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Webkul\Sale\Models\AdvancedPaymentInvoice;
 use Webkul\Sale\Models\AdvancedPaymentInvoiceOrderSale;
 use Webkul\Sale\Models\Order;
@@ -158,6 +159,76 @@ it('forbids updating an AdvancedPaymentInvoice to a nonexistent creator_id, leav
         ->toThrow(AuthorizationException::class);
 
     $this->assertDatabaseHas('sales_advance_payment_invoices', ['id' => $invoice->id, 'creator_id' => $originalCreatorId]);
+});
+
+// ── AdvancedPaymentInvoice: historic NULL creator (#138 A4F review 4830829763) ─
+
+/**
+ * Persists a row and then blanks its creator_id straight at the DB level,
+ * bypassing every model event — the exact shape the FK's own nullOnDelete()
+ * produces when the creating user is removed, and equally the shape of any
+ * row predating the column being populated. Nothing in the application
+ * layer can reproduce this state, which is precisely why the guard has to
+ * cover it.
+ */
+function historicInvoiceWithNullCreator(int $companyId): AdvancedPaymentInvoice
+{
+    $invoice = AdvancedPaymentInvoice::factory()->create(['company_id' => $companyId]);
+
+    DB::table('sales_advance_payment_invoices')->where('id', $invoice->id)->update(['creator_id' => null]);
+
+    return AdvancedPaymentInvoice::findOrFail($invoice->id);
+}
+
+it('forbids transitioning a historic AdvancedPaymentInvoice\'s creator_id from NULL to a user, leaving it NULL', function () {
+    $companyA = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $member = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $invoice = historicInvoiceWithNullCreator($companyA->id);
+    expect($invoice->creator_id)->toBeNull();
+
+    // A same-company member is used deliberately: the rejection must come
+    // from immutability, not from the membership check — otherwise the NULL
+    // row would still be claimable by anyone inside the company.
+    expect(fn () => $invoice->update(['creator_id' => $member->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('sales_advance_payment_invoices', ['id' => $invoice->id, 'creator_id' => null]);
+});
+
+it('forbids transitioning a historic AdvancedPaymentInvoice\'s creator_id from NULL to a user of another company, leaving it NULL', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $outsider = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyB->id]));
+    test()->actingAs($user);
+
+    $invoice = historicInvoiceWithNullCreator($companyA->id);
+
+    expect(fn () => $invoice->update(['creator_id' => $outsider->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('sales_advance_payment_invoices', ['id' => $invoice->id, 'creator_id' => null]);
+});
+
+it('allows updating an unrelated field on a historic AdvancedPaymentInvoice while its creator_id stays NULL', function () {
+    $companyA = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $invoice = historicInvoiceWithNullCreator($companyA->id);
+
+    $invoice->update(['amount' => 4321.00]);
+
+    $reloaded = AdvancedPaymentInvoice::findOrFail($invoice->id);
+
+    expect($reloaded->creator_id)->toBeNull();
+    expect((float) $reloaded->amount)->toBe(4321.00);
 });
 
 // ── AdvancedPaymentInvoice: delete (test 5) ─────────────────────────────────

@@ -99,12 +99,22 @@ class AdvancedPaymentInvoice extends Model
         // trust here on both create and update. Same exists()-branching
         // shape as HasStrictCompanyId itself: default+authorize on create,
         // reject any change to an already-persisted value on update —
-        // creator_id is corrected to be immutable after creation rather
-        // than merely re-validated, since "who created this" has no
-        // legitimate reason to change (#138 A4F review 4827999112: the
-        // original creating()-only check let a later update(['creator_id'
-        // => ...]) attribute the invoice to an arbitrary user with no
-        // re-check at all).
+        // creator_id is immutable after creation rather than merely
+        // re-validated, since "who created this" has no legitimate reason
+        // to change (#138 A4F review 4827999112: the original
+        // creating()-only check let a later update(['creator_id' => ...])
+        // attribute the invoice to an arbitrary user with no re-check at
+        // all).
+        //
+        // The update branch tests dirtiness rather than comparing against a
+        // non-null original: `creator_id` is nullable() + nullOnDelete()
+        // (2025_03_06_133433 migration), so a historic row, or one whose
+        // creator was deleted, legitimately sits at NULL — and an
+        // original-is-not-null precondition would have let exactly those
+        // rows transition NULL -> arbitrary user unchecked (#138 A4F review
+        // 4830829763, finding CHANGES_REQUIRED_A4F_CREATOR_NULL_TRANSITION).
+        // Immutability is unconditional: every persisted value, NULL
+        // included, is final.
         static::saving(function ($advancedPaymentInvoice) {
             if (! $advancedPaymentInvoice->exists) {
                 $advancedPaymentInvoice->creator_id ??= Auth::id();
@@ -114,9 +124,7 @@ class AdvancedPaymentInvoice extends Model
                 return;
             }
 
-            $originalCreatorId = $advancedPaymentInvoice->getOriginal('creator_id');
-
-            if ($originalCreatorId !== null && (int) $originalCreatorId !== (int) $advancedPaymentInvoice->creator_id) {
+            if ($advancedPaymentInvoice->isDirty('creator_id')) {
                 throw new AuthorizationException("Changing this AdvancedPaymentInvoice's creator is forbidden.");
             }
         });
