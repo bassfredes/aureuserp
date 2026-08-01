@@ -24,6 +24,8 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Components\Fieldset;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\ColorColumn;
 use Filament\Tables\Columns\IconColumn;
@@ -68,16 +70,29 @@ class TeamResource extends Resource
     }
 
     /**
-     * A User has no company_id of its own, so "belongs to one of my
-     * companies" means the membership contract CompanyScope itself reads:
+     * A User has no company_id of its own, so "belongs to this company"
+     * means the membership contract CompanyScope itself reads:
      * default_company_id plus the allowedCompanies() pivot (#138 PR4
-     * A4G). Narrowing the option list is defence in depth, not the
-     * enforcement — Team's own guards reject a foreign leader or member
+     * A4G).
+     *
+     * Filtered against the ONE company the form has selected for this
+     * Team, not against the union of the actor's companies (#138 PR4 A4G
+     * review 4834206687): an actor with access to both A and B could set
+     * company_id = A and still be offered a user who only belongs to B.
+     * The model rejected the save, but the form contradicted the contract
+     * it was supposed to express. Until a company is chosen the actor's
+     * own companies are the widest defensible set, and every choice made
+     * before that point is cleared when company_id changes.
+     *
+     * Narrowing the option list is defence in depth, never the
+     * enforcement: Team's own guards reject a foreign leader or member
      * regardless of how the id arrived.
      */
-    protected static function scopeUsersToAllowedCompanies(Builder $query): Builder
+    protected static function scopeUsersToCompany(Builder $query, mixed $companyId): Builder
     {
-        $companyIds = CompanyScope::allowedCompanyIds(Auth::user());
+        $companyIds = $companyId === null
+            ? CompanyScope::allowedCompanyIds(Auth::user())
+            : collect([(int) $companyId]);
 
         if ($companyIds->isEmpty()) {
             return $query->whereRaw('1 = 0');
@@ -106,7 +121,7 @@ class TeamResource extends Resource
                         Fieldset::make(__('sales::filament/clusters/configurations/resources/team.form.sections.fields.fieldset.team-details.title'))
                             ->schema([
                                 Select::make('user_id')
-                                    ->relationship('user', 'name', modifyQueryUsing: fn (Builder $query) => static::scopeUsersToAllowedCompanies($query))
+                                    ->relationship('user', 'name', modifyQueryUsing: fn (Builder $query, Get $get) => static::scopeUsersToCompany($query, $get('company_id')))
                                     ->preload()
                                     ->label(__('sales::filament/clusters/configurations/resources/team.form.sections.fields.fieldset.team-details.fields.team-leader'))
                                     ->searchable(),
@@ -114,7 +129,17 @@ class TeamResource extends Resource
                                     ->relationship('company', 'name', modifyQueryUsing: fn (Builder $query) => $query->whereIn('id', CompanyScope::allowedCompanyIds(Auth::user())))
                                     ->preload()
                                     ->label(__('sales::filament/clusters/configurations/resources/team.form.sections.fields.fieldset.team-details.fields.company'))
-                                    ->searchable(),
+                                    ->searchable()
+                                    // Leader and members are scoped to whatever company is
+                                    // selected here, so the two must re-resolve when it
+                                    // changes, and any choice made against the previous
+                                    // company has to be dropped rather than silently kept
+                                    // (#138 PR4 A4G review 4834206687).
+                                    ->live()
+                                    ->afterStateUpdated(function (Set $set): void {
+                                        $set('user_id', null);
+                                        $set('sales_team_members', []);
+                                    }),
                                 TextInput::make('invoiced_target')
                                     ->numeric()
                                     ->default(0)
@@ -127,7 +152,7 @@ class TeamResource extends Resource
                                     ->label(__('sales::filament/clusters/configurations/resources/team.form.sections.fields.fieldset.team-details.fields.color'))
                                     ->hexColor(),
                                 Select::make('sales_team_members')
-                                    ->relationship('members', 'name', modifyQueryUsing: fn (Builder $query) => static::scopeUsersToAllowedCompanies($query))
+                                    ->relationship('members', 'name', modifyQueryUsing: fn (Builder $query, Get $get) => static::scopeUsersToCompany($query, $get('company_id')))
                                     ->multiple()
                                     ->searchable()
                                     ->preload()

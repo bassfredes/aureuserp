@@ -18,6 +18,8 @@ use Webkul\Sale\Models\TeamMember;
  *    only fail on the offending attach, leaving the team stripped of
  *    members it should still have. This was accepted as a documented
  *    residual risk in A4F; here it is closed.
+ *  - toggle() has exactly the same detach-then-attach shape (#138 PR4
+ *    A4G review 4834206687, finding 2).
  *  - A partial attach() has the same problem in the other direction: the
  *    allowed ids of a mixed list get inserted before the rejected one
  *    aborts the call.
@@ -42,9 +44,12 @@ class TeamMembership extends BelongsToMany
         return array_keys($this->formatRecordsList($this->parseIds($ids)));
     }
 
-    private function assertEveryMembershipIsAllowed(mixed $ids): void
+    /**
+     * @param  list<int|string>  $ids
+     */
+    private function assertMembershipsAreAllowed(array $ids): void
     {
-        foreach ($this->extractRelatedIds($ids) as $id) {
+        foreach ($ids as $id) {
             TeamMember::assertMembershipIsAllowed(
                 $this->parent->getKey() === null ? null : (int) $this->parent->getKey(),
                 $id === null ? null : (int) $id,
@@ -55,7 +60,7 @@ class TeamMembership extends BelongsToMany
     /** {@inheritDoc} */
     public function attach($id, array $attributes = [], $touch = true)
     {
-        $this->assertEveryMembershipIsAllowed($id);
+        $this->assertMembershipsAreAllowed($this->extractRelatedIds($id));
 
         return $this->parent->getConnection()->transaction(
             fn () => parent::attach($id, $attributes, $touch)
@@ -65,10 +70,42 @@ class TeamMembership extends BelongsToMany
     /** {@inheritDoc} */
     public function sync($ids, $detaching = true)
     {
-        $this->assertEveryMembershipIsAllowed($ids);
+        $this->assertMembershipsAreAllowed($this->extractRelatedIds($ids));
 
         return $this->parent->getConnection()->transaction(
             fn () => parent::sync($ids, $detaching)
+        );
+    }
+
+    /**
+     * toggle() has the same shape as sync(): it detaches the given ids
+     * that are already attached, then attaches the rest, with nothing
+     * wrapping the pair (#138 PR4 A4G review 4834206687, finding 2).
+     *
+     * Only the ids that will actually be ATTACHED are pre-validated. The
+     * ones being detached are deliberately not: a historic membership
+     * whose user has since lost membership in the company must stay
+     * removable, and requiring it to still be valid would strand exactly
+     * the rows most in need of cleanup.
+     *
+     * The detach set is computed the same way the parent does, so the two
+     * cannot drift apart.
+     *
+     * {@inheritDoc}
+     */
+    public function toggle($ids, $touch = true)
+    {
+        $records = $this->formatRecordsList($this->parseIds($ids));
+
+        $detaching = array_values(array_intersect(
+            $this->newPivotQuery()->pluck($this->relatedPivotKey)->all(),
+            array_keys($records),
+        ));
+
+        $this->assertMembershipsAreAllowed(array_keys(array_diff_key($records, array_flip($detaching))));
+
+        return $this->parent->getConnection()->transaction(
+            fn () => parent::toggle($ids, $touch)
         );
     }
 

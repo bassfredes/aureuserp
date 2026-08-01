@@ -273,10 +273,16 @@ class Order extends Model
      *
      * Resolved with CompanyScope bypassed and trashed rows included on
      * purpose: a Team the actor cannot see, or one that was soft-deleted,
-     * must still be caught as a mismatch rather than slip through as
-     * "not found, so nothing to compare". A team_id resolving to nothing
-     * at all is likewise a hard failure, not a no-op — otherwise pointing
-     * at a nonexistent id would itself be the way around this check.
+     * must still be caught rather than slip through as "not found, so
+     * nothing to compare". A team_id resolving to nothing at all is
+     * likewise a hard failure, not a no-op — otherwise pointing at a
+     * nonexistent id would itself be the way around this check.
+     *
+     * A trashed Team is rejected on its own terms, before the company
+     * comparison, because a deleted team of the SAME company would
+     * otherwise pass: withTrashed() was added to catch the foreign one,
+     * but it also resurrected the same-company one as assignable (#138
+     * PR4 A4G review 4834206687, finding 1).
      */
     private static function assertTeamBelongsToCompany(?int $teamId, ?int $companyId): void
     {
@@ -290,6 +296,10 @@ class Order extends Model
             throw new AuthorizationException('The related Team could not be found.');
         }
 
+        if ($team->trashed()) {
+            throw new AuthorizationException('The related Team has been deleted.');
+        }
+
         if ($companyId === null || $team->company_id === null || (int) $team->company_id !== (int) $companyId) {
             throw new AuthorizationException('The related Team belongs to a different company.');
         }
@@ -299,6 +309,25 @@ class Order extends Model
     {
         parent::boot();
 
+        // Registered FIRST, and on `saving` rather than `updating`, so it
+        // runs before the listener further down propagates this order's
+        // state to its lines: `updating` fires inside performUpdate(),
+        // after every `saving` listener has already had its side effects
+        // (#138 PR4 A4G review 4834206687, finding 3 — an invalid update
+        // that also changed `state` mutated the lines before being
+        // rejected).
+        //
+        // Only for updates: on create, `saving` fires BEFORE `creating`,
+        // so company_id has not been resolved yet. Both sides of the pair
+        // are watched, since either can move — retargeting team_id, or
+        // moving the order itself to another company while keeping the
+        // team it already had.
+        static::saving(function ($order) {
+            if ($order->exists && $order->isDirty(['team_id', 'company_id'])) {
+                static::assertTeamBelongsToCompany($order->team_id, $order->company_id);
+            }
+        });
+
         static::creating(function ($order) {
             $order->handleOrderCreation();
 
@@ -306,21 +335,9 @@ class Order extends Model
         });
 
         // Registered after the listener above so company_id has already
-        // been resolved by handleOrderCreation() by the time this runs,
-        // and hooked to `creating` rather than `saving` because Eloquent
-        // fires `saving` BEFORE `creating`, when a new order's company_id
-        // may still be null.
+        // been resolved by handleOrderCreation() by the time this runs.
         static::creating(function ($order) {
             static::assertTeamBelongsToCompany($order->team_id, $order->company_id);
-        });
-
-        // On update either side of the pair can move, so both are watched:
-        // retargeting team_id, and moving the order itself to another
-        // company while keeping the team it already had.
-        static::updating(function ($order) {
-            if ($order->isDirty(['team_id', 'company_id'])) {
-                static::assertTeamBelongsToCompany($order->team_id, $order->company_id);
-            }
         });
 
         static::saving(function ($order) {

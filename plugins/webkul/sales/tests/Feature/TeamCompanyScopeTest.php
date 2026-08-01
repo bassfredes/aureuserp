@@ -2,7 +2,9 @@
 
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
+use Webkul\Sale\Enums\OrderState;
 use Webkul\Sale\Models\Order;
+use Webkul\Sale\Models\OrderLine;
 use Webkul\Sale\Models\Team;
 use Webkul\Sale\Models\TeamMember;
 use Webkul\Security\Models\User;
@@ -194,7 +196,7 @@ it('forbids assigning a Team leader who has no membership in the team\'s company
 
 // ── Team: lifecycle ─────────────────────────────────────────────────────────
 
-it('forbids soft deleting, restoring and force deleting a Team from another company', function () {
+it('forbids soft deleting and force deleting a Team from another company', function () {
     $companyA = Company::factory()->create();
     $companyB = Company::factory()->create();
 
@@ -208,6 +210,25 @@ it('forbids soft deleting, restoring and force deleting a Team from another comp
     expect(fn () => $loaded->forceDelete())->toThrow(AuthorizationException::class);
 
     $this->assertDatabaseHas('sales_teams', ['id' => $teamB->id, 'deleted_at' => null]);
+});
+
+it('forbids restoring an already trashed Team from another company, leaving deleted_at set', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $teamB = teamFor($companyB);
+
+    CompanyContext::runForCompany($companyB->id, reason: 'test fixture setup', caller: __FILE__, callback: fn () => $teamB->delete());
+
+    test()->actingAs(memberOf($companyA));
+
+    $trashed = Team::withoutGlobalScope(CompanyScope::class)->withTrashed()->findOrFail($teamB->id);
+
+    expect($trashed->trashed())->toBeTrue();
+
+    expect(fn () => $trashed->restore())->toThrow(AuthorizationException::class);
+
+    expect(Team::withoutGlobalScope(CompanyScope::class)->withTrashed()->findOrFail($teamB->id)->deleted_at)->not->toBeNull();
 });
 
 // ── TeamMember: attach / detach ─────────────────────────────────────────────
@@ -371,6 +392,48 @@ it('rejects a mixed attach() without writing the valid users of the same call', 
     $this->assertDatabaseCount('sales_team_members', 0);
 });
 
+it('rejects a mixed toggle() without detaching the existing membership', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $current = memberOf($companyA);
+    $outsider = memberOf($companyB);
+    test()->actingAs(memberOf($companyA));
+
+    $team = Team::factory()->create(['company_id' => $companyA->id]);
+    $team->members()->attach($current->id);
+
+    // toggle() detaches the ids already attached and attaches the rest,
+    // with nothing wrapping the pair: without pre-validation $current
+    // would be detached before the call failed on $outsider.
+    expect(fn () => $team->members()->toggle([$current->id, $outsider->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('sales_team_members', ['team_id' => $team->id, 'user_id' => $current->id]);
+    $this->assertDatabaseMissing('sales_team_members', ['user_id' => $outsider->id]);
+    $this->assertDatabaseCount('sales_team_members', 1);
+});
+
+it('still allows toggle() to detach a historic membership whose user has lost membership in the company', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $leaver = memberOf($companyA);
+    test()->actingAs(memberOf($companyA));
+
+    $team = Team::factory()->create(['company_id' => $companyA->id]);
+    $team->members()->attach($leaver->id);
+
+    // The user moves to another company: their membership row is now
+    // exactly the kind that most needs cleaning up, so removal must not
+    // be gated on them still being valid.
+    User::withoutEvents(fn () => $leaver->update(['default_company_id' => $companyB->id]));
+
+    $team->members()->toggle([$leaver->id]);
+
+    $this->assertDatabaseCount('sales_team_members', 0);
+});
+
 it('forbids updateExistingPivot() from smuggling a retarget through an already-persisted TeamMember', function () {
     $companyA = Company::factory()->create();
 
@@ -440,6 +503,64 @@ it('forbids retargeting an Order to a Team of another company, leaving the origi
         ->toThrow(AuthorizationException::class);
 
     $this->assertDatabaseHas('sales_orders', ['id' => $order->id, 'team_id' => $teamA->id]);
+});
+
+it('forbids referencing a soft deleted Team even when it belongs to the order\'s own company', function () {
+    $companyA = Company::factory()->create();
+
+    test()->actingAs(memberOf($companyA));
+
+    $team = Team::factory()->create(['company_id' => $companyA->id]);
+    $team->delete();
+
+    // withTrashed() was added so a foreign trashed Team could not slip
+    // through as "not found"; on its own it also made a same-company
+    // trashed Team assignable again (#138 PR4 A4G review 4834206687).
+    expect(fn () => Order::factory()->create(['company_id' => $companyA->id, 'team_id' => $team->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseMissing('sales_orders', ['team_id' => $team->id]);
+});
+
+it('leaves the Order and every one of its lines untouched when a team retarget is rejected', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $teamB = teamFor($companyB);
+
+    test()->actingAs(memberOf($companyA));
+
+    $teamA = Team::factory()->create(['company_id' => $companyA->id]);
+    $order = Order::factory()->create([
+        'company_id' => $companyA->id,
+        'team_id'    => $teamA->id,
+        'state'      => OrderState::DRAFT,
+    ]);
+
+    $lines = OrderLine::factory()->count(2)->create([
+        'order_id' => $order->id,
+        'state'    => OrderState::DRAFT,
+    ]);
+
+    // The rejected update also moves `state`, which the pre-existing
+    // `saving` listener propagates to every line. The guard has to run
+    // before that side effect, not in `updating` after it.
+    expect(fn () => $order->update(['team_id' => $teamB->id, 'state' => OrderState::SALE]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('sales_orders', [
+        'id'         => $order->id,
+        'team_id'    => $teamA->id,
+        'company_id' => $companyA->id,
+        'state'      => OrderState::DRAFT->value,
+    ]);
+
+    foreach ($lines as $line) {
+        $this->assertDatabaseHas('sales_order_lines', [
+            'id'    => $line->id,
+            'state' => OrderState::DRAFT->value,
+        ]);
+    }
 });
 
 it('catches a cross-company Team that was soft deleted, instead of letting it pass as not found', function () {
