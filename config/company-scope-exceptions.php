@@ -65,6 +65,7 @@ use Webkul\Recruitment\Models\RefuseReason;
 use Webkul\Recruitment\Models\StageJob;
 use Webkul\Sale\Models\AdvancedPaymentInvoiceOrderSale;
 use Webkul\Sale\Models\OrderLine;
+use Webkul\Sale\Models\OrderTemplateProduct;
 use Webkul\Sale\Models\TeamMember;
 use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\Role;
@@ -1124,5 +1125,11 @@ return [
         'classification' => 'parent_scoped',
         'reason'         => 'Deliberately has no company_id column of its own — isolation is derived from the Team side of the pivot (own company_id, HasStrictCompanyId-enforced), and the referenced User is validated by company membership (default_company_id plus the allowedCompanies() pivot) since a User has no single company_id to compare against. Pivot (not a plain Model), wired via Team::members()->using(), so attach()/detach()/updateExistingPivot() run through its own save()/delete() and ParentDerivedCompanyScope. Writes validated by resolveEffectiveCompanyIdOrFail() against the persisted Team on create/delete, retargeting of either key rejected on update, and the bulk entry points (attach/sync) validate the whole set before mutating, inside a transaction, via the TeamMembership relation.',
         'tracking'       => '#138 PR4 A4G',
+    ],
+    OrderTemplateProduct::class => [
+        'table'          => 'sales_order_template_products',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Real, cited enforcement, same shape as the OrderLine entry above: the company_id column exists but the authoritative company is the owning OrderTemplate\'s (own company_id, HasStrictCompanyId-enforced), resolved by resolveEffectiveCompanyIdOrFail() on create, on any relevant update and on delete, with the ALREADY-persisted parent re-authorized first so a row cannot be moved out of an unauthorized company into an authorized one. Read isolation comes from ParentDerivedCompanyScope(\'orderTemplate\'). product_id is validated both ways by assertRelatedBelongsToCompany() and is mandatory for real lines, while sections and notes carry no product or UOM at all; the previous Company::first()/Product::first()/UOM::first() defaults are gone.',
+        'tracking'       => '#138 PR4 A4H',
     ],
 ];

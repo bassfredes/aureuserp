@@ -305,6 +305,30 @@ class Order extends Model
         }
     }
 
+    /**
+     * Same contract as the Team one above, for the other unscoped FK a
+     * scoped Order carried (#138 PR4 A4H). Two deliberate differences:
+     * OrderTemplate does not use SoftDeletes, so there is no withTrashed()
+     * and no trashed() rejection to mirror here — do not copy those over
+     * from assertTeamBelongsToCompany() by reflex.
+     */
+    private static function assertOrderTemplateBelongsToCompany(?int $templateId, ?int $companyId): void
+    {
+        if ($templateId === null) {
+            return;
+        }
+
+        $template = OrderTemplate::withoutGlobalScope(CompanyScope::class)->find($templateId);
+
+        if (! $template) {
+            throw new AuthorizationException('The related Order Template could not be found.');
+        }
+
+        if ($companyId === null || $template->company_id === null || (int) $template->company_id !== (int) $companyId) {
+            throw new AuthorizationException('The related Order Template belongs to a different company.');
+        }
+    }
+
     protected static function boot()
     {
         parent::boot();
@@ -323,8 +347,16 @@ class Order extends Model
         // moving the order itself to another company while keeping the
         // team it already had.
         static::saving(function ($order) {
-            if ($order->exists && $order->isDirty(['team_id', 'company_id'])) {
+            if (! $order->exists) {
+                return;
+            }
+
+            if ($order->isDirty(['team_id', 'company_id'])) {
                 static::assertTeamBelongsToCompany($order->team_id, $order->company_id);
+            }
+
+            if ($order->isDirty(['sale_order_template_id', 'company_id'])) {
+                static::assertOrderTemplateBelongsToCompany($order->sale_order_template_id, $order->company_id);
             }
         });
 
@@ -338,6 +370,8 @@ class Order extends Model
         // been resolved by handleOrderCreation() by the time this runs.
         static::creating(function ($order) {
             static::assertTeamBelongsToCompany($order->team_id, $order->company_id);
+
+            static::assertOrderTemplateBelongsToCompany($order->sale_order_template_id, $order->company_id);
         });
 
         static::saving(function ($order) {
