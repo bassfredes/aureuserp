@@ -2,6 +2,7 @@
 
 namespace Webkul\Sale\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -22,15 +23,16 @@ use Webkul\Inventory\Models\ProcurementGroup;
 use Webkul\Inventory\Models\Warehouse;
 use Webkul\PluginManager\Package;
 use Webkul\Sale\Database\Factories\OrderFactory;
-use Webkul\Sale\Filament\Clusters\Orders\Resources\OrderResource;
-use Webkul\Sale\Filament\Clusters\Orders\Resources\QuotationResource;
 use Webkul\Sale\Enums\InvoiceStatus;
 use Webkul\Sale\Enums\OrderDeliveryStatus;
 use Webkul\Sale\Enums\OrderState;
+use Webkul\Sale\Filament\Clusters\Orders\Resources\OrderResource;
+use Webkul\Sale\Filament\Clusters\Orders\Resources\QuotationResource;
 use Webkul\Security\Models\User;
 use Webkul\Security\Traits\HasPermissionScope;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Models\UtmCampaign;
 use Webkul\Support\Models\UTMMedium;
 use Webkul\Support\Models\UTMSource;
@@ -262,6 +264,37 @@ class Order extends Model
         }
     }
 
+    /**
+     * Order is company-scoped but sales_teams was not, so nothing ever
+     * checked that the referenced Team belonged to the order's own
+     * company. Scoping Team (#138 A4G) hides a foreign row from later
+     * reads, but on its own would not stop the cross-company relation
+     * from being persisted in the first place.
+     *
+     * Resolved with CompanyScope bypassed and trashed rows included on
+     * purpose: a Team the actor cannot see, or one that was soft-deleted,
+     * must still be caught as a mismatch rather than slip through as
+     * "not found, so nothing to compare". A team_id resolving to nothing
+     * at all is likewise a hard failure, not a no-op — otherwise pointing
+     * at a nonexistent id would itself be the way around this check.
+     */
+    private static function assertTeamBelongsToCompany(?int $teamId, ?int $companyId): void
+    {
+        if ($teamId === null) {
+            return;
+        }
+
+        $team = Team::withoutGlobalScope(CompanyScope::class)->withTrashed()->find($teamId);
+
+        if (! $team) {
+            throw new AuthorizationException('The related Team could not be found.');
+        }
+
+        if ($companyId === null || $team->company_id === null || (int) $team->company_id !== (int) $companyId) {
+            throw new AuthorizationException('The related Team belongs to a different company.');
+        }
+    }
+
     protected static function boot()
     {
         parent::boot();
@@ -270,6 +303,24 @@ class Order extends Model
             $order->handleOrderCreation();
 
             $order->computeWarehouseId();
+        });
+
+        // Registered after the listener above so company_id has already
+        // been resolved by handleOrderCreation() by the time this runs,
+        // and hooked to `creating` rather than `saving` because Eloquent
+        // fires `saving` BEFORE `creating`, when a new order's company_id
+        // may still be null.
+        static::creating(function ($order) {
+            static::assertTeamBelongsToCompany($order->team_id, $order->company_id);
+        });
+
+        // On update either side of the pair can move, so both are watched:
+        // retargeting team_id, and moving the order itself to another
+        // company while keeping the team it already had.
+        static::updating(function ($order) {
+            if ($order->isDirty(['team_id', 'company_id'])) {
+                static::assertTeamBelongsToCompany($order->team_id, $order->company_id);
+            }
         });
 
         static::saving(function ($order) {

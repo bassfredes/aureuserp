@@ -5,6 +5,7 @@ namespace Webkul\Sale\Models\Scopes;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Scope;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Auth;
 use LogicException;
 use Webkul\Support\Enums\CompanyContextMode;
@@ -22,13 +23,31 @@ use Webkul\Support\Services\CompanyContext;
  * precedent (see e.g. GuardsCompanyLifecycleOnSoftDelete in both
  * recruitments and employees).
  *
- * No withTrashed() on the parent relation here, unlike the recruitments
- * original: AdvancedPaymentInvoice does not use SoftDeletes, so the
- * parent relation query has no such scope to call.
+ * withTrashed() is applied to the parent relation only when the parent
+ * really uses SoftDeletes. The recruitments original applies it
+ * unconditionally because every parent there is soft-deletable; the two
+ * parents here differ. AdvancedPaymentInvoice (#138 A4F) is not
+ * soft-deletable, and calling withTrashed() on its relation query would
+ * throw. Team (#138 A4G) is, and omitting it would make every membership
+ * of a soft-deleted Team invisible to everyone regardless of company,
+ * instead of keeping the trashed parent's own company_id governing its
+ * children's visibility.
  */
 class ParentDerivedCompanyScope implements Scope
 {
     public function __construct(private readonly string $relation) {}
+
+    /**
+     * Reads the parent model off the relation's own query builder rather
+     * than taking it as a constructor argument, so the soft-delete
+     * decision cannot drift out of sync with the relation name.
+     */
+    private function withParentTrashed(Builder $query): Builder
+    {
+        return in_array(SoftDeletes::class, class_uses_recursive($query->getModel()), true)
+            ? $query->withTrashed()
+            : $query;
+    }
 
     public function apply(Builder $builder, Model $model): void
     {
@@ -47,7 +66,7 @@ class ParentDerivedCompanyScope implements Scope
                 return;
             }
 
-            $builder->whereHas($this->relation, fn ($query) => $query->whereIn('company_id', $companyIds));
+            $builder->whereHas($this->relation, fn ($query) => $this->withParentTrashed($query)->whereIn('company_id', $companyIds));
 
             return;
         }
@@ -55,7 +74,7 @@ class ParentDerivedCompanyScope implements Scope
         $context = CompanyContext::current();
 
         if ($context?->mode === CompanyContextMode::COMPANY) {
-            $builder->whereHas($this->relation, fn ($query) => $query->where('company_id', $context->companyId));
+            $builder->whereHas($this->relation, fn ($query) => $this->withParentTrashed($query)->where('company_id', $context->companyId));
 
             return;
         }

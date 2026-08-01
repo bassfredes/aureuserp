@@ -65,6 +65,7 @@ use Webkul\Recruitment\Models\RefuseReason;
 use Webkul\Recruitment\Models\StageJob;
 use Webkul\Sale\Models\AdvancedPaymentInvoiceOrderSale;
 use Webkul\Sale\Models\OrderLine;
+use Webkul\Sale\Models\TeamMember;
 use Webkul\Security\Models\Permission;
 use Webkul\Security\Models\Role;
 use Webkul\Security\Models\Team;
@@ -1117,5 +1118,11 @@ return [
         'classification' => 'parent_scoped',
         'reason'         => 'Deliberately has no company_id column of its own — isolation is derived from the AdvancedPaymentInvoice side of the pivot (own company_id, HasStrictCompanyId-enforced), cross-checked against the referenced Order\'s own company_id. Pivot (not a plain Model), wired via AdvancedPaymentInvoice::orders()->using(), so attach()/detach()/sync()/updateExistingPivot() run through its own save()/delete() and ParentDerivedCompanyScope. Writes validated by resolveEffectiveCompanyIdOrFail() against the persisted AdvancedPaymentInvoice on create/delete, and assertRelatedBelongsToCompany() against the referenced Order.',
         'tracking'       => '#138 A4F',
+    ],
+    TeamMember::class => [
+        'table'          => 'sales_team_members',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column of its own — isolation is derived from the Team side of the pivot (own company_id, HasStrictCompanyId-enforced), and the referenced User is validated by company membership (default_company_id plus the allowedCompanies() pivot) since a User has no single company_id to compare against. Pivot (not a plain Model), wired via Team::members()->using(), so attach()/detach()/updateExistingPivot() run through its own save()/delete() and ParentDerivedCompanyScope. Writes validated by resolveEffectiveCompanyIdOrFail() against the persisted Team on create/delete, retargeting of either key rejected on update, and the bulk entry points (attach/sync) validate the whole set before mutating, inside a transaction, via the TeamMembership relation.',
+        'tracking'       => '#138 PR4 A4G',
     ],
 ];

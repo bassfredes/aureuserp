@@ -35,12 +35,15 @@ use Filament\Tables\Filters\QueryBuilder\Constraints\RelationshipConstraint\Oper
 use Filament\Tables\Filters\QueryBuilder\Constraints\TextConstraint;
 use Filament\Tables\Grouping\Group;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Auth;
 use Webkul\Sale\Filament\Clusters\Configuration;
 use Webkul\Sale\Filament\Clusters\Configuration\Resources\TeamResource\Pages\CreateTeam;
 use Webkul\Sale\Filament\Clusters\Configuration\Resources\TeamResource\Pages\EditTeam;
 use Webkul\Sale\Filament\Clusters\Configuration\Resources\TeamResource\Pages\ListTeams;
 use Webkul\Sale\Filament\Clusters\Configuration\Resources\TeamResource\Pages\ViewTeam;
 use Webkul\Sale\Models\Team;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 class TeamResource extends Resource
 {
@@ -64,6 +67,27 @@ class TeamResource extends Resource
         return __('sales::filament/clusters/configurations/resources/team.navigation.title');
     }
 
+    /**
+     * A User has no company_id of its own, so "belongs to one of my
+     * companies" means the membership contract CompanyScope itself reads:
+     * default_company_id plus the allowedCompanies() pivot (#138 PR4
+     * A4G). Narrowing the option list is defence in depth, not the
+     * enforcement — Team's own guards reject a foreign leader or member
+     * regardless of how the id arrived.
+     */
+    protected static function scopeUsersToAllowedCompanies(Builder $query): Builder
+    {
+        $companyIds = CompanyScope::allowedCompanyIds(Auth::user());
+
+        if ($companyIds->isEmpty()) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where(fn (Builder $query) => $query
+            ->whereIn('default_company_id', $companyIds)
+            ->orWhereHas('allowedCompanies', fn (Builder $companies) => $companies->whereIn('companies.id', $companyIds)));
+    }
+
     public static function form(Schema $schema): Schema
     {
         return $schema
@@ -82,12 +106,12 @@ class TeamResource extends Resource
                         Fieldset::make(__('sales::filament/clusters/configurations/resources/team.form.sections.fields.fieldset.team-details.title'))
                             ->schema([
                                 Select::make('user_id')
-                                    ->relationship('user', 'name')
+                                    ->relationship('user', 'name', modifyQueryUsing: fn (Builder $query) => static::scopeUsersToAllowedCompanies($query))
                                     ->preload()
                                     ->label(__('sales::filament/clusters/configurations/resources/team.form.sections.fields.fieldset.team-details.fields.team-leader'))
                                     ->searchable(),
                                 Select::make('company_id')
-                                    ->relationship('company', 'name')
+                                    ->relationship('company', 'name', modifyQueryUsing: fn (Builder $query) => $query->whereIn('id', CompanyScope::allowedCompanyIds(Auth::user())))
                                     ->preload()
                                     ->label(__('sales::filament/clusters/configurations/resources/team.form.sections.fields.fieldset.team-details.fields.company'))
                                     ->searchable(),
@@ -103,7 +127,7 @@ class TeamResource extends Resource
                                     ->label(__('sales::filament/clusters/configurations/resources/team.form.sections.fields.fieldset.team-details.fields.color'))
                                     ->hexColor(),
                                 Select::make('sales_team_members')
-                                    ->relationship('members', 'name')
+                                    ->relationship('members', 'name', modifyQueryUsing: fn (Builder $query) => static::scopeUsersToAllowedCompanies($query))
                                     ->multiple()
                                     ->searchable()
                                     ->preload()

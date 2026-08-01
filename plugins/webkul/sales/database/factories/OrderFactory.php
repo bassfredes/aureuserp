@@ -192,8 +192,17 @@ class OrderFactory extends Factory
      */
     public function withTeam(): static
     {
-        return $this->state(fn (array $attributes) => [
-            'team_id' => Team::factory(),
+        // Correlated to the order's own company (#138 PR4 A4G): a bare
+        // Team::factory() resolves its company from the acting user, so
+        // against an order created for an explicit company it produced a
+        // cross-company pair, which Order now rejects outright.
+        // company_id is declared before team_id in definition(), and
+        // Factory::expandAttributes() resolves in array order, so it is
+        // already a resolved id by the time this closure runs.
+        return $this->state(fn () => [
+            'team_id' => fn (array $attributes) => Team::factory()->create([
+                'company_id' => $attributes['company_id'] ?? null,
+            ])->id,
         ]);
     }
 
