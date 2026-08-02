@@ -82,22 +82,47 @@ class OrderTemplateProduct extends Model
     }
 
     /**
-     * A section or a note is a layout row: it has a name and a position
-     * and describes no product at all, so neither a product nor a unit of
-     * measure may be invented for it. NULL is the only other recognized
-     * value, meaning a real template line. Anything else — an unsupported
-     * or invented display_type — is deliberately NOT treated as a third,
-     * unvalidated kind of layout row: it falls through to the "real line"
-     * branch below and is held to the same product requirement, closing
-     * off display_type as a way to smuggle a cross-company product past
-     * this guard (#138 A4H correction).
+     * display_type is a closed set. NULL means a real template line; the
+     * two OrderDisplayType cases mean a layout row — a row that has a name
+     * and a position and describes no product at all, so neither a product
+     * nor a unit of measure may be invented for it. There is no third kind
+     * of row, and this returns the canonical string form of a recognized
+     * value so the caller can branch on it.
+     *
+     * The first version of this guard asked only "is it a section or a
+     * note?" and treated every other value, invented ones included, as a
+     * real line. That was fail-open in the one direction that mattered: an
+     * unknown display_type paired with a valid, active, same-company
+     * product satisfied every remaining check and was persisted, so a
+     * caller could write rows whose layout semantics nothing in this
+     * codebase can read back — OrderTemplate::lines(), sections() and
+     * notes() match on NULL, 'section' and 'note' respectively and would
+     * all silently skip such a row. The test is now positive: the value
+     * must be one of the three recognized ones, and an unrecognized one is
+     * itself the rejection (#138 A4H correction).
      */
-    private function describesAProduct(): bool
+    private static function assertSupportedDisplayType(self $line): ?string
     {
-        return ! in_array($this->display_type, [
+        $displayType = $line->display_type;
+
+        if ($displayType instanceof OrderDisplayType) {
+            return $displayType->value;
+        }
+
+        if ($displayType === null) {
+            return null;
+        }
+
+        $supported = [
             OrderDisplayType::SECTION->value,
             OrderDisplayType::NOTE->value,
-        ], true);
+        ];
+
+        if (! is_string($displayType) || ! in_array($displayType, $supported, true)) {
+            throw new AuthorizationException('The display_type of an OrderTemplateProduct line is not supported.');
+        }
+
+        return $displayType;
     }
 
     /**
@@ -125,14 +150,21 @@ class OrderTemplateProduct extends Model
      * is checked explicitly rather than silently cleared, so a caller that
      * pairs a layout display_type with a leftover/injected product_id or
      * product_uom_id is rejected instead of quietly "fixed".
+     *
+     * display_type is validated first, before the row is classified as a
+     * real line or as layout and before company_id is touched at all: an
+     * unrecognized value has no branch to fall into, so nothing about the
+     * row — not even its resolved company — is decided on its behalf.
      */
     private static function assertCoherentWithTemplate(self $line): int
     {
+        $displayType = static::assertSupportedDisplayType($line);
+
         $companyId = static::resolveEffectiveCompanyIdOrFail($line->order_template_id, OrderTemplate::class, $line->company_id, 'Order Template');
 
         $line->company_id = $companyId;
 
-        if (! $line->describesAProduct()) {
+        if ($displayType !== null) {
             if ($line->product_id !== null || $line->product_uom_id !== null) {
                 throw new AuthorizationException('A section or a note line must not reference a product or a unit of measure.');
             }

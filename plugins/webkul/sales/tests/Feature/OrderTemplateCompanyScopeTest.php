@@ -426,7 +426,7 @@ it('forbids a section or a note that references a product of another company', f
     $this->assertDatabaseCount('sales_order_template_products', 0);
 });
 
-it('treats an unsupported display_type as a real line rather than an unvalidated layout row', function () {
+it('rejects an unsupported display_type outright instead of mapping it onto a known branch', function () {
     $companyA = Company::factory()->create();
     $companyB = Company::factory()->create();
 
@@ -435,10 +435,25 @@ it('treats an unsupported display_type as a real line rather than an unvalidated
     test()->actingAs($user);
 
     $template = OrderTemplate::factory()->create(['company_id' => $companyA->id]);
+    $productA = productFor($companyA);
     $productB = productFor($companyB);
 
-    // No product at all: an unsupported display_type must still demand a
-    // product, exactly like a real line does.
+    // The decisive case: an invented display_type carrying a product that
+    // is present, active and owned by the template's own company. Every
+    // other guard on this model is satisfied here, so unless display_type
+    // is itself validated the row is persisted — with layout semantics
+    // that OrderTemplate::lines()/sections()/notes() all skip.
+    expect(fn () => OrderTemplateProduct::create([
+        'order_template_id' => $template->id,
+        'display_type'      => 'bogus-invented-type',
+        'product_id'        => $productA->id,
+        'product_uom_id'    => $productA->uom_id,
+        'name'              => 'line',
+        'quantity'          => 1,
+    ]))->toThrow(AuthorizationException::class);
+
+    // No product at all: rejected for the display_type itself, not merely
+    // because a real line would have demanded a product.
     expect(fn () => OrderTemplateProduct::create([
         'order_template_id' => $template->id,
         'display_type'      => 'bogus-invented-type',
@@ -447,7 +462,7 @@ it('treats an unsupported display_type as a real line rather than an unvalidated
     ]))->toThrow(AuthorizationException::class);
 
     // A cross-company product smuggled behind the same unsupported value
-    // must be rejected too, not silently bypassed as "layout".
+    // stays rejected too, not silently bypassed as "layout".
     expect(fn () => OrderTemplateProduct::create([
         'order_template_id' => $template->id,
         'display_type'      => 'bogus-invented-type',
@@ -457,6 +472,60 @@ it('treats an unsupported display_type as a real line rather than an unvalidated
     ]))->toThrow(AuthorizationException::class);
 
     $this->assertDatabaseCount('sales_order_template_products', 0);
+});
+
+it('rejects moving an existing valid line to an unsupported display_type', function () {
+    $companyA = Company::factory()->create();
+
+    test()->actingAs(templateMemberOf($companyA));
+
+    $template = OrderTemplate::factory()->create(['company_id' => $companyA->id]);
+    $product = productFor($companyA);
+
+    $line = OrderTemplateProduct::create([
+        'order_template_id' => $template->id,
+        'product_id'        => $product->id,
+        'name'              => 'line',
+        'quantity'          => 1,
+    ]);
+
+    // Same decisive shape on the update path: the product stays valid,
+    // active and same-company, so only the unrecognized display_type can
+    // account for the rejection.
+    expect(fn () => $line->update(['display_type' => 'bogus-invented-type']))
+        ->toThrow(AuthorizationException::class);
+
+    // The rejection leaves the whole tuple this guard protects untouched.
+    $this->assertDatabaseHas('sales_order_template_products', [
+        'id'                => $line->id,
+        'display_type'      => null,
+        'product_id'        => $product->id,
+        'product_uom_id'    => $product->uom_id,
+        'company_id'        => $companyA->id,
+        'order_template_id' => $template->id,
+    ]);
+});
+
+it('rejects moving an existing section to an unsupported display_type', function () {
+    $companyA = Company::factory()->create();
+
+    test()->actingAs(templateMemberOf($companyA));
+
+    $template = OrderTemplate::factory()->create(['company_id' => $companyA->id]);
+
+    $section = OrderTemplateProduct::factory()->section()->create(['order_template_id' => $template->id]);
+
+    expect(fn () => $section->update(['display_type' => 'bogus-invented-type']))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('sales_order_template_products', [
+        'id'                => $section->id,
+        'display_type'      => OrderDisplayType::SECTION->value,
+        'product_id'        => null,
+        'product_uom_id'    => null,
+        'company_id'        => $companyA->id,
+        'order_template_id' => $template->id,
+    ]);
 });
 
 it('re-validates a real line when only product_uom_id changes on update', function () {
