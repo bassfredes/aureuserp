@@ -641,6 +641,7 @@ class WorkOrder extends Model implements Sortable
         if (! $this->calendar_leave_id) {
             $leave = CalendarLeave::create([
                 'name'          => $this->name,
+                'company_id'    => $this->workCenter->company_id,
                 'calendar_id'   => $this->workCenter->calendar_id,
                 'date_from'     => $dateStart,
                 'date_to'       => $dateStart->clone()->addMinutes((float) $this->expected_duration),
@@ -745,6 +746,7 @@ class WorkOrder extends Model implements Sortable
 
         $leave = CalendarLeave::create([
             'name'          => $this->name,
+            'company_id'    => $bestWorkCenter->company_id,
             'calendar_id'   => $bestWorkCenter->calendar_id,
             'date_from'     => $bestStartedDate,
             'date_to'       => $bestFinishedDate,

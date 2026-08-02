@@ -91,6 +91,39 @@ it('allows an Employee.calendar_id pointing at a Calendar in the same company', 
     expect($employee->calendar_id)->toBe($calendarA->id);
 });
 
+it('allows an Employee.calendar_id pointing at a shared Calendar (#138 A4I — the CalendarSeeder default)', function () {
+    $companyA = Company::factory()->create();
+
+    $shared = CompanyContext::runForAllCompanies(reason: 'fixture', caller: __FILE__, callback: fn () => Calendar::factory()->create(['company_id' => null]));
+
+    employeesActingUser($companyA);
+
+    $employee = Employee::factory()->create(['company_id' => $companyA->id, 'calendar_id' => $shared->id]);
+
+    expect($employee->calendar_id)->toBe($shared->id);
+});
+
+it('forbids an Employee.calendar_id pointing at a nonexistent Calendar', function () {
+    $companyA = Company::factory()->create();
+
+    employeesActingUser($companyA);
+
+    expect(fn () => Employee::factory()->create(['company_id' => $companyA->id, 'calendar_id' => 999999999]))
+        ->toThrow(AuthorizationException::class);
+});
+
+it('forbids newly assigning a soft-deleted Calendar to an Employee', function () {
+    $companyA = Company::factory()->create();
+
+    employeesActingUser($companyA);
+
+    $calendarA = Calendar::factory()->create(['company_id' => $companyA->id]);
+    $calendarA->delete();
+
+    expect(fn () => Employee::factory()->create(['company_id' => $companyA->id, 'calendar_id' => $calendarA->id]))
+        ->toThrow(AuthorizationException::class);
+});
+
 // ── parent_id/coach_id: self-relations, same company, no self-reference ──
 
 it('forbids an Employee.parent_id pointing at an Employee in a different company', function () {

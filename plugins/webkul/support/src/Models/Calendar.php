@@ -3,18 +3,38 @@
 namespace Webkul\Support\Models;
 
 use Carbon\Carbon;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Field\Traits\HasCustomFields;
 use Webkul\Security\Models\User;
 use Webkul\Support\Database\Factories\CalendarFactory;
+use Webkul\Support\Enums\CompanyContextMode;
+use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
+use Webkul\Support\Models\Scopes\CompanyScope;
+use Webkul\Support\Services\CompanyContext;
+use Webkul\Support\Traits\HasCompanyScope;
 
-class Calendar extends Model
+/**
+ * company_id IS NULL rows are system-managed shared references (the
+ * CalendarSeeder-installed "Standard 40 hours/week" default, referenced by
+ * every fresh install's WorkCenterResource) — same company_or_shared
+ * treatment as ActivityPlan/CurrencyRate (ADR 0007). The shared-row
+ * mutation guard follows CurrencyRate's stricter precedent rather than
+ * ActivityPlan's: a no-authenticated-user caller must be inside an
+ * explicit ALL_COMPANIES/BOOTSTRAP CompanyContext to mutate a shared row,
+ * not merely unauthenticated (#138 A4I, per orchestrator decision).
+ * resource_type/resource_id were removed from $fillable — those columns do
+ * not exist on the `calendars` table (only calendar_leaves and
+ * calendar_attendances got nullableMorphs).
+ */
+class Calendar extends Model implements IncludesSharedCompanyRows
 {
-    use HasCustomFields, HasFactory, SoftDeletes;
+    use HasCompanyScope, HasCustomFields, HasFactory, SoftDeletes;
 
     protected $table = 'calendars';
 
@@ -26,8 +46,6 @@ class Calendar extends Model
         'two_weeks_calendar',
         'flexible_hours',
         'full_time_required_hours',
-        'resource_type',
-        'resource_id',
         'creator_id',
         'company_id',
     ];
@@ -47,12 +65,103 @@ class Calendar extends Model
         return $this->hasMany(CalendarAttendance::class);
     }
 
+    public function calendarLeaves(): HasMany
+    {
+        return $this->hasMany(CalendarLeave::class);
+    }
+
+    /**
+     * Mirrors CurrencyRate::guardSharedRowMutation() rather than
+     * ActivityPlan's looser variant: a no-user caller must also be inside
+     * an explicit ALL_COMPANIES/BOOTSTRAP system context to mutate a
+     * shared row here — an absent context (no user, no CompanyContext at
+     * all) is rejected rather than treated as an unrestricted system
+     * process (#138 A4I, explicit orchestrator decision).
+     */
+    protected static function guardSharedRowMutation(bool $isNullCompany): void
+    {
+        if (! $isNullCompany) {
+            return;
+        }
+
+        if (static::actingUserIsSuperAdmin()) {
+            return;
+        }
+
+        if (! Auth::check()) {
+            $context = CompanyContext::current();
+
+            if ($context?->mode === CompanyContextMode::ALL_COMPANIES || $context?->mode === CompanyContextMode::BOOTSTRAP) {
+                return;
+            }
+        }
+
+        throw new AuthorizationException('Shared Calendar records (company_id is null) can only be created or modified by a super_admin or an explicit system process.');
+    }
+
     protected static function boot()
     {
         parent::boot();
 
-        static::creating(function ($calendar) {
-            $calendar->creator_id ??= Auth::id();
+        static::creating(function (self $calendar) {
+            $authUser = Auth::user();
+
+            $calendar->creator_id ??= $authUser?->id;
+            $calendar->company_id ??= $authUser?->default_company_id;
+
+            static::guardSharedRowMutation($calendar->company_id === null);
+
+            if ($calendar->company_id !== null) {
+                CompanyScope::assertCanWriteCompany((int) $calendar->company_id);
+            }
+        });
+
+        static::updating(function (self $calendar) {
+            $originalCompanyId = $calendar->getOriginal('company_id');
+
+            static::guardSharedRowMutation($originalCompanyId === null);
+
+            if ($calendar->isDirty('company_id')) {
+                throw new AuthorizationException('Changing the company of this Calendar is forbidden — archive it and create a new one instead.');
+            }
+
+            if ($originalCompanyId !== null) {
+                CompanyScope::assertCanWriteCompany((int) $originalCompanyId);
+            }
+        });
+
+        static::deleting(function (self $calendar) {
+            $companyId = $calendar->getOriginal('company_id');
+
+            static::guardSharedRowMutation($companyId === null);
+
+            if ($companyId !== null) {
+                CompanyScope::assertCanWriteCompany((int) $companyId);
+            }
+        });
+
+        static::forceDeleting(function (self $calendar) {
+            $companyId = $calendar->getOriginal('company_id');
+
+            static::guardSharedRowMutation($companyId === null);
+
+            if ($companyId !== null) {
+                CompanyScope::assertCanWriteCompany((int) $companyId);
+            }
+
+            // A force-delete triggers the calendar_leaves FK's ON DELETE
+            // SET NULL at the database level, which would silently produce
+            // a CalendarLeave with calendar_id = NULL — a state the
+            // strict_company CalendarLeave contract forbids creating
+            // through the application (#138 A4I). Blocking here keeps
+            // that invariant true regardless of delete path.
+            if ($calendar->calendarLeaves()->withoutGlobalScope(CompanyScope::class)->exists()) {
+                throw new AuthorizationException('Cannot permanently delete a Calendar that is still referenced by CalendarLeave records.');
+            }
+        });
+
+        static::restoring(function (self $calendar) {
+            static::guardSharedRowMutation($calendar->company_id === null);
         });
     }
 
@@ -385,7 +494,12 @@ class Calendar extends Model
 
         $allLeaves = CalendarLeave::query()
             ->where(fn ($q) => $this->applyFilters($q, $filters))
-            ->when(! $anyCalendar, fn ($q) => $q->where(fn ($q) => $q->whereNull('calendar_id')->orWhere('calendar_id', $this->id)))
+            // A leave never mixes calendars — calendar_id IS NULL is not a
+            // cross-calendar/cross-company wildcard, it is not a state
+            // CalendarLeave can persist at all under its strict_company
+            // contract (#138 A4I, closes the cross-company leak this
+            // wildcard produced).
+            ->when(! $anyCalendar, fn ($q) => $q->where('calendar_id', $this->id))
             ->where(function ($q) use ($resourcesByType) {
                 $q->whereNull('resource_id');
                 foreach ($resourcesByType as $type => $ids) {

@@ -75,6 +75,7 @@ use Webkul\Support\Models\ActivityPlanTemplate;
 use Webkul\Support\Models\ActivityType;
 use Webkul\Support\Models\ActivityTypeSuggestion;
 use Webkul\Support\Models\Bank;
+use Webkul\Support\Models\CalendarAttendance;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Country;
 use Webkul\Support\Models\Currency;
@@ -918,11 +919,27 @@ return [
     // global_reference — HR/recruitment lookup tables (standalone,
     // no FK to a currently-unscoped tenant-owned parent). Children and
     // pivots that DO hang off Employee/JobPosition/Department/Candidate/
-    // Applicant/Calendar/ActivityPlan/LeaveType/Team (all still
-    // unscoped) are deliberately left OUT of this manifest — they stay
+    // Applicant/ActivityPlan/LeaveType/Team (all still unscoped) are
+    // deliberately left OUT of this manifest — they stay
     // real_gap_without_company_column until their parent is scoped and
-    // the child actually validates against it.
+    // the child actually validates against it. Calendar itself is now
+    // HasCompanyScope (#138 A4I) — its own child, CalendarAttendance, has
+    // its own entries just below instead of staying in this bucket.
     // ---------------------------------------------------------------
+
+    CalendarAttendance::class => [
+        'table'          => 'calendar_attendances',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column of its own — isolation is derived from the Calendar side (own company_id, company_or_shared via IncludesSharedCompanyRows) via ParentDerivedCompanyOrSharedScope, a company_or_shared-aware variant of ParentDerivedCompanyScope kept local to this class rather than shared cross-plugin. Writes validated by re-resolving and re-authorizing the persisted Calendar on create/update/delete; a shared parent restricts mutation to super_admin or an explicit ALL_COMPANIES/BOOTSTRAP system context (CurrencyRate\'s stricter precedent, not ActivityPlan\'s). Retargeting calendar_id on an existing row is forbidden.',
+        'tracking'       => '#138 A4I',
+    ],
+    Webkul\Employee\Models\CalendarAttendance::class => [
+        'table'          => 'calendar_attendances',
+        'classification' => 'alias',
+        'alias_of'       => CalendarAttendance::class,
+        'reason'         => 'Plugin-scoped alias of Webkul\\Support\\Models\\CalendarAttendance.',
+        'tracking'       => '#138 A4I',
+    ],
 
     EmployeeCategory::class => [
         'table'          => 'employees_categories',

@@ -277,6 +277,41 @@ class Employee extends Model
         }
     }
 
+    /**
+     * Calendar is company_or_shared (#138 A4I), unlike Department/JobPosition
+     * /WorkLocation/self — assertRelatedBelongsToCompany() fails closed on a
+     * NULL company on either side, which would reject the seeded shared
+     * default calendar for every Employee. A shared (company_id IS NULL)
+     * Calendar is always assignable; a company-owned one must match. A
+     * soft-deleted Calendar is only rejected for a NEW assignment — an
+     * Employee already pointing at one (e.g. via WorkCenter::calendar()'s
+     * own withTrashed() precedent) keeps resolving it.
+     */
+    private static function assertCalendarIsAssignable(?int $calendarId, ?int $companyId, bool $isNewAssignment): void
+    {
+        if ($calendarId === null) {
+            return;
+        }
+
+        $calendar = Calendar::withoutGlobalScope(CompanyScope::class)->withTrashed()->find($calendarId);
+
+        if (! $calendar) {
+            throw new AuthorizationException('The related Calendar does not exist.');
+        }
+
+        if ($isNewAssignment && $calendar->trashed()) {
+            throw new AuthorizationException('The related Calendar has been deleted and cannot be newly assigned.');
+        }
+
+        if ($calendar->company_id === null) {
+            return;
+        }
+
+        if ($companyId === null || (int) $calendar->company_id !== (int) $companyId) {
+            throw new AuthorizationException('The related Calendar belongs to a different company.');
+        }
+    }
+
     protected static function boot()
     {
         parent::boot();
@@ -289,7 +324,7 @@ class Employee extends Model
             static::assertRelatedBelongsToCompany($employee->department_id, Department::class, 'Department', $employee->company_id);
             static::assertRelatedBelongsToCompany($employee->job_id, EmployeeJobPosition::class, 'Job Position', $employee->company_id);
             static::assertRelatedBelongsToCompany($employee->work_location_id, WorkLocation::class, 'Work Location', $employee->company_id);
-            static::assertRelatedBelongsToCompany($employee->calendar_id, Calendar::class, 'Calendar', $employee->company_id);
+            static::assertCalendarIsAssignable($employee->calendar_id, $employee->company_id, ! $employee->exists || $employee->isDirty('calendar_id'));
 
             if ($employee->exists && $employee->parent_id !== null && (int) $employee->parent_id === (int) $employee->id) {
                 throw new AuthorizationException('An Employee cannot be its own parent/manager.');

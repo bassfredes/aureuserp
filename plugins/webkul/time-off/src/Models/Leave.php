@@ -168,6 +168,37 @@ class Leave extends Model
         return $this->belongsTo(User::class, 'creator_id');
     }
 
+    /**
+     * Calendar is company_or_shared (#138 A4I) — a shared (company_id IS
+     * NULL) Calendar is always assignable; a company-owned one must match
+     * this Leave's own effective company. A soft-deleted Calendar is only
+     * rejected for a NEW assignment. Previously unvalidated entirely.
+     */
+    private static function assertCalendarIsAssignable(?int $calendarId, ?int $companyId, bool $isNewAssignment): void
+    {
+        if ($calendarId === null) {
+            return;
+        }
+
+        $calendar = Calendar::withoutGlobalScope(CompanyScope::class)->withTrashed()->find($calendarId);
+
+        if (! $calendar) {
+            throw new AuthorizationException('The related Calendar does not exist.');
+        }
+
+        if ($isNewAssignment && $calendar->trashed()) {
+            throw new AuthorizationException('The related Calendar has been deleted and cannot be newly assigned.');
+        }
+
+        if ($calendar->company_id === null) {
+            return;
+        }
+
+        if ($companyId === null || (int) $calendar->company_id !== (int) $companyId) {
+            throw new AuthorizationException('The related Calendar belongs to a different company.');
+        }
+    }
+
     protected static function boot()
     {
         parent::boot();
@@ -186,6 +217,7 @@ class Leave extends Model
             static::assertRelatedBelongsToCompany($leave->first_approver_id, Employee::class, 'first approver', $effectiveCompanyId);
             static::assertRelatedBelongsToCompany($leave->second_approver_id, Employee::class, 'second approver', $effectiveCompanyId);
             static::assertRelatedBelongsToCompany($leave->department_id, Department::class, 'Department', $effectiveCompanyId);
+            static::assertCalendarIsAssignable($leave->calendar_id, $effectiveCompanyId, ! $leave->exists || $leave->isDirty('calendar_id'));
 
             if (! $leave->exists) {
                 return;

@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\DB;
 use Webkul\Employee\Models\Department;
 use Webkul\Employee\Models\Employee;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\Calendar;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Services\CompanyContext;
@@ -108,6 +109,36 @@ it('forbids creating a Leave whose manager belongs to a different company than t
 
     expect(fn () => Leave::factory()->create(['employee_id' => $employeeA->id, 'manager_id' => $managerB->id]))
         ->toThrow(AuthorizationException::class);
+});
+
+it('forbids creating a Leave whose Calendar belongs to a different company than the Employee', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $calendarB = CompanyContext::runForAllCompanies(reason: 'fixture', caller: __FILE__, callback: fn () => Calendar::factory()->create(['company_id' => $companyB->id]));
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $employeeA = leaveEmployeeIn($companyA->id);
+
+    expect(fn () => Leave::factory()->create(['employee_id' => $employeeA->id, 'calendar_id' => $calendarB->id]))
+        ->toThrow(AuthorizationException::class);
+});
+
+it('allows creating a Leave whose Calendar is a shared Calendar (#138 A4I)', function () {
+    $companyA = Company::factory()->create();
+
+    $shared = CompanyContext::runForAllCompanies(reason: 'fixture', caller: __FILE__, callback: fn () => Calendar::factory()->create(['company_id' => null]));
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    $employeeA = leaveEmployeeIn($companyA->id);
+
+    $leave = Leave::factory()->create(['employee_id' => $employeeA->id, 'calendar_id' => $shared->id]);
+
+    expect($leave->calendar_id)->toBe($shared->id);
 });
 
 it('forbids creating a Leave whose department belongs to a different company than the Employee', function () {
