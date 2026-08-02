@@ -29,10 +29,10 @@
     ],
     "summary": {
         "total": 304,
-        "scoped": 136,
-        "classified_exceptions": 142,
-        "real_gaps_with_company_id": 15,
-        "real_gaps_without_company_id": 11,
+        "scoped": 139,
+        "classified_exceptions": 145,
+        "real_gaps_with_company_id": 11,
+        "real_gaps_without_company_id": 9,
         "table_missing": 0,
         "inspection_errors": 0,
         "manifest_violations": 0
@@ -2960,11 +2960,11 @@
             "file": "plugins/webkul/sales/src/Models/AdvancedPaymentInvoice.php",
             "table": "sales_advance_payment_invoices",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "sales",
@@ -2975,8 +2975,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "sales",
@@ -3068,11 +3068,11 @@
             "file": "plugins/webkul/sales/src/Models/OrderTemplate.php",
             "table": "sales_order_templates",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "sales",
@@ -3083,8 +3083,8 @@
             "uses_company_scope": false,
             "status": "missing_scope",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "sales",
@@ -3176,11 +3176,11 @@
             "file": "plugins/webkul/sales/src/Models/Team.php",
             "table": "sales_teams",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "sales",
@@ -3191,8 +3191,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "security",

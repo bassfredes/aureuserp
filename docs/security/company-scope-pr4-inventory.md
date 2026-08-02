@@ -657,6 +657,132 @@ Ninguno de estos está en los diez modelos autorizados; se evitaron con factorie
 
 ---
 
+## A4F: anticipos de venta (familia sales)
+
+Cierra 2 de los 26 gaps residuales: `Webkul\Sale\Models\AdvancedPaymentInvoice` y `Webkul\Sale\Models\AdvancedPaymentInvoiceOrderSale`.
+
+### Composición y contrato
+
+- `AdvancedPaymentInvoice`: owner estricto, `HasCompanyScope` + `HasStrictCompanyId`. Compañía propia, obligatoria, autorizada e inmutable.
+- `AdvancedPaymentInvoiceOrderSale`: pivote `parent_scoped`, derivado del anticipo, con clase `Pivot` propia y `->using()` en la relación `belongsToMany` (sin ese wiring `attach()`/`detach()` corren SQL crudo y evitan todo guard declarado).
+- `creator_id`: contrato consolidado en esta ola, luego reutilizado por A4G y A4H.
+
+### Correcciones de revisión aplicadas
+
+- Review 4827999112, `CHANGES_REQUIRED_A4F_CREATOR_WRITE_PATH`: `creator_id` era mutable después de crear y un creator inexistente se aceptaba en silencio. Corregido en `0c68eeee3` (inmutable tras crear, creator inexistente rechazado explícitamente).
+- Re-review 4830829763, `CHANGES_REQUIRED_A4F_CREATOR_NULL_TRANSITION`: la inmutabilidad no cubría filas con `creator_id` nulo por `nullOnDelete()`, que podían transitar hacia un usuario arbitrario. Corregido en `86612bace` (rechazo por `isDirty`, sin condicionar al valor original).
+
+### Estado final
+
+Implementada en `cb2647a5f`, corregida en `0c68eeee3` y `86612bace`, **aprobada** mediante re-review 4832889816 (`A4F_ADVANCE_PAYMENTS_APPROVED_LOCAL_GATE`). Sin dispatch de CI remoto: validación 100% local.
+
+### Inventario tras A4F
+
+`136/142/26` → `137 scoped / 143 classified exceptions / 24 gaps reales` (14 con `company_id`, 10 sin). Sin cambio tras ninguna de las dos correcciones de `creator_id`. `composer test`: 2108/2108, 5120 assertions. Suite `sales`: 98/98, 257 assertions. Tests focalizados: 27/27, 52 assertions.
+
+---
+
+## A4G: equipos de venta (familia sales)
+
+Cierra 2 de los 24 gaps residuales: `Webkul\Sale\Models\Team` y `Webkul\Sale\Models\TeamMember`, más el contrato `Order.team_id` exigido por la revisión 4830829763.
+
+### Composición y contrato
+
+- `Team`: owner estricto, `HasCompanyScope` + `HasStrictCompanyId`.
+- `TeamMember`: pivote `parent_scoped` derivado de `Team`, con clase `Pivot` propia y `->using()`.
+- `Order.team_id`: validado contra la compañía de la orden en el mismo listener de `saving`, registrado primero, antes de que se propague estado a las líneas. Incluido en esta unidad por la misma razón que `Order.sale_order_template_id` se incluyó en A4H.
+
+### Correcciones de revisión aplicadas
+
+Review 4834206687, `CHANGES_REQUIRED_A4G_ORDER_AND_BULK_GUARDS`: un `Team` soft-deleted de la propia compañía seguía siendo asignable, `toggle()` no tenía guard, el guard de `Order` corría después de propagar estado a las líneas, y el formulario filtraba por la unión de compañías del actor en vez de por la compañía efectiva. Corregido en `aef0a7313`.
+
+### Estado final
+
+Implementada en `7df4f4e60`, corregida en `aef0a7313`, **aprobada** mediante re-review 4834882601 (`A4G_SALES_TEAMS_APPROVED_LOCAL_GATE`). Sin dispatch de CI remoto.
+
+### Inventario tras A4G
+
+`137/143/24` → `138 scoped / 144 classified exceptions / 22 gaps reales` (13 con `company_id`, 9 sin). Sin cambio tras la corrección de rutas residuales, verificado con dos corridas byte-identical. `composer test`: 2141/2141, 5199 assertions. Suite `sales`: 131/131, 336 assertions. Tests focalizados: 33/33, 79 assertions.
+
+---
+
+## A4H: plantillas de pedido (familia sales)
+
+Cierra 2 de los 22 gaps residuales: `Webkul\Sale\Models\OrderTemplate` y `Webkul\Sale\Models\OrderTemplateProduct`, más el contrato `Order.sale_order_template_id`.
+
+### Composición y contrato
+
+- `OrderTemplate`: owner estricto, `HasCompanyScope` + `HasStrictCompanyId`, compañía obligatoria, autorizada e inmutable, y guard de `deleting` que reautoriza la compañía persistida. No lleva `GuardsCompanyLifecycleOnSoftDelete` porque el modelo no usa `SoftDeletes`: no hay `restore` ni `forceDelete` que guardar, y los hijos caen con el padre por el `cascadeOnDelete` de la FK.
+- `journal_id`: validado contra la compañía del template en cada save. La columna es un `integer` simple, sin foreign key declarada en la migración, así que un id obsoleto o ajeno es plenamente posible; ambos se rechazan. Esta validación de aplicación es el único guard que la relación tiene.
+- `OrderTemplateProduct`: `parent_scoped` con la forma ya aceptada para `OrderLine`. La columna `company_id` existe, pero la autoridad es el template persistido. El padre bajo el que la fila ya está se reautoriza en todo update y delete antes de considerar cualquier otra cosa; solo después se resuelve y autoriza el destino. Lectura vía `ParentDerivedCompanyScope('orderTemplate')`.
+- Desaparecen los tres defaults globales del `creating()` anterior (`Company::first()`, `Product::first()`, `UOM::first()`): la compañía viene del template, `product_id` es obligatorio en líneas reales y se valida en ambos sentidos, y la UOM se deriva del producto que la línea describe.
+
+### Correcciones de revisión aplicadas
+
+- Review 4835591772, `CHANGES_REQUIRED_A4H_PRODUCT_AND_LAYOUT_INTEGRITY`: `assertCoherentWithTemplate()` aceptaba un Product soft-deleted de la misma compañía y un `product_id` inexistente (ambos vía el helper compartido genérico), y las filas SECTION/NOTE admitían `product_id`/`product_uom_id` de otra compañía o su alta posterior vía update sin revalidación. Corregido en `bea9aaccf`: resolución local del Product con `withTrashed()` propia que rechaza inexistente y trashed antes de comparar compañía, SECTION/NOTE exigen ambos campos nulos de forma explícita, y `product_uom_id` se incorpora a la revalidación de updates.
+- Re-review 4836835423, `CHANGES_REQUIRED_A4H_UNKNOWN_DISPLAY_TYPE`: `describesAProduct()` seguía definido por negación (todo lo que no fuera `section` ni `note`), de modo que un `display_type` inventado con un Product existente, activo y de la propia compañía del template pasaba todos los guards restantes y se persistía como línea real, con semántica de layout que ningún lector del repositorio interpreta (`OrderTemplate::lines()`, `sections()` y `notes()` filtran por `NULL`, `section` y `note` y la saltan en silencio). Corregido en `7ccdc540e`: `display_type` se valida de forma positiva contra el conjunto cerrado `NULL`/`section`/`note` y cualquier otro valor lanza `AuthorizationException` antes de clasificar la fila y antes de resolver `company_id`.
+
+### Bugs latentes corregidos al ejercer las factories
+
+`OrderTemplate` necesitaba `newFactory()` explícito, y `OrderTemplateFactory` declaraba cinco columnas inexistentes en toda migración (`recurrence`, `recurrence_period`, `mail_template_id`, `auto_confirmation`, `confirmation_mail_template`), de modo que toda inserción vía factory fallaba con `Unknown column 'recurrence'`. Misma clase que el `advance_payment_method` de A4F.
+
+### Fuera de alcance por decisión explícita
+
+Las cuatro páginas Filament de `QuotationTemplateResource`, que apuntan a una clase Resource inexistente y por tanto no son alcanzables, y las dos policies cuyos permisos `*_sale_quotation::template` no existen en ningún otro punto del repositorio. Quedan registradas como deuda, sin restaurar ni eliminar.
+
+### Estado final
+
+Implementada en `2a5563ce1`, corregida en `bea9aaccf` y `7ccdc540e`, **aprobada** mediante review 4837339950 (`A4H_ORDER_TEMPLATES_APPROVED_LOCAL_GATE`) sobre `7ccdc540e200a8cc6363c15ccf13d2fc24cc9b45`. Sin dispatch de CI remoto.
+
+### Inventario tras A4H
+
+`138/144/22` → `139 scoped / 145 classified exceptions / 20 gaps reales` (11 con `company_id`, 9 sin). `composer test`: 2175/2175, 5287 assertions. Suite `sales`: 165/165, 424 assertions. Tests focalizados: 34/34, 88 assertions.
+
+---
+
+## Inventario consolidado tras A4F, A4G y A4H
+
+Delta acumulado desde el checkpoint de A4E: `136/142/26` → `139/145/20`.
+
+`docs/security/company-scope-pr4-inventory.json` regenerado con el auditor real sobre una instalación fresh aislada (`erp:install --force -n` + los 20 comandos `<plugin>:install -n`, misma secuencia que el job de CI), tres corridas byte a byte idénticas entre sí y con el archivo committeado:
+
+```json
+{
+  "total": 304,
+  "scoped": 139,
+  "classified_exceptions": 145,
+  "real_gaps_with_company_id": 11,
+  "real_gaps_without_company_id": 9,
+  "table_missing": 0,
+  "inspection_errors": 0,
+  "manifest_violations": 0
+}
+```
+
+Las seis filas que cambian respecto del snapshot anterior son exactamente las seis olas cerradas, sin ninguna transición colateral:
+
+| Modelo | Antes | Después |
+|---|---|---|
+| `Webkul\Sale\Models\AdvancedPaymentInvoice` | `real_gap_company_column` | `scoped` |
+| `Webkul\Sale\Models\AdvancedPaymentInvoiceOrderSale` | `real_gap_without_company_column` | `classified_exception` / `parent_scoped` |
+| `Webkul\Sale\Models\Team` | `real_gap_company_column` | `scoped` |
+| `Webkul\Sale\Models\TeamMember` | `real_gap_without_company_column` | `classified_exception` / `parent_scoped` |
+| `Webkul\Sale\Models\OrderTemplate` | `real_gap_company_column` | `scoped` |
+| `Webkul\Sale\Models\OrderTemplateProduct` | `real_gap_company_column` | `classified_exception` / `parent_scoped` |
+
+Composición del manifest en este punto (145 entradas, 0 violaciones): 50 `alias`, 40 `global_reference`, 39 `parent_scoped`, 12 `not_tenancy`, 2 `multi_company_membership`, 1 `global_party_identity`, 1 `root_company_entity`.
+
+Los 20 gaps reales restantes, por clúster:
+
+- Con `company_id` (11): `chatter` Attachment/Message; `employees` Calendar/CalendarLeave; `payments` PaymentToken/PaymentTransaction; `security` Invitation; `support` Calendar/CalendarLeave/UtmCampaign; `time-off` CalendarLeave.
+- Sin columna propia (9): `chatter` Follower; `employees` CalendarAttendance/EmployeeEmployeeCategory/EmployeeResume/JobPositionSkill; `sales` ActivityType/OrderOption/Tag; `support` CalendarAttendance.
+
+El clúster `sales` queda reducido a tres filas (`ActivityType`, `OrderOption`, `Tag`), todas sin `company_id` propio.
+
+Ninguna de las tres olas tuvo dispatch de CI remoto: A4F, A4G y A4H se validaron 100% localmente. El único CI verde del PR sigue siendo el de A4E sobre `6faa837f5` (run `30594012178`).
+
+---
+
 ## Estado
 
 ```
@@ -860,6 +986,39 @@ Ola A4E (familia recruitments, publicada): ActivityType, Applicant, ApplicantApp
     phpunit.xml incorpora RecruitmentCompanyScopeFeature (solo el subdirectorio nuevo)
   - composer test: 2069/2069 tests, 5032 assertions (antes 1988/1988)
   - pendiente de revision tecnica del diff publicado
+A4F (anticipos de venta, familia sales): implementada en cb2647a5f, APROBADA
+  - AdvancedPaymentInvoice owner estricto (HasCompanyScope + HasStrictCompanyId);
+    AdvancedPaymentInvoiceOrderSale pivote parent_scoped con clase Pivot y ->using()
+  - review 4827999112 (CHANGES_REQUIRED_A4F_CREATOR_WRITE_PATH) corregida en 0c68eeee3;
+    re-review 4830829763 (CHANGES_REQUIRED_A4F_CREATOR_NULL_TRANSITION) corregida en
+    86612bace; aprobada por re-review 4832889816 (A4F_ADVANCE_PAYMENTS_APPROVED_LOCAL_GATE)
+  - inventario 136/142/26 -> 137/143/24; composer test 2108/2108, 5120 assertions
+A4G (equipos de venta, familia sales): implementada en 7df4f4e60, APROBADA
+  - Team owner estricto; TeamMember pivote parent_scoped; contrato Order.team_id validado
+    en el listener de saving registrado primero, antes de propagar estado a las lineas
+  - review 4834206687 (CHANGES_REQUIRED_A4G_ORDER_AND_BULK_GUARDS) corregida en aef0a7313;
+    aprobada por re-review 4834882601 (A4G_SALES_TEAMS_APPROVED_LOCAL_GATE)
+  - inventario 137/143/24 -> 138/144/22; composer test 2141/2141, 5199 assertions
+A4H (plantillas de pedido, familia sales): implementada en 2a5563ce1, APROBADA
+  - OrderTemplate owner estricto con journal_id validado contra su propia compania (columna
+    integer sin FK declarada, asi que un id obsoleto o ajeno es posible y se rechaza);
+    OrderTemplateProduct parent_scoped (forma de OrderLine); contrato
+    Order.sale_order_template_id; eliminados los defaults globales Company::first()/
+    Product::first()/UOM::first() del creating() anterior
+  - review 4835591772 (CHANGES_REQUIRED_A4H_PRODUCT_AND_LAYOUT_INTEGRITY) corregida en
+    bea9aaccf; re-review 4836835423 (CHANGES_REQUIRED_A4H_UNKNOWN_DISPLAY_TYPE) corregida
+    en 7ccdc540e (display_type validado de forma positiva contra NULL/section/note, fail
+    closed antes de clasificar la fila y antes de resolver company_id); aprobada por review
+    4837339950 (A4H_ORDER_TEMPLATES_APPROVED_LOCAL_GATE) sobre 7ccdc540e
+  - inventario 138/144/22 -> 139/145/20; composer test 2175/2175, 5287 assertions
+Inventario consolidado tras A4F-A4H: 136/142/26 -> 139/145/20 (11 con company_id, 9 sin)
+  - docs/security/company-scope-pr4-inventory.json regenerado con el auditor real sobre una
+    instalacion fresh aislada, tres corridas byte a byte identicas; delta de exactamente
+    seis filas, todas del plugin sales
+  - manifest: 145 entradas, 0 violaciones (50 alias, 40 global_reference, 39 parent_scoped,
+    12 not_tenancy, 2 multi_company_membership, 1 global_party_identity, 1 root_company_entity)
+  - sin dispatch de CI remoto para A4F, A4G ni A4H: validacion 100% local; el unico CI verde
+    del PR sigue siendo el de A4E sobre 6faa837f5 (run 30594012178)
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
 #138 / #81: abiertos
