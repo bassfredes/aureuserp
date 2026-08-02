@@ -29,10 +29,10 @@
     ],
     "summary": {
         "total": 304,
-        "scoped": 139,
-        "classified_exceptions": 145,
-        "real_gaps_with_company_id": 11,
-        "real_gaps_without_company_id": 9,
+        "scoped": 144,
+        "classified_exceptions": 147,
+        "real_gaps_with_company_id": 6,
+        "real_gaps_without_company_id": 7,
         "table_missing": 0,
         "inspection_errors": 0,
         "manifest_violations": 0
@@ -1016,11 +1016,11 @@
             "file": "plugins/webkul/employees/src/Models/Calendar.php",
             "table": "calendars",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "employees",
@@ -1031,8 +1031,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "alias",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "employees",
@@ -1040,11 +1040,11 @@
             "file": "plugins/webkul/employees/src/Models/CalendarLeave.php",
             "table": "calendar_leaves",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "employees",
@@ -3332,11 +3332,11 @@
             "file": "plugins/webkul/support/src/Models/Calendar.php",
             "table": "calendars",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "support",
@@ -3347,8 +3347,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "support",
@@ -3356,11 +3356,11 @@
             "file": "plugins/webkul/support/src/Models/CalendarLeave.php",
             "table": "calendar_leaves",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "support",
@@ -3560,11 +3560,11 @@
             "file": "plugins/webkul/time-off/src/Models/CalendarLeave.php",
             "table": "calendar_leaves",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "time-off",

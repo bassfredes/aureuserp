@@ -1019,6 +1019,84 @@ Inventario consolidado tras A4F-A4H: 136/142/26 -> 139/145/20 (11 con company_id
     12 not_tenancy, 2 multi_company_membership, 1 global_party_identity, 1 root_company_entity)
   - sin dispatch de CI remoto para A4F, A4G ni A4H: validacion 100% local; el unico CI verde
     del PR sigue siendo el de A4E sobre 6faa837f5 (run 30594012178)
+A4I (familia calendarios: Calendar, CalendarAttendance, CalendarLeave, plugins support/
+  employees/time-off): implementada, APROBADA
+  - Calendar (owner fisico en support): company_or_shared (HasCompanyScope +
+    IncludesSharedCompanyRows), sustentado por el CalendarSeeder real (fila company_id
+    NULL, "Standard 40 hours/week", referenciada por WorkCenterResource en toda
+    instalacion fresh). guardSharedRowMutation() sigue el precedente estricto de
+    CurrencyRate, no el de ActivityPlan: un proceso sin usuario autenticado tambien
+    necesita un CompanyContext ALL_COMPANIES/BOOTSTRAP explicito para mutar una fila
+    compartida, la sola ausencia de usuario ya no basta. company_id inmutable tras crear;
+    update/delete/restore/forceDelete reautorizan la fila persistida; forceDelete
+    rechazado mientras existan CalendarLeave referenciandolo (el FK real es SET NULL, y
+    dejar pasar esa nulificacion reabriria el hueco de CalendarLeave.calendar_id nulo que
+    esta misma ola cierra). resource_type/resource_id retirados de $fillable: esas
+    columnas nunca existieron en la tabla calendars.
+  - CalendarAttendance: parent_scoped, sin company_id propio. Nuevo scope local
+    ParentDerivedCompanyOrSharedScope('calendar') (no se toco ParentDerivedCompanyScope
+    ni sus dos copias en sales/recruitments): variante consciente de company_or_shared
+    para un padre que puede ser Calendar compartido, mismo orWhereNull('company_id') que
+    ya usa CompanyScope::applyCompanyFilter(). Escritura contra un padre de compania
+    reautoriza esa compania; contra un padre compartido exige super_admin o contexto de
+    sistema explicito (mismo precedente estricto de Calendar). Retargeting de calendar_id
+    prohibido. resource_type/resource_id deben permanecer NULL (sin escritor valido
+    conocido); display_type validado de forma positiva contra NULL/working/off/holiday
+    (los unicos tres valores reales del enum CalendarDisplayType, no los daily/weekly/
+    monthly que traia la factory). buildSortQuery() ahora escopa sort_when_creating por
+    calendar_id, antes calculaba el maximo sobre toda la tabla. RelationManager: retirados
+    Restore/ForceDelete/SoftDeletingScope y sus bulk equivalentes, el modelo nunca tuvo
+    SoftDeletes.
+  - CalendarLeave: strict_company, sin filas compartidas (cero filas company_id NULL tras
+    instalar, ningun seeder las produce). company_id y calendar_id derivados e inmutables
+    tras persistir. Unico resource_type permitido: Webkul\Manufacturing\Models\WorkCenter
+    (comparado contra el FQCN literal, sin morph map registrado en el proyecto); con
+    resource, compania y calendario derivan de ese WorkCenter y deben coincidir con
+    cualquier valor explicito recibido (incluido company_id, no solo calendar_id: hallazgo
+    de la propia suite de tests de esta ola); sin resource, un Calendar de compania deriva
+    su propia compania (mismo chequeo de coincidencia), un Calendar compartido exige
+    company_id explicito y autorizado. Se elimino el comodin calendar_id IS NULL de
+    Calendar::getLeaveIntervalsBatch(): ese comodin aplicaba cualquier ausencia sin
+    calendario a TODOS los calendarios sin comparar compania, la fuga cruzada mas
+    severa detectada en el analisis A4I. WorkOrder::start()/plan() ahora envian
+    company_id explicito desde el WorkCenter al crear el CalendarLeave (antes lo omitian
+    por completo). HolidayAction y el Select de calendario de PublicHolidayResource
+    quedan scopeados automaticamente por el HasCompanyScope de Calendar/CalendarLeave, sin
+    tocar esos dos archivos. CalendarLeave nunca tuvo newFactory() propio (gap
+    preexistente descubierto por la propia suite nueva, corregido en la misma ola).
+  - Employee.calendar_id, WorkCenter.calendar_id y Leave.calendar_id (time-off): la
+    validacion generica assertRelatedBelongsToCompany() (falla cerrado ante NULL en
+    cualquiera de los dos lados) fue reemplazada por un metodo local duplicado por modelo
+    (assertCalendarIsAssignable(), mismo patron de duplicacion que
+    ParentDerivedCompanyScope) que acepta un Calendar compartido o de la misma compania,
+    rechaza uno inexistente, y rechaza una asignacion NUEVA a un Calendar soft-deleted sin
+    romper una asignacion ya existente (WorkCenter.calendar() ya usaba withTrashed()).
+    WorkCenter y Leave no tenian ninguna validacion sobre calendar_id antes de esta ola.
+  - alias: Employee\Calendar, Employee\CalendarLeave y TimeOff\CalendarLeave son
+    subclases vacias que heredan HasCompanyScope de su owner en support, el auditor las
+    detecta solas (mismo patron que los cuatro alias de ActivityPlan), sin entrada de
+    manifest. Employee\CalendarAttendance si necesita entrada alias explicita: su owner es
+    parent_scoped, no HasCompanyScope, y no se auto-detecta.
+  - manifest: 2 entradas nuevas (Support\CalendarAttendance parent_scoped,
+    Employee\CalendarAttendance alias), 147 entradas totales, 0 violaciones (51 alias, 40
+    global_reference, 40 parent_scoped, 12 not_tenancy, 2 multi_company_membership, 1
+    global_party_identity, 1 root_company_entity)
+  - inventario 139/145/20 (11+9) -> 144/147/13 (6+7): siete filas, sin altas ni bajas,
+    verificado fila por fila contra el JSON regenerado (tres corridas byte a byte
+    identicas sobre aureuserp_a4h_selftest, delta exacto de las siete filas predichas en
+    el analisis A4I, cero colaterales)
+  - suite completa: composer test 2224/2224, 5360 assertions (0 fallos; dos intentos
+    previos fallaron por causas ajenas al codigo: contaminacion de permisos de archivo por
+    una corrida concurrente propia en el mismo filesystem montado, y el gap preexistente
+    de newFactory() en CalendarLeave, ambos corregidos antes de esta corrida final).
+    CompanyScopeAuditorTest incluido y verde. Pint, composer validate --strict y git diff
+    --check limpios sobre los archivos de esta ola.
+  - 32 tests nuevos (CalendarCompanyScopeTest en support, mas adiciones en
+    ManufacturingCompanyScopeTest, EmployeeCompanyRelationsTest y LeaveCompanyScopeTest),
+    incluidos los dos controles negativos/positivos decisivos: Employee + Calendar
+    compartido (antes rota por assertRelatedBelongsToCompany fallando cerrado ante NULL),
+    y el regression test directo sobre getLeaveIntervalsBatch() para la fuga cruzada
+  - sin dispatch de CI remoto: validacion 100% local
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
 #138 / #81: abiertos
