@@ -4,6 +4,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Webkul\Account\Models\Journal;
 use Webkul\Product\Models\Product;
+use Webkul\Sale\Enums\OrderDisplayType;
 use Webkul\Sale\Enums\OrderState;
 use Webkul\Sale\Models\Order;
 use Webkul\Sale\Models\OrderLine;
@@ -13,6 +14,7 @@ use Webkul\Sale\Models\Scopes\ParentDerivedCompanyScope;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Scopes\CompanyScope;
+use Webkul\Support\Models\UOM;
 use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../support/tests/Helpers/SecurityHelper.php';
@@ -354,6 +356,200 @@ it('requires a product on a real template line but never invents one for a secti
     expect($note->product_id)->toBeNull();
     expect($note->product_uom_id)->toBeNull();
     expect($section->company_id)->toBe($companyA->id);
+});
+
+// ── OrderTemplateProduct: product and layout integrity (#138 A4H correction) ─
+
+it('forbids an OrderTemplateProduct that references a soft-deleted product of the SAME company', function () {
+    $companyA = Company::factory()->create();
+
+    test()->actingAs(templateMemberOf($companyA));
+
+    $template = OrderTemplate::factory()->create(['company_id' => $companyA->id]);
+    $product = productFor($companyA);
+    $product->delete();
+
+    expect(fn () => OrderTemplateProduct::create([
+        'order_template_id' => $template->id,
+        'product_id'        => $product->id,
+        'name'              => 'line',
+        'quantity'          => 1,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseCount('sales_order_template_products', 0);
+});
+
+it('forbids an OrderTemplateProduct that references a nonexistent product instead of failing at the database FK', function () {
+    $companyA = Company::factory()->create();
+
+    test()->actingAs(templateMemberOf($companyA));
+
+    $template = OrderTemplate::factory()->create(['company_id' => $companyA->id]);
+
+    expect(fn () => OrderTemplateProduct::create([
+        'order_template_id' => $template->id,
+        'product_id'        => 999999999,
+        'name'              => 'line',
+        'quantity'          => 1,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseCount('sales_order_template_products', 0);
+});
+
+it('forbids a section or a note that references a product of another company', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = templateMemberOf($companyA);
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $template = OrderTemplate::factory()->create(['company_id' => $companyA->id]);
+    $productB = productFor($companyB);
+
+    expect(fn () => OrderTemplateProduct::create([
+        'order_template_id' => $template->id,
+        'display_type'      => OrderDisplayType::SECTION->value,
+        'product_id'        => $productB->id,
+        'name'              => 'section',
+        'quantity'          => 1,
+    ]))->toThrow(AuthorizationException::class);
+
+    expect(fn () => OrderTemplateProduct::create([
+        'order_template_id' => $template->id,
+        'display_type'      => OrderDisplayType::NOTE->value,
+        'product_id'        => $productB->id,
+        'name'              => 'note',
+        'quantity'          => 1,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseCount('sales_order_template_products', 0);
+});
+
+it('treats an unsupported display_type as a real line rather than an unvalidated layout row', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = templateMemberOf($companyA);
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+    test()->actingAs($user);
+
+    $template = OrderTemplate::factory()->create(['company_id' => $companyA->id]);
+    $productB = productFor($companyB);
+
+    // No product at all: an unsupported display_type must still demand a
+    // product, exactly like a real line does.
+    expect(fn () => OrderTemplateProduct::create([
+        'order_template_id' => $template->id,
+        'display_type'      => 'bogus-invented-type',
+        'name'              => 'line',
+        'quantity'          => 1,
+    ]))->toThrow(AuthorizationException::class);
+
+    // A cross-company product smuggled behind the same unsupported value
+    // must be rejected too, not silently bypassed as "layout".
+    expect(fn () => OrderTemplateProduct::create([
+        'order_template_id' => $template->id,
+        'display_type'      => 'bogus-invented-type',
+        'product_id'        => $productB->id,
+        'name'              => 'line',
+        'quantity'          => 1,
+    ]))->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseCount('sales_order_template_products', 0);
+});
+
+it('re-validates a real line when only product_uom_id changes on update', function () {
+    $companyA = Company::factory()->create();
+
+    $user = templateMemberOf($companyA);
+    test()->actingAs($user);
+
+    $template = OrderTemplate::factory()->create(['company_id' => $companyA->id]);
+    $product = productFor($companyA);
+
+    $line = OrderTemplateProduct::create([
+        'order_template_id' => $template->id,
+        'product_id'        => $product->id,
+        'name'              => 'line',
+        'quantity'          => 1,
+    ]);
+
+    $otherUom = UOM::factory()->create();
+
+    // The update itself is allowed to proceed (UOM has no company
+    // dimension) but it must still re-run coherence: the product on the
+    // line is re-verified against the template's company.
+    $line->update(['product_uom_id' => $otherUom->id]);
+
+    $this->assertDatabaseHas('sales_order_template_products', [
+        'id'             => $line->id,
+        'product_uom_id' => $otherUom->id,
+        'company_id'     => $companyA->id,
+    ]);
+});
+
+it('forbids adding a product or a unit of measure to an existing section or note', function () {
+    $companyA = Company::factory()->create();
+
+    test()->actingAs(templateMemberOf($companyA));
+
+    $template = OrderTemplate::factory()->create(['company_id' => $companyA->id]);
+    $product = productFor($companyA);
+
+    $section = OrderTemplateProduct::factory()->section()->create(['order_template_id' => $template->id]);
+
+    expect(fn () => $section->update(['product_id' => $product->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('sales_order_template_products', ['id' => $section->id, 'product_id' => null]);
+
+    $note = OrderTemplateProduct::factory()->note()->create(['order_template_id' => $template->id]);
+
+    expect(fn () => $note->update(['product_uom_id' => $product->uom_id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('sales_order_template_products', ['id' => $note->id, 'product_uom_id' => null]);
+});
+
+it('forbids incoherent display_type transitions in both directions', function () {
+    $companyA = Company::factory()->create();
+
+    test()->actingAs(templateMemberOf($companyA));
+
+    $template = OrderTemplate::factory()->create(['company_id' => $companyA->id]);
+    $product = productFor($companyA);
+
+    $line = OrderTemplateProduct::create([
+        'order_template_id' => $template->id,
+        'product_id'        => $product->id,
+        'name'              => 'line',
+        'quantity'          => 1,
+    ]);
+
+    // Real -> layout while still carrying its product/uom must not be
+    // silently accepted (nor silently cleared).
+    expect(fn () => $line->update(['display_type' => OrderDisplayType::SECTION->value]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('sales_order_template_products', [
+        'id'           => $line->id,
+        'display_type' => null,
+        'product_id'   => $product->id,
+    ]);
+
+    $section = OrderTemplateProduct::factory()->section()->create(['order_template_id' => $template->id]);
+
+    // Layout -> real without a product must not be silently accepted
+    // either.
+    expect(fn () => $section->update(['display_type' => null]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('sales_order_template_products', [
+        'id'           => $section->id,
+        'display_type' => OrderDisplayType::SECTION->value,
+        'product_id'   => null,
+    ]);
 });
 
 it('re-authorizes the persisted template before letting a row be retargeted into an authorized company', function () {

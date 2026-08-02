@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Sale\Database\Factories\OrderTemplateProductFactory;
+use Webkul\Sale\Enums\OrderDisplayType;
 use Webkul\Sale\Models\Scopes\ParentDerivedCompanyScope;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
@@ -83,26 +84,47 @@ class OrderTemplateProduct extends Model
     /**
      * A section or a note is a layout row: it has a name and a position
      * and describes no product at all, so neither a product nor a unit of
-     * measure may be invented for it. Every other row is a real template
-     * line and must name the product it is a line FOR.
+     * measure may be invented for it. NULL is the only other recognized
+     * value, meaning a real template line. Anything else — an unsupported
+     * or invented display_type — is deliberately NOT treated as a third,
+     * unvalidated kind of layout row: it falls through to the "real line"
+     * branch below and is held to the same product requirement, closing
+     * off display_type as a way to smuggle a cross-company product past
+     * this guard (#138 A4H correction).
      */
     private function describesAProduct(): bool
     {
-        return $this->display_type === null;
+        return ! in_array($this->display_type, [
+            OrderDisplayType::SECTION->value,
+            OrderDisplayType::NOTE->value,
+        ], true);
     }
 
     /**
      * Resolves and authorizes the parent template, then validates the
      * product against the company that template actually claims.
      *
-     * The UOM is derived from the product rather than defaulted globally:
+     * The Product lookup is done locally rather than through the shared
+     * assertRelatedBelongsToCompany() helper (#138 A4H correction): that
+     * helper only compares company_id and silently no-ops on a missing or
+     * trashed-and-not-caught row, which is right for its own generic
+     * contract but not strict enough here. A nonexistent product_id must
+     * be rejected by this application-level guard instead of falling
+     * through to the database FK, and a soft-deleted product must be
+     * rejected even when it belongs to the correct company — a deleted
+     * product is not a valid line target regardless of tenancy.
+     *
+     * The UOM is derived from the same already-resolved, already-verified
+     * Product rather than defaulted globally or looked up a second time:
      * UOM is a global_reference with no company dimension, so the risk it
      * carried was coherence rather than tenancy, but a line quantified in
      * a unit belonging to some unrelated product is wrong all the same.
-     * The lookup bypasses CompanyScope and includes trashed rows because
-     * the product has already been validated on the line above; this is a
-     * read of an attribute of an id that is known good, not a second
-     * authorization.
+     *
+     * A layout row (section/note) is symmetric: it must carry NEITHER a
+     * product NOR a unit of measure, on create and on update alike — this
+     * is checked explicitly rather than silently cleared, so a caller that
+     * pairs a layout display_type with a leftover/injected product_id or
+     * product_uom_id is rejected instead of quietly "fixed".
      */
     private static function assertCoherentWithTemplate(self $line): int
     {
@@ -111,6 +133,10 @@ class OrderTemplateProduct extends Model
         $line->company_id = $companyId;
 
         if (! $line->describesAProduct()) {
+            if ($line->product_id !== null || $line->product_uom_id !== null) {
+                throw new AuthorizationException('A section or a note line must not reference a product or a unit of measure.');
+            }
+
             return $companyId;
         }
 
@@ -118,11 +144,23 @@ class OrderTemplateProduct extends Model
             throw new AuthorizationException('An OrderTemplateProduct line requires a product.');
         }
 
-        static::assertRelatedBelongsToCompany($line->product_id, Product::class, 'Product', $companyId);
-
-        $line->product_uom_id ??= Product::withoutGlobalScope(CompanyScope::class)
+        $product = Product::withoutGlobalScope(CompanyScope::class)
             ->withTrashed()
-            ->find($line->product_id)?->uom_id;
+            ->find($line->product_id);
+
+        if (! $product) {
+            throw new AuthorizationException('The related Product could not be found.');
+        }
+
+        if ($product->trashed()) {
+            throw new AuthorizationException('The related Product has been deleted.');
+        }
+
+        if ($product->company_id === null || (int) $product->company_id !== $companyId) {
+            throw new AuthorizationException('The related Product belongs to a different company.');
+        }
+
+        $line->product_uom_id ??= $product->uom_id;
 
         return $companyId;
     }
@@ -186,7 +224,7 @@ class OrderTemplateProduct extends Model
                 throw new AuthorizationException("Changing this OrderTemplateProduct's creator is forbidden.");
             }
 
-            if ($line->isDirty(['order_template_id', 'company_id', 'product_id', 'display_type'])) {
+            if ($line->isDirty(['order_template_id', 'company_id', 'product_id', 'product_uom_id', 'display_type'])) {
                 static::assertCoherentWithTemplate($line);
             }
         });
