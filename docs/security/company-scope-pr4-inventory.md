@@ -1397,4 +1397,80 @@ Security\Invitation (corrección IDOR post-cierre, hallazgo Codex adversarial-re
   --fail-on-missing, separada y aun abierta (ver nota de la propia entrada de cierre 6/6
   arriba), no relacionada con este fix de seguridad. Sin dispatch de CI remoto:
   validacion 100% local.
+Registro de riesgos aceptados: --fail-on-unapproved-gaps (recomendacion Codex
+  adversarial-review, cierra la pregunta de taxonomia abierta en la entrada anterior): la
+  entrada previa dejo explicitamente abierta la tension entre --fail-on-missing (gate
+  estricto, sigue en rojo mientras exista Security\Invitation como gap real) y la necesidad
+  de un gate de CI sostenible que no falle para siempre por una decision ya revisada y
+  deliberada. Codex recomendo, en su forma exacta: "Conservar --fail-on-missing como gate
+  estricto de cero gaps y anadir una variante de (c), por ejemplo
+  --fail-on-unapproved-gaps, respaldada por un registro separado de riesgos aceptados con
+  FQCN/tabla exactos, tracking, justificacion, responsable y fecha de revision o
+  expiracion. Ese registro debe cambiar unicamente la politica de salida, no convertir la
+  fila en classified_exception", y explicitamente: no agregar `accepted_risk_deferred` a
+  `ExceptionManifest::CLASSIFICATIONS`, porque mezclaria aceptacion temporal con evidencia
+  de aislamiento real. Implementado exactamente asi, sin modificar
+  config/company-scope-exceptions.php ni ExceptionManifest: (1) nuevo archivo
+  `config/company-scope-accepted-risks.php`, respaldado por la clase de solo lectura
+  `App\Support\CompanyScopeAudit\AcceptedRiskRegistry` (mismo patron que ExceptionManifest:
+  entries()/has()/get(), `default(?string $path)` con override por
+  `COMPANY_SCOPE_ACCEPTED_RISKS_PATH` para que los tests dirijan la orquestacion real del
+  CLI contra un fixture, igual que `COMPANY_SCOPE_MANIFEST_PATH` ya hacia para el manifest).
+  Cada entrada exige `table`/`tracking`/`justification`/`owner`/`review_by` (los cinco no
+  vacios, `review_by` una fecha `Y-m-d` bien formada), validada en cada corrida con la misma
+  disciplina que el manifest: clase autoloadable, modelo Eloquent concreto,
+  `table` coincidiendo exactamente con la tabla real via reflection -- una entrada mal
+  formada rompe la auditoria en voz alta (exit 2), nunca se degrada silenciosamente. (2)
+  `Auditor::validateAcceptedRiskRegistry()` (shape + reflection, deliberadamente NO valida
+  expiracion -- una entrada vencida pero bien formada no es un registro roto, es
+  exactamente la senal que --fail-on-unapproved-gaps existe para detectar);
+  `Auditor::annotateAcceptedRisks(rows, registry, ?DateTimeImmutable $now)` anota cada fila
+  con `accepted_risk_status`: null (no es un gap real), `approved` (registrada, tabla
+  coincide, review_by aun no vencido), `expired` (vencido), `unregistered` (sin entrada
+  exacta FQCN+tabla) -- nunca toca `classification`/`effective_status`, visibilidad, no
+  reclasificacion; `Auditor::isUnapprovedGap()` es real_gap Y accepted_risk_status !==
+  approved. (3) `scripts/audit-company-scope.php`: nueva flag `--fail-on-unapproved-gaps`,
+  paralela e independiente de `--fail-on-missing` (ninguna modifica el comportamiento de la
+  otra); el registro se valida en el mismo punto fail-fast que el manifest, antes de
+  classifyRows(); el output de tabla gana una columna ACCEPTED_RISK y el JSON incluye
+  `accepted_risk_status` por fila mas `summary.accepted_risks`/`summary.unapproved_gaps` --
+  la fila de un riesgo aceptado sigue siendo real_gap_* y sigue siendo visible en ambos
+  formatos, nunca se omite silenciosamente. (4) Security\Invitation es la primera y unica
+  entrada del registro: `table=user_invitations`, `tracking='#138 PR4 (PR #18); IDOR fix
+  commit a32f381f0'`, `owner='Bastian Fredes (#138 / #81 PR4 owner)'`,
+  `review_by='2027-02-03'` (seis meses desde 2026-08-03; no se encontro convención previa
+  de cadencia de revision de deuda de seguridad en AGENTS.md ni docs/security/*.md, se usa
+  un default deliberadamente corto para que un riesgo aceptado no pueda persistir anios
+  junto a un gate de CI sin una re-revision consciente). La justificacion cita integramente
+  el razonamiento ya establecido en esta sesion y en company-scope-pr4-wave-4d-plan.md: sin
+  superficie de listado/admin (InvitationResource confirmado codigo muerto), flujo de
+  aceptacion exclusivamente de invitado via URL firmada sin capacidad de enumeracion, guard
+  de escritura bespoke en boot() ya adecuado para la superficie que existe hoy; y aclara
+  expresamente que el IDOR real corregido en AcceptInvitation.php (commit a32f381f0, ver
+  entrada anterior) es un fix separado que cierra la vulnerabilidad explotable, mientras que
+  esta entrada de registro acepta unicamente el riesgo mas estrecho, ya conocido, de que
+  Invitation aun no tiene HasCompanyScope propio. (5) Tests nuevos en
+  tests/Feature/Support/CompanyScopeAuditorTest.php (20 casos, 56/56 verde en el archivo
+  completo, 169 assertions): validacion del registro (entrada con campo vacio, review_by mal
+  formado -- 4 variantes, tabla que no coincide, clase inexistente, entrada bien formada,
+  registro real shipped sin violaciones); anotacion (approved con review_by futuro, expired
+  con review_by pasado, unregistered con registro vacio, tabla no coincidente tratada como
+  unregistered en defensa en profundidad aunque ya la rechaza la validacion, filas no-gap
+  nunca anotadas); y siete pruebas end-to-end vía subprocess real del CLI
+  (`--plugins=security --fail-on-unapproved-gaps` exit 0 con Invitation approved;
+  `--fail-on-missing` exit 1 sin cambios pese al riesgo aceptado; exit 1 con registro vacio
+  fixture -- unregistered; exit 1 con entrada fixture vencida -- expired; exit 0 con entrada
+  fixture fresca -- approved; exit 2 con entrada fixture mal formada, nunca warnings ni
+  "Undefined array key", nunca llega a computar summary). (6) Verificado end-to-end sobre la
+  auditoria global real (26 plugins, 304 modelos): `--format=json --fail-on-missing` exit 1
+  sin cambios (151 scoped, 152 classified_exceptions, 1 real gap con company_id -- sigue en
+  rojo, correcto y esperado, --fail-on-missing es una certificacion estricta de cero gaps
+  que el registro nunca ablanda); `--format=json --fail-on-unapproved-gaps` exit 0 (mismos
+  conteos, unapproved_gaps=0, accepted_risks=1). Pint limpio (3 issues de estilo
+  autocorregidos en los 5 archivos tocados, cero pendientes tras el fix), `composer validate
+  --strict` valido. Sin dispatch de CI remoto: validacion 100% local. `--fail-on-missing`
+  sigue siendo el candidato de certificacion de cero-gaps; `--fail-on-unapproved-gaps` queda
+  documentado aqui como el candidato sostenible para un futuro gate de CI, respaldado por un
+  registro de riesgos aceptados auditable, con expiracion obligatoria y sin devaluar la
+  taxonomia de ExceptionManifest.
 ```
