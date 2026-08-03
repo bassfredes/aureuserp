@@ -109,6 +109,41 @@ class CalendarLeave extends Model
     }
 
     /**
+     * A resource's own calendar_id is not trusted blindly (#138 A4I review
+     * round 2): it must exist, must not be soft-deleted, and must be
+     * either shared or in the same company as the resource — a legacy
+     * cross-company WorkCenter→Calendar pairing (predating
+     * WorkCenter::assertCalendarIsAssignable(), or any future ALLOWED
+     * resource type without an equivalent guard) must not silently
+     * propagate a NULL or mismatched calendar into a CalendarLeave. Kept
+     * inside CalendarLeave rather than the resource model — the resource
+     * side already enforces this going forward for new assignments, but
+     * CalendarLeave is the one place every resource type funnels through.
+     */
+    private static function resolveResourceCalendar(Model $resource): Calendar
+    {
+        if ($resource->calendar_id === null) {
+            throw new AuthorizationException('The related resource has no Calendar assigned.');
+        }
+
+        $calendar = Calendar::withoutGlobalScope(CompanyScope::class)->withTrashed()->find($resource->calendar_id);
+
+        if (! $calendar) {
+            throw new AuthorizationException("The related resource's Calendar could not be found.");
+        }
+
+        if ($calendar->trashed()) {
+            throw new AuthorizationException("The related resource's Calendar has been deleted.");
+        }
+
+        if ($calendar->company_id !== null && (int) $calendar->company_id !== (int) $resource->company_id) {
+            throw new AuthorizationException("The related resource's Calendar belongs to a different company.");
+        }
+
+        return $calendar;
+    }
+
+    /**
      * Derives the effective company_id and, for a resource-bearing leave,
      * overwrites calendar_id with the resource's own — mutating
      * $calendarLeave in place mirrors Leave::saving()'s own
@@ -120,8 +155,9 @@ class CalendarLeave extends Model
     {
         if ($calendarLeave->resource_type !== null) {
             $resource = static::resolveResource($calendarLeave);
+            $resourceCalendar = static::resolveResourceCalendar($resource);
 
-            if ($calendarLeave->calendar_id !== null && (int) $calendarLeave->calendar_id !== (int) $resource->calendar_id) {
+            if ($calendarLeave->calendar_id !== null && (int) $calendarLeave->calendar_id !== (int) $resourceCalendar->id) {
                 throw new AuthorizationException("The calendar_id does not match the resource WorkCenter's own calendar.");
             }
 
@@ -129,7 +165,7 @@ class CalendarLeave extends Model
                 throw new AuthorizationException("The company_id does not match the resource WorkCenter's own company.");
             }
 
-            $calendarLeave->calendar_id = $resource->calendar_id;
+            $calendarLeave->calendar_id = $resourceCalendar->id;
 
             return (int) $resource->company_id;
         }
@@ -189,12 +225,20 @@ class CalendarLeave extends Model
                     throw new AuthorizationException('Changing the company of this CalendarLeave is forbidden — archive it and create a new one instead.');
                 }
 
-                if ($originalCalendarId !== null && (int) $originalCalendarId !== (int) $calendarLeave->calendar_id) {
+                // No NULL exception (#138 A4I review round 2): a historical
+                // row corrupted to calendar_id IS NULL (e.g. by the old
+                // wildcard this contract removed) must not be "repaired"
+                // via an ordinary update — only archive-and-recreate.
+                if ((int) $originalCalendarId !== (int) $calendarLeave->calendar_id) {
                     throw new AuthorizationException('Changing the calendar of this CalendarLeave is forbidden — archive it and create a new one instead.');
                 }
             }
 
             $calendarLeave->company_id = $effectiveCompanyId;
+        });
+
+        static::deleting(function (self $calendarLeave) {
+            CompanyScope::assertCanWriteCompany((int) $calendarLeave->getOriginal('company_id'));
         });
     }
 

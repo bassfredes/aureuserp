@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Webkul\Employee\Models\Calendar as EmployeeCalendar;
 use Webkul\Employee\Models\CalendarAttendance as EmployeeCalendarAttendance;
 use Webkul\Employee\Models\CalendarLeave as EmployeeCalendarLeave;
@@ -197,6 +198,101 @@ it('forbids force-deleting a Calendar still referenced by a CalendarLeave', func
     $this->assertSoftDeleted('calendars', ['id' => $calendar->id]);
 });
 
+// ── Calendar: restore reauthorization (#138 A4I review round 2) ───────────
+
+it('forbids a user in company A from restoring a Calendar of company B obtained via withoutGlobalScope', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $calendarB = calendarFor($companyB->id);
+    CompanyContext::runForAllCompanies(reason: 'fixture', caller: __FILE__, callback: fn () => $calendarB->delete());
+
+    test()->actingAs(calendarMemberOf($companyA));
+
+    $unscoped = Calendar::withoutGlobalScope(CompanyScope::class)->withTrashed()->findOrFail($calendarB->id);
+
+    expect(fn () => $unscoped->restore())->toThrow(AuthorizationException::class);
+    $this->assertSoftDeleted('calendars', ['id' => $calendarB->id]);
+});
+
+it('forbids a regular user from restoring a shared Calendar', function () {
+    $shared = calendarFor(null);
+    CompanyContext::runForAllCompanies(reason: 'fixture', caller: __FILE__, callback: fn () => $shared->delete());
+
+    $company = Company::factory()->create();
+    test()->actingAs(calendarMemberOf($company));
+
+    $unscoped = Calendar::withoutGlobalScope(CompanyScope::class)->withTrashed()->findOrFail($shared->id);
+
+    expect(fn () => $unscoped->restore())->toThrow(AuthorizationException::class);
+});
+
+it('lets a user in company A restore their own Calendar', function () {
+    $companyA = Company::factory()->create();
+    test()->actingAs(calendarMemberOf($companyA));
+
+    $calendar = Calendar::factory()->create(['company_id' => $companyA->id]);
+    $calendar->delete();
+
+    $calendar->restore();
+
+    $this->assertDatabaseHas('calendars', ['id' => $calendar->id, 'deleted_at' => null]);
+});
+
+// ── Calendar::getLeaveIntervalsBatch: anonymous bucket is one company (#138 A4I review round 2) ──
+
+it('does not mix company B leaves into company A\'s anonymous bucket when both attach to the same shared Calendar', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $shared = calendarFor(null);
+
+    $user = calendarMemberOf($companyA);
+    $user->allowedCompanies()->syncWithoutDetaching([$companyB->id]);
+    test()->actingAs($user);
+
+    $from = now()->startOfDay();
+    $to = $from->clone()->addDays(2);
+
+    $leaveA = CalendarLeave::factory()->create([
+        'calendar_id' => $shared->id,
+        'company_id'  => $companyA->id,
+        'time_type'   => 'leave',
+        'date_from'   => $from,
+        'date_to'     => $to,
+    ]);
+    $leaveB = CalendarLeave::factory()->create([
+        'calendar_id' => $shared->id,
+        'company_id'  => $companyB->id,
+        'time_type'   => 'leave',
+        'date_from'   => $from,
+        'date_to'     => $to,
+    ]);
+
+    $intervals = $shared->getLeaveIntervalsBatch($from, $to);
+    $matchedIds = collect($intervals[null] ?? [])->map(fn ($interval) => $interval[2]->id);
+
+    expect($matchedIds)->toContain($leaveA->id)
+        ->not->toContain($leaveB->id);
+});
+
+it('lets an explicit ALL_COMPANIES context see every company\'s leaves in the anonymous bucket of a shared Calendar, only via anyCalendar', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $shared = calendarFor(null);
+
+    $from = now()->startOfDay();
+    $to = $from->clone()->addDays(2);
+
+    [$leaveA, $leaveB] = CompanyContext::runForAllCompanies(reason: 'test', caller: __FILE__, callback: fn () => [
+        CalendarLeave::factory()->create(['calendar_id' => $shared->id, 'company_id' => $companyA->id, 'time_type' => 'leave', 'date_from' => $from, 'date_to' => $to]),
+        CalendarLeave::factory()->create(['calendar_id' => $shared->id, 'company_id' => $companyB->id, 'time_type' => 'leave', 'date_from' => $from, 'date_to' => $to]),
+    ]);
+
+    $intervals = CompanyContext::runForAllCompanies(reason: 'test', caller: __FILE__, callback: fn () => $shared->getLeaveIntervalsBatch($from, $to, anyCalendar: true));
+    $matchedIds = collect($intervals[null] ?? [])->map(fn ($interval) => $interval[2]->id);
+
+    expect($matchedIds)->toContain($leaveA->id, $leaveB->id);
+});
+
 // ── CalendarAttendance: parent_scoped read ─────────────────────────────────
 
 it('shows CalendarAttendances of the user\'s own Calendar plus of a shared Calendar, not company B\'s', function () {
@@ -260,6 +356,35 @@ it('forbids creating a CalendarAttendance against a nonexistent Calendar', funct
 
     expect(fn () => CalendarAttendance::factory()->create(['calendar_id' => 999999999]))
         ->toThrow(AuthorizationException::class);
+});
+
+// ── CalendarAttendance: create rejects an archived parent, update/delete of an existing child still reauthorizes it (#138 A4I review round 2) ──
+
+it('forbids creating a new CalendarAttendance under an already-archived Calendar', function () {
+    $company = Company::factory()->create();
+    test()->actingAs(calendarMemberOf($company));
+
+    $calendar = Calendar::factory()->create(['company_id' => $company->id]);
+    $calendar->delete();
+
+    expect(fn () => CalendarAttendance::factory()->create(['calendar_id' => $calendar->id]))
+        ->toThrow(AuthorizationException::class);
+});
+
+it('still lets an existing CalendarAttendance be updated and deleted after its Calendar is later archived', function () {
+    $company = Company::factory()->create();
+    test()->actingAs(calendarMemberOf($company));
+
+    $calendar = Calendar::factory()->create(['company_id' => $company->id]);
+    $attendance = CalendarAttendance::factory()->create(['calendar_id' => $calendar->id]);
+
+    $calendar->delete();
+
+    $attendance->update(['name' => 'Renamed after archive']);
+    expect($attendance->fresh()->name)->toBe('Renamed after archive');
+
+    $attendance->delete();
+    $this->assertDatabaseMissing('calendar_attendances', ['id' => $attendance->id]);
 });
 
 // ── CalendarAttendance: write against a shared parent ──────────────────────
@@ -471,6 +596,58 @@ it('forbids changing a CalendarLeave\'s calendar_id after creation', function ()
         ->toThrow(AuthorizationException::class);
 
     $this->assertDatabaseHas('calendar_leaves', ['id' => $leave->id, 'calendar_id' => $calendarA->id]);
+});
+
+// ── CalendarLeave: delete reauthorization + no NULL-calendar_id repair (#138 A4I review round 2) ──
+
+it('forbids a user in company A from deleting a CalendarLeave of company B obtained via withoutGlobalScope', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $calendarB = calendarFor($companyB->id);
+    $leaveB = CompanyContext::runForAllCompanies(reason: 'fixture', caller: __FILE__, callback: fn () => CalendarLeave::factory()->create(['calendar_id' => $calendarB->id, 'company_id' => $companyB->id]));
+
+    test()->actingAs(calendarMemberOf($companyA));
+
+    $unscoped = CalendarLeave::withoutGlobalScope(CompanyScope::class)->findOrFail($leaveB->id);
+
+    expect(fn () => $unscoped->delete())->toThrow(AuthorizationException::class);
+    $this->assertDatabaseHas('calendar_leaves', ['id' => $leaveB->id]);
+});
+
+it('fails closed when deleting a CalendarLeave with no authenticated user and no active CompanyContext', function () {
+    $calendar = CompanyContext::runForBootstrap(reason: 'fixture', caller: __FILE__, callback: fn () => Calendar::factory()->create());
+    $leave = CompanyContext::runForBootstrap(reason: 'fixture', caller: __FILE__, callback: fn () => CalendarLeave::factory()->create(['calendar_id' => $calendar->id, 'company_id' => $calendar->company_id]));
+
+    expect(fn () => $leave->delete())->toThrow(AuthorizationException::class);
+});
+
+it('does not let a historical CalendarLeave with a corrupted NULL calendar_id adopt one via an ordinary update', function () {
+    $company = Company::factory()->create();
+    test()->actingAs(calendarMemberOf($company));
+
+    $calendar = Calendar::factory()->create(['company_id' => $company->id]);
+
+    // The application can no longer persist calendar_id = NULL (mandatory,
+    // enforced in the `saving` listener) — simulate a pre-fix corrupted row
+    // via a raw insert, same technique as the getLeaveIntervalsBatch
+    // regression test in ManufacturingCompanyScopeTest.
+    $leaveId = DB::table('calendar_leaves')->insertGetId([
+        'name'        => 'corrupted historical row',
+        'time_type'   => 'leave',
+        'date_from'   => now(),
+        'date_to'     => now()->addDay(),
+        'company_id'  => $company->id,
+        'calendar_id' => null,
+        'created_at'  => now(),
+        'updated_at'  => now(),
+    ]);
+
+    $leave = CalendarLeave::findOrFail($leaveId);
+
+    expect(fn () => $leave->update(['calendar_id' => $calendar->id]))
+        ->toThrow(AuthorizationException::class);
+
+    $this->assertDatabaseHas('calendar_leaves', ['id' => $leaveId, 'calendar_id' => null]);
 });
 
 it('fails closed when creating a CalendarLeave with no authenticated user and no active CompanyContext', function () {

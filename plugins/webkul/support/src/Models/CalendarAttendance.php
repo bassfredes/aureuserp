@@ -129,15 +129,28 @@ class CalendarAttendance extends Model implements Sortable
      * parent must be write-authorized for the acting actor via
      * CompanyScope::assertCanWriteCompany(); a shared (company_id IS NULL)
      * parent requires super_admin or an explicit ALL_COMPANIES/BOOTSTRAP
-     * system context (#138 A4I).
+     * system context (#138 A4I). $allowTrashedParent distinguishes a new
+     * child (create must reject an archived Calendar) from an existing
+     * child's own persisted parent (update/delete must keep reauthorizing
+     * it even if the Calendar was archived afterward — #138 A4I review
+     * round 2). Calendar's SoftDeletes default scope already excludes a
+     * trashed row when withTrashed() is not applied, so create naturally
+     * hits the "could not be found" branch instead of needing a separate
+     * trashed() check.
      */
-    private static function assertParentIsWritable(?int $calendarId): void
+    private static function assertParentIsWritable(?int $calendarId, bool $allowTrashedParent): void
     {
         if ($calendarId === null) {
             throw new AuthorizationException('A CalendarAttendance requires a Calendar.');
         }
 
-        $calendar = Calendar::withoutGlobalScope(CompanyScope::class)->withTrashed()->find($calendarId);
+        $query = Calendar::withoutGlobalScope(CompanyScope::class);
+
+        if ($allowTrashedParent) {
+            $query->withTrashed();
+        }
+
+        $calendar = $query->find($calendarId);
 
         if (! $calendar) {
             throw new AuthorizationException('The related Calendar could not be found.');
@@ -173,7 +186,7 @@ class CalendarAttendance extends Model implements Sortable
 
             static::assertResourceFieldsAreNull($calendarAttendance);
             static::assertDisplayTypeIsValid($calendarAttendance->display_type);
-            static::assertParentIsWritable($calendarAttendance->calendar_id);
+            static::assertParentIsWritable($calendarAttendance->calendar_id, allowTrashedParent: false);
         });
 
         // calendar_id is fillable and creating()/deleting() alone never
@@ -187,11 +200,11 @@ class CalendarAttendance extends Model implements Sortable
 
             static::assertResourceFieldsAreNull($calendarAttendance);
             static::assertDisplayTypeIsValid($calendarAttendance->display_type);
-            static::assertParentIsWritable($calendarAttendance->getOriginal('calendar_id'));
+            static::assertParentIsWritable($calendarAttendance->getOriginal('calendar_id'), allowTrashedParent: true);
         });
 
         static::deleting(function (self $calendarAttendance) {
-            static::assertParentIsWritable($calendarAttendance->getOriginal('calendar_id'));
+            static::assertParentIsWritable($calendarAttendance->getOriginal('calendar_id'), allowTrashedParent: true);
         });
     }
 

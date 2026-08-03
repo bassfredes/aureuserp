@@ -1097,6 +1097,51 @@ A4I (familia calendarios: Calendar, CalendarAttendance, CalendarLeave, plugins s
     compartido (antes rota por assertRelatedBelongsToCompany fallando cerrado ante NULL),
     y el regression test directo sobre getLeaveIntervalsBatch() para la fuga cruzada
   - sin dispatch de CI remoto: validacion 100% local
+Correccion de revision A4I (review 4839130829, CHANGES_REQUIRED_A4I_CALENDAR_LIFECYCLE_AND_
+  SHARED_BUCKET): la revision tecnica sobre el head 40f5b6ee5 encontro cinco fallas no
+  cubiertas por la suite original de A4I (la marca "APROBADA" del parrafo anterior reflejaba
+  la autoevaluacion de esa entrega, no una revision tecnica independiente); corregidas en esta
+  ola sin tocar schema, helpers genericos ni otras familias:
+  - Calendar::getLeaveIntervalsBatch(): el bucket anonimo ($resource === null) mezclaba las
+    ausencias de TODAS las companias visibles para el actor (whereIn de CompanyScope), no solo
+    la compania efectiva; ademas anyCalendar=true ampliaba esa mezcla incluso para un usuario
+    autenticado. resolveAnonymousLeaveBucketCompanyId() ahora fija una unica compania efectiva
+    (la del propio Calendar si es company-owned; default_company_id o CompanyContext::COMPANY
+    si es compartido) y solo deja el bucket sin restriccion bajo ALL_COMPANIES/BOOTSTRAP
+    explicito combinado con anyCalendar=true; en cualquier otro caso ambiguo el bucket queda
+    vacio (falla cerrado sin romper el path de lectura con una excepcion).
+  - Calendar::restoring(): a diferencia de creating/updating/deleting/forceDeleting, no
+    reautorizaba la compania persistida de un Calendar company-owned (solo protegia el caso
+    compartido); ahora usa CompanyScope::assertCanWriteCompany() igual que los demas hooks.
+  - CalendarLeave: no tenia hook deleting (un delete cross-company via withoutGlobalScope()
+    pasaba sin autorizacion); ahora reautoriza la compania persistida antes de borrar. La
+    inmutabilidad de calendar_id solo comparaba cuando el valor original no era NULL, dejando
+    una via para "reparar" via update ordinario una fila historica corrupta con calendar_id
+    NULL (el mismo estado que el comodin removido en A4I podia producir); ahora compara sin
+    excepcion, incluida la transicion NULL -> valor.
+  - CalendarLeave::resolveEffectiveCompanyId() (rama resource): copiaba resource->calendar_id
+    sin validarlo. resolveResourceCalendar() ahora exige que el WorkCenter tenga calendar_id,
+    que ese Calendar exista, no este soft-deleted, y sea compartido o de la misma compania que
+    el WorkCenter -- cierra tanto un WorkCenter sin Calendar como un emparejamiento
+    WorkCenter/Calendar historicamente inconsistente (anterior a
+    WorkCenter::assertCalendarIsAssignable()). Se mantuvo dentro de CalendarLeave, sin tocar
+    WorkCenter.php: ninguna prueba exigio lo contrario.
+  - CalendarAttendance::assertParentIsWritable(): usaba withTrashed() sin distinguir creacion
+    de actualizacion/eliminacion, permitiendo crear una fila NUEVA bajo un Calendar ya
+    archivado. Ahora create rechaza un padre trashed (SoftDeletes ya excluye la fila sin
+    withTrashed(), no hizo falta un chequeo adicional); update/delete de una fila existente
+    siguen reautorizando el padre persistido aunque haya sido archivado despues.
+  - inventario sin cambios: 144/147/13 (6+7), verificado contra el JSON committeado (diff
+    vacio) y dos corridas fresh byte a byte identicas
+  - 13 tests nuevos (CalendarCompanyScopeTest y ManufacturingCompanyScopeTest), incluidos
+    ambos controles decisivos del review: usuario con dos companias (default + allowed) y dos
+    CalendarLeave reales sobre el mismo Calendar compartido; fila historica con calendar_id
+    NULL simulada via insert crudo, misma tecnica que el regression test de A4I para
+    getLeaveIntervalsBatch()
+  - suite completa: composer test 2237/2237, 5379 assertions (0 fallos). CompanyScopeAuditorTest
+    incluido y verde. Pint, composer validate --strict y git diff --check limpios sobre los
+    archivos de esta ola.
+  - sin dispatch de CI remoto: validacion 100% local
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
 #138 / #81: abiertos

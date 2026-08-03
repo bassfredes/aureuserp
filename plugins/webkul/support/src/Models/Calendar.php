@@ -36,6 +36,12 @@ class Calendar extends Model implements IncludesSharedCompanyRows
 {
     use HasCompanyScope, HasCustomFields, HasFactory, SoftDeletes;
 
+    /** Sentinel for resolveAnonymousLeaveBucketCompanyId(): no company restriction (ALL_COMPANIES/BOOTSTRAP + anyCalendar only). */
+    private const LEAVE_BUCKET_UNRESTRICTED = -1;
+
+    /** Sentinel for resolveAnonymousLeaveBucketCompanyId(): no single effective company could be determined — bucket stays empty. */
+    private const LEAVE_BUCKET_EMPTY = 0;
+
     protected $table = 'calendars';
 
     protected $fillable = [
@@ -161,7 +167,13 @@ class Calendar extends Model implements IncludesSharedCompanyRows
         });
 
         static::restoring(function (self $calendar) {
-            static::guardSharedRowMutation($calendar->company_id === null);
+            $companyId = $calendar->company_id;
+
+            static::guardSharedRowMutation($companyId === null);
+
+            if ($companyId !== null) {
+                CompanyScope::assertCanWriteCompany((int) $companyId);
+            }
         });
     }
 
@@ -468,6 +480,44 @@ class Calendar extends Model implements IncludesSharedCompanyRows
         return $resultPerResourceId;
     }
 
+    /**
+     * The `null`/anonymous bucket of getLeaveIntervalsBatch() represents
+     * exactly one effective company, never every company the caller's
+     * CompanyScope on CalendarLeave happens to make visible (#138 A4I
+     * review round 2 — a multi-company actor was seeing every allowed
+     * company's leaves merged into that one bucket). Returns
+     * LEAVE_BUCKET_UNRESTRICTED only when anyCalendar=true under an
+     * explicit ALL_COMPANIES/BOOTSTRAP system context — anyCalendar never
+     * widens company visibility for an authenticated user or a
+     * CompanyContext::COMPANY caller, only which calendars are searched.
+     * Returns LEAVE_BUCKET_EMPTY when no single effective company can be
+     * determined, so the bucket fails closed instead of guessing.
+     */
+    private function resolveAnonymousLeaveBucketCompanyId(bool $anyCalendar): int
+    {
+        if ($this->company_id !== null) {
+            return (int) $this->company_id;
+        }
+
+        $context = CompanyContext::current();
+
+        if ($anyCalendar && ($context?->mode === CompanyContextMode::ALL_COMPANIES || $context?->mode === CompanyContextMode::BOOTSTRAP)) {
+            return self::LEAVE_BUCKET_UNRESTRICTED;
+        }
+
+        if (Auth::check()) {
+            $companyId = Auth::user()?->default_company_id;
+
+            return $companyId !== null ? (int) $companyId : self::LEAVE_BUCKET_EMPTY;
+        }
+
+        if ($context?->mode === CompanyContextMode::COMPANY) {
+            return (int) $context->companyId;
+        }
+
+        return self::LEAVE_BUCKET_EMPTY;
+    }
+
     public function getLeaveIntervalsBatch(
         Carbon $startDt,
         Carbon $endDt,
@@ -485,6 +535,8 @@ class Calendar extends Model implements IncludesSharedCompanyRows
         if ($filters === null) {
             $filters = [['time_type', '=', 'leave']];
         }
+
+        $anonymousBucketCompanyId = $this->resolveAnonymousLeaveBucketCompanyId($anyCalendar);
 
         $resourcesByType = collect($resourcesList)
             ->filter()
@@ -531,6 +583,15 @@ class Calendar extends Model implements IncludesSharedCompanyRows
                         ! $leaveResource
                         && $resource
                         && $resource->company_id !== $leaveCompany?->id
+                    )
+                    || (
+                        ! $leaveResource
+                        && ! $resource
+                        && $anonymousBucketCompanyId !== self::LEAVE_BUCKET_UNRESTRICTED
+                        && (
+                            $anonymousBucketCompanyId === self::LEAVE_BUCKET_EMPTY
+                            || (int) $leaveCompany?->id !== $anonymousBucketCompanyId
+                        )
                     )
                 ) {
                     continue;

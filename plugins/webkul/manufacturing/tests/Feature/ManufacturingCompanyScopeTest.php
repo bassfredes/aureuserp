@@ -253,6 +253,64 @@ it('forbids a CalendarLeave resource pointing at a nonexistent or soft-deleted W
     ]))->toThrow(AuthorizationException::class);
 });
 
+it('forbids a CalendarLeave resource whose WorkCenter has no Calendar assigned', function () {
+    $companyA = Company::factory()->create();
+
+    test()->actingAs(User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id])));
+
+    $workCenter = WorkCenter::factory()->create(['company_id' => $companyA->id, 'calendar_id' => null]);
+
+    expect(fn () => CalendarLeave::factory()->create([
+        'company_id'    => null,
+        'calendar_id'   => null,
+        'resource_type' => $workCenter->getMorphClass(),
+        'resource_id'   => $workCenter->id,
+    ]))->toThrow(AuthorizationException::class);
+});
+
+it('forbids a CalendarLeave resource whose WorkCenter\'s own Calendar was since soft-deleted (#138 A4I review round 2)', function () {
+    $companyA = Company::factory()->create();
+
+    test()->actingAs(User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id])));
+
+    $calendar = Calendar::factory()->create(['company_id' => $companyA->id]);
+    $workCenter = WorkCenter::factory()->create(['company_id' => $companyA->id, 'calendar_id' => $calendar->id]);
+    $calendar->delete();
+
+    expect(fn () => CalendarLeave::factory()->create([
+        'company_id'    => null,
+        'calendar_id'   => null,
+        'resource_type' => $workCenter->getMorphClass(),
+        'resource_id'   => $workCenter->id,
+    ]))->toThrow(AuthorizationException::class);
+});
+
+it('forbids a CalendarLeave resource whose WorkCenter\'s own Calendar belongs to a different company than a legacy row it was never authorized against (#138 A4I review round 2)', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    $user->allowedCompanies()->syncWithoutDetaching([$companyB->id]);
+    test()->actingAs($user);
+
+    $calendarA = Calendar::factory()->create(['company_id' => $companyA->id]);
+    $workCenter = WorkCenter::factory()->create(['company_id' => $companyA->id, 'calendar_id' => $calendarA->id]);
+    $calendarB = Calendar::factory()->create(['company_id' => $companyB->id]);
+
+    // WorkCenter::assertCalendarIsAssignable() already blocks this pairing
+    // going forward — simulate a pre-existing inconsistent row (e.g. from
+    // before that guard existed) via a raw update, bypassing the model
+    // entirely, the only way such a row could still exist today.
+    DB::table('manufacturing_work_centers')->where('id', $workCenter->id)->update(['calendar_id' => $calendarB->id]);
+
+    expect(fn () => CalendarLeave::factory()->create([
+        'company_id'    => null,
+        'calendar_id'   => null,
+        'resource_type' => $workCenter->getMorphClass(),
+        'resource_id'   => $workCenter->id,
+    ]))->toThrow(AuthorizationException::class);
+});
+
 // ── Regression: getLeaveIntervalsBatch no longer leaks across calendars/companies ──
 
 it('no longer lets a CalendarLeave of another calendar/company leak into getLeaveIntervalsBatch\'s anonymous bucket (#138 A4I)', function () {
