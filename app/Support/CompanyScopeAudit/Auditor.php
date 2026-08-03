@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace App\Support\CompanyScopeAudit;
 
+use DateTimeImmutable;
 use Illuminate\Database\Eloquent\Model;
-use ReflectionClass;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
+use ReflectionClass;
 use RuntimeException;
 use SplFileInfo;
 use Throwable;
@@ -360,8 +361,8 @@ final class Auditor
         }
 
         return match ($row['status']) {
-            'missing_scope'      => 'real_gap_company_column',
-            'not_company_scoped' => 'real_gap_without_company_column',
+            'missing_scope'       => 'real_gap_company_column',
+            'not_company_scoped'  => 'real_gap_without_company_column',
             default               => $row['status'],
         };
     }
@@ -632,5 +633,187 @@ final class Auditor
         }
 
         return null;
+    }
+
+    /**
+     * Validates every accepted-risk registry entry STATICALLY: shape (all
+     * five fields non-empty strings, `review_by` a well-formed `Y-m-d`
+     * date), class autoloadable, concrete Eloquent model, and its `table`
+     * field matching the model's actual table right now — same discipline
+     * as validateManifest(). Deliberately does NOT check expiry here: an
+     * expired-but-otherwise-well-formed entry is not a broken registry, it
+     * is exactly the signal `--fail-on-unapproved-gaps` exists to catch
+     * (see annotateAcceptedRisks()) (#138 PR4, Codex adversarial-review
+     * recommendation, 2026-08-03).
+     *
+     * @return list<array{fqcn: string, type: string, message: string}>
+     */
+    public function validateAcceptedRiskRegistry(AcceptedRiskRegistry $registry): array
+    {
+        $violations = [];
+
+        foreach ($registry->entries() as $fqcn => $entry) {
+            $shapeViolations = $this->validateAcceptedRiskEntryShape($fqcn, $entry);
+
+            if ($shapeViolations !== []) {
+                // Same defense-in-depth reasoning as validateManifest(): an
+                // entry with a malformed shape is not safe to reflect on.
+                $violations = array_merge($violations, $shapeViolations);
+
+                continue;
+            }
+
+            $violations = array_merge($violations, $this->validateAcceptedRiskEntryAgainstReflection($fqcn, $entry));
+        }
+
+        return $violations;
+    }
+
+    /**
+     * @param  array{table?: mixed, tracking?: mixed, justification?: mixed, owner?: mixed, review_by?: mixed}  $entry
+     * @return list<array{fqcn: string, type: string, message: string}>
+     */
+    private function validateAcceptedRiskEntryShape(string $fqcn, array $entry): array
+    {
+        $violations = [];
+
+        foreach (AcceptedRiskRegistry::REQUIRED_FIELDS as $field) {
+            if (! isset($entry[$field]) || ! is_string($entry[$field]) || trim($entry[$field]) === '') {
+                $violations[] = [
+                    'fqcn'    => $fqcn,
+                    'type'    => 'invalid_shape',
+                    'message' => "Accepted-risk entry is missing a non-empty '{$field}' field.",
+                ];
+            }
+        }
+
+        if (
+            isset($entry['review_by'])
+            && is_string($entry['review_by'])
+            && trim($entry['review_by']) !== ''
+            && ! self::isWellFormedReviewByDate($entry['review_by'])
+        ) {
+            $violations[] = [
+                'fqcn'    => $fqcn,
+                'type'    => 'invalid_shape',
+                'message' => "Accepted-risk entry 'review_by' must be a valid 'Y-m-d' date, got '{$entry['review_by']}'.",
+            ];
+        }
+
+        return $violations;
+    }
+
+    private static function isWellFormedReviewByDate(string $value): bool
+    {
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+        $errors = DateTimeImmutable::getLastErrors();
+
+        return $date !== false && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0));
+    }
+
+    /**
+     * Purely static: reflection and `getTable()` only, never touches the
+     * schema builder or the database — same shape as
+     * validateEntryAgainstReflection() for ExceptionManifest.
+     *
+     * @param  array{table: string, tracking: string, justification: string, owner: string, review_by: string}  $entry
+     * @return list<array{fqcn: string, type: string, message: string}>
+     */
+    private function validateAcceptedRiskEntryAgainstReflection(string $fqcn, array $entry): array
+    {
+        if (! class_exists($fqcn)) {
+            return [[
+                'fqcn'    => $fqcn,
+                'type'    => 'class_not_found',
+                'message' => 'Class is not autoloadable — the accepted-risk entry is dangling and must be removed.',
+            ]];
+        }
+
+        try {
+            $reflection = new ReflectionClass($fqcn);
+
+            if ($reflection->isAbstract() || ! $reflection->isSubclassOf(Model::class)) {
+                return [[
+                    'fqcn'    => $fqcn,
+                    'type'    => 'class_not_found',
+                    'message' => 'Class exists but is not a concrete Eloquent model — the accepted-risk entry does not target an auditable class.',
+                ]];
+            }
+
+            /** @var Model $model */
+            $model = $reflection->newInstance();
+            $table = $model->getTable();
+
+            if ($table !== $entry['table']) {
+                return [[
+                    'fqcn'    => $fqcn,
+                    'type'    => 'table_mismatch',
+                    'message' => "Accepted-risk entry records table '{$entry['table']}' but the model's actual table is now '{$table}'.",
+                ]];
+            }
+        } catch (Throwable $exception) {
+            return [[
+                'fqcn'    => $fqcn,
+                'type'    => 'class_not_found',
+                'message' => 'Failed to reflect/instantiate the class: '.$exception->getMessage(),
+            ]];
+        }
+
+        return [];
+    }
+
+    /**
+     * Annotates every row with its accepted-risk status, without ever
+     * changing `classification`/`effective_status` — visibility, not
+     * reclassification (#138 PR4, Codex adversarial-review recommendation,
+     * 2026-08-03):
+     *   - `null`: not a real gap, accepted-risk status not applicable.
+     *   - `'unregistered'`: a real gap with no registry entry for its
+     *     exact FQCN, or an entry whose `table` does not exactly match
+     *     this row's table.
+     *   - `'expired'`: registered, table matches, but `review_by` has
+     *     already passed.
+     *   - `'approved'`: registered, table matches, `review_by` has not
+     *     yet passed.
+     *
+     * @param  list<array{plugin: string, class: string, file: string, table: string|null, has_company_id: bool|null, uses_company_scope: bool|null, status: string, error: string|null, classification: string|null, effective_status: string}>  $rows
+     * @return list<array{plugin: string, class: string, file: string, table: string|null, has_company_id: bool|null, uses_company_scope: bool|null, status: string, error: string|null, classification: string|null, effective_status: string, accepted_risk_status: string|null}>
+     */
+    public function annotateAcceptedRisks(array $rows, AcceptedRiskRegistry $registry, ?DateTimeImmutable $now = null): array
+    {
+        $now ??= new DateTimeImmutable('today');
+
+        return array_map(function (array $row) use ($registry, $now): array {
+            if (! $this->isRealGap($row)) {
+                $row['accepted_risk_status'] = null;
+
+                return $row;
+            }
+
+            $entry = $registry->get($row['class']);
+
+            if ($entry === null || ($entry['table'] ?? null) !== $row['table']) {
+                $row['accepted_risk_status'] = 'unregistered';
+
+                return $row;
+            }
+
+            $reviewBy = DateTimeImmutable::createFromFormat('!Y-m-d', (string) $entry['review_by']);
+            $row['accepted_risk_status'] = ($reviewBy !== false && $reviewBy >= $now) ? 'approved' : 'expired';
+
+            return $row;
+        }, $rows);
+    }
+
+    /**
+     * A real gap that `--fail-on-unapproved-gaps` must fail on: any real
+     * gap whose `accepted_risk_status` (set by annotateAcceptedRisks(), or
+     * absent entirely if that step was skipped) is not `'approved'`.
+     *
+     * @param  array{effective_status: string, accepted_risk_status?: string|null}  $row
+     */
+    public function isUnapprovedGap(array $row): bool
+    {
+        return $this->isRealGap($row) && ($row['accepted_risk_status'] ?? 'unregistered') !== 'approved';
     }
 }

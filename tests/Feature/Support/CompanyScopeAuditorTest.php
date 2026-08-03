@@ -2,6 +2,7 @@
 
 // apps/aureuserp/tests/Feature/Support/CompanyScopeAuditorTest.php
 
+use App\Support\CompanyScopeAudit\AcceptedRiskRegistry;
 use App\Support\CompanyScopeAudit\Auditor;
 use App\Support\CompanyScopeAudit\ExceptionManifest;
 use Illuminate\Database\Eloquent\Model;
@@ -11,6 +12,7 @@ use Webkul\Account\Models\Customer as AccountCustomer;
 use Webkul\Invoice\Models\Category;
 use Webkul\Partner\Models\Partner;
 use Webkul\Purchase\Models\Category as PurchaseCategory;
+use Webkul\Security\Models\Invitation;
 use Webkul\Support\Models\Currency;
 use Webkul\Support\Traits\HasCompanyScope;
 use Webkul\TableViews\Models\TableView;
@@ -39,20 +41,37 @@ beforeEach(fn () => TestBootstrapHelper::ensureERPInstalled());
  * 2026-07-20).
  *
  * @param  array<class-string, array<string, mixed>>  $manifestEntries
+ * @param  array<class-string, array<string, mixed>>|null  $acceptedRiskEntries  null means
+ *                                                                               "use the real, shipped config/company-scope-accepted-risks.php" — most manifest-focused
+ *                                                                               tests below don't care about the accepted-risk registry at all.
  */
-function runAuditScript(array $manifestEntries, array $args = []): Process
+function runAuditScript(array $manifestEntries, array $args = [], ?array $acceptedRiskEntries = null): Process
 {
     $manifestPath = tempnam(sys_get_temp_dir(), 'company-scope-manifest-').'.php';
     file_put_contents($manifestPath, '<?php return '.var_export($manifestEntries, true).';'.PHP_EOL);
 
+    $env = array_merge($_SERVER, $_ENV, ['COMPANY_SCOPE_MANIFEST_PATH' => $manifestPath]);
+
+    $acceptedRisksPath = null;
+
+    if ($acceptedRiskEntries !== null) {
+        $acceptedRisksPath = tempnam(sys_get_temp_dir(), 'company-scope-accepted-risks-').'.php';
+        file_put_contents($acceptedRisksPath, '<?php return '.var_export($acceptedRiskEntries, true).';'.PHP_EOL);
+        $env['COMPANY_SCOPE_ACCEPTED_RISKS_PATH'] = $acceptedRisksPath;
+    }
+
     $process = new Process(
         array_merge([PHP_BINARY, base_path('scripts/audit-company-scope.php')], $args),
         base_path(),
-        array_merge($_SERVER, $_ENV, ['COMPANY_SCOPE_MANIFEST_PATH' => $manifestPath]),
+        $env,
     );
     $process->run();
 
     @unlink($manifestPath);
+
+    if ($acceptedRisksPath !== null) {
+        @unlink($acceptedRisksPath);
+    }
 
     return $process;
 }
@@ -105,6 +124,11 @@ class AuditFixtureAliasB extends Model
 function auditorManifest(array $entries): ExceptionManifest
 {
     return new ExceptionManifest($entries);
+}
+
+function acceptedRiskRegistry(array $entries): AcceptedRiskRegistry
+{
+    return new AcceptedRiskRegistry($entries);
 }
 
 // --- classification / real-gap accounting ---------------------------------
@@ -611,4 +635,331 @@ it('throws for a nonexistent explicitly requested plugin', function () {
 
     expect(fn () => $auditor->inspectPlugins(['totally-not-a-plugin']))
         ->toThrow(RuntimeException::class);
+});
+
+// --- accepted-risk registry: validation (registry hardening) ----------------
+
+it('rejects an accepted-risk entry with an empty required shape field', function (string $missingKey) {
+    $auditor = new Auditor;
+
+    $entry = [
+        'table'         => 'accounts_journals',
+        'tracking'      => '#138',
+        'justification' => 'fixture: missing a key entirely on purpose',
+        'owner'         => 'Fixture Owner',
+        'review_by'     => '2099-01-01',
+    ];
+    unset($entry[$missingKey]);
+
+    $registry = acceptedRiskRegistry([
+        AuditFixtureMissingScopeModel::class => $entry,
+    ]);
+
+    $violations = $auditor->validateAcceptedRiskRegistry($registry);
+
+    expect($violations)->toHaveCount(1);
+    expect($violations[0]['type'])->toBe('invalid_shape');
+    expect($violations[0]['message'])->toContain($missingKey);
+})->with(['table', 'tracking', 'justification', 'owner', 'review_by']);
+
+it('rejects an accepted-risk entry whose review_by is not a well-formed Y-m-d date', function (string $malformedDate) {
+    $auditor = new Auditor;
+
+    $registry = acceptedRiskRegistry([
+        AuditFixtureMissingScopeModel::class => [
+            'table'         => 'accounts_journals',
+            'tracking'      => '#138',
+            'justification' => 'fixture: malformed review_by on purpose',
+            'owner'         => 'Fixture Owner',
+            'review_by'     => $malformedDate,
+        ],
+    ]);
+
+    $violations = $auditor->validateAcceptedRiskRegistry($registry);
+    $shape = array_filter($violations, fn (array $v) => $v['type'] === 'invalid_shape' && str_contains($v['message'], 'review_by'));
+    expect($shape)->not->toBeEmpty();
+})->with([
+    'not a date at all'             => 'not-a-date',
+    'wrong format (slashes)'        => '2099/01/01',
+    'calendar-invalid (month 13)'   => '2099-13-01',
+    'calendar-invalid (Feb 30)'     => '2099-02-30',
+]);
+
+it('rejects an accepted-risk entry whose recorded table does not match the real table', function () {
+    $auditor = new Auditor;
+    $registry = acceptedRiskRegistry([
+        AuditFixtureMissingScopeModel::class => [
+            'table'         => 'this_table_does_not_match',
+            'tracking'      => '#138',
+            'justification' => 'fixture: wrong table on purpose',
+            'owner'         => 'Fixture Owner',
+            'review_by'     => '2099-01-01',
+        ],
+    ]);
+
+    $violations = $auditor->validateAcceptedRiskRegistry($registry);
+    $mismatch = array_filter($violations, fn (array $v) => $v['type'] === 'table_mismatch' && $v['fqcn'] === AuditFixtureMissingScopeModel::class);
+    expect($mismatch)->toHaveCount(1);
+});
+
+it('rejects an accepted-risk entry whose class no longer exists', function () {
+    $auditor = new Auditor;
+    $registry = acceptedRiskRegistry([
+        'Webkul\\Nonexistent\\Models\\GhostClass' => [
+            'table'         => 'partners_partners',
+            'tracking'      => '#138',
+            'justification' => 'fixture: dangling entry on purpose',
+            'owner'         => 'Fixture Owner',
+            'review_by'     => '2099-01-01',
+        ],
+    ]);
+
+    $violations = $auditor->validateAcceptedRiskRegistry($registry);
+    expect($violations)->toHaveCount(1);
+    expect($violations[0]['type'])->toBe('class_not_found');
+});
+
+it('accepts a well-formed accepted-risk entry with no violations', function () {
+    $auditor = new Auditor;
+    $registry = acceptedRiskRegistry([
+        AuditFixtureMissingScopeModel::class => [
+            'table'         => 'accounts_journals',
+            'tracking'      => '#138',
+            'justification' => 'fixture: well-formed entry',
+            'owner'         => 'Fixture Owner',
+            'review_by'     => '2099-01-01',
+        ],
+    ]);
+
+    expect($auditor->validateAcceptedRiskRegistry($registry))->toBeEmpty();
+});
+
+it('validates the real, shipped accepted-risk registry with no violations', function () {
+    $auditor = new Auditor;
+    $registry = AcceptedRiskRegistry::default();
+
+    expect($auditor->validateAcceptedRiskRegistry($registry))->toBeEmpty();
+    expect($registry->has(Invitation::class))->toBeTrue();
+    expect($registry->get(Invitation::class)['table'])->toBe('user_invitations');
+});
+
+// --- accepted-risk registry: annotation / unapproved-gap accounting ---------
+
+it('annotates a real gap registered with a future review_by as approved', function () {
+    $auditor = new Auditor;
+    $registry = acceptedRiskRegistry([
+        AuditFixtureMissingScopeModel::class => [
+            'table'         => 'accounts_journals',
+            'tracking'      => '#138',
+            'justification' => 'fixture: approved risk',
+            'owner'         => 'Fixture Owner',
+            'review_by'     => '2099-01-01',
+        ],
+    ]);
+
+    $row = $auditor->inspectClass('fixture', AuditFixtureMissingScopeModel::class, 'fixture');
+    [$classified] = $auditor->classifyRows([$row], auditorManifest([]));
+    [$annotated] = $auditor->annotateAcceptedRisks([$classified], $registry, new DateTimeImmutable('2026-08-03'));
+
+    expect($annotated['effective_status'])->toBe('real_gap_company_column');
+    expect($annotated['accepted_risk_status'])->toBe('approved');
+    expect($auditor->isUnapprovedGap($annotated))->toBeFalse();
+});
+
+it('annotates a real gap registered with a past review_by as expired, and counts it as an unapproved gap', function () {
+    $auditor = new Auditor;
+    $registry = acceptedRiskRegistry([
+        AuditFixtureMissingScopeModel::class => [
+            'table'         => 'accounts_journals',
+            'tracking'      => '#138',
+            'justification' => 'fixture: expired risk',
+            'owner'         => 'Fixture Owner',
+            'review_by'     => '2020-01-01',
+        ],
+    ]);
+
+    $row = $auditor->inspectClass('fixture', AuditFixtureMissingScopeModel::class, 'fixture');
+    [$classified] = $auditor->classifyRows([$row], auditorManifest([]));
+    [$annotated] = $auditor->annotateAcceptedRisks([$classified], $registry, new DateTimeImmutable('2026-08-03'));
+
+    expect($annotated['accepted_risk_status'])->toBe('expired');
+    expect($auditor->isUnapprovedGap($annotated))->toBeTrue();
+});
+
+it('annotates a real gap with no matching registry entry as unregistered, and counts it as an unapproved gap', function () {
+    $auditor = new Auditor;
+    $registry = acceptedRiskRegistry([]);
+
+    $row = $auditor->inspectClass('fixture', AuditFixtureMissingScopeModel::class, 'fixture');
+    [$classified] = $auditor->classifyRows([$row], auditorManifest([]));
+    [$annotated] = $auditor->annotateAcceptedRisks([$classified], $registry);
+
+    expect($annotated['accepted_risk_status'])->toBe('unregistered');
+    expect($auditor->isUnapprovedGap($annotated))->toBeTrue();
+});
+
+it('treats a registry entry whose table does not match the row as unregistered, never as an implicit approval', function () {
+    // Defense in depth: validateAcceptedRiskRegistry() already rejects this
+    // shape (table_mismatch) before the CLI ever reaches annotation, but
+    // annotateAcceptedRisks() itself must not trust an unvalidated registry
+    // either — an exact FQCN+table match is required, not FQCN alone.
+    $auditor = new Auditor;
+    $registry = acceptedRiskRegistry([
+        AuditFixtureMissingScopeModel::class => [
+            'table'         => 'some_other_table',
+            'tracking'      => '#138',
+            'justification' => 'fixture: table does not match on purpose',
+            'owner'         => 'Fixture Owner',
+            'review_by'     => '2099-01-01',
+        ],
+    ]);
+
+    $row = $auditor->inspectClass('fixture', AuditFixtureMissingScopeModel::class, 'fixture');
+    [$classified] = $auditor->classifyRows([$row], auditorManifest([]));
+    [$annotated] = $auditor->annotateAcceptedRisks([$classified], $registry);
+
+    expect($annotated['accepted_risk_status'])->toBe('unregistered');
+    expect($auditor->isUnapprovedGap($annotated))->toBeTrue();
+});
+
+it('never annotates a non-gap row (scoped/classified_exception) with an accepted-risk status', function () {
+    $auditor = new Auditor;
+    $registry = acceptedRiskRegistry([]);
+
+    $scopedRow = $auditor->inspectClass('fixture', AuditFixtureScopedModel::class, 'fixture');
+    [$classifiedScoped] = $auditor->classifyRows([$scopedRow], auditorManifest([]));
+    [$annotatedScoped] = $auditor->annotateAcceptedRisks([$classifiedScoped], $registry);
+    expect($annotatedScoped['accepted_risk_status'])->toBeNull();
+    expect($auditor->isUnapprovedGap($annotatedScoped))->toBeFalse();
+
+    $exceptionRow = $auditor->inspectClass('support', Currency::class, 'fixture');
+    [$classifiedException] = $auditor->classifyRows([$exceptionRow], ExceptionManifest::default());
+    [$annotatedException] = $auditor->annotateAcceptedRisks([$classifiedException], $registry);
+    expect($annotatedException['accepted_risk_status'])->toBeNull();
+    expect($auditor->isUnapprovedGap($annotatedException))->toBeFalse();
+});
+
+// --- accepted-risk registry: real CLI orchestration (--fail-on-unapproved-gaps) ---
+
+it('the real CLI script exits 0 for --fail-on-unapproved-gaps against the shipped manifest and registry, with Invitation as the only, approved gap', function () {
+    $process = new Process(
+        [PHP_BINARY, base_path('scripts/audit-company-scope.php'), '--plugins=security', '--format=json', '--fail-on-unapproved-gaps'],
+        base_path(),
+        array_merge($_SERVER, $_ENV),
+    );
+    $process->run();
+
+    expect($process->getExitCode())->toBe(0);
+
+    $payload = json_decode($process->getOutput(), true);
+    expect($payload['manifest_violations'])->toBe([]);
+    expect($payload['accepted_risk_violations'])->toBe([]);
+    expect($payload['summary']['real_gaps_with_company_id'])->toBe(1);
+    expect($payload['summary']['unapproved_gaps'])->toBe(0);
+    expect($payload['summary']['accepted_risks'])->toBe(1);
+
+    $invitationRow = collect($payload['rows'])->firstWhere('class', Invitation::class);
+    expect($invitationRow)->not->toBeNull();
+    expect($invitationRow['effective_status'])->toBe('real_gap_company_column');
+    expect($invitationRow['accepted_risk_status'])->toBe('approved');
+});
+
+it('the real CLI script\'s --fail-on-missing stays strict (exit 1) even though the sole real gap is an approved accepted risk', function () {
+    $process = new Process(
+        [PHP_BINARY, base_path('scripts/audit-company-scope.php'), '--plugins=security', '--format=json', '--fail-on-missing'],
+        base_path(),
+        array_merge($_SERVER, $_ENV),
+    );
+    $process->run();
+
+    expect($process->getExitCode())->toBe(1);
+});
+
+it('the real CLI script exits 1 for --fail-on-unapproved-gaps when the registry has no entry for Invitation', function () {
+    $process = runAuditScript(
+        ExceptionManifest::default()->entries(),
+        ['--plugins=security', '--format=json', '--fail-on-unapproved-gaps'],
+        [],
+    );
+
+    expect($process->getExitCode())->toBe(1);
+
+    $payload = json_decode($process->getOutput(), true);
+    expect($payload['summary']['unapproved_gaps'])->toBe(1);
+    expect($payload['summary']['accepted_risks'])->toBe(0);
+
+    $invitationRow = collect($payload['rows'])->firstWhere('class', Invitation::class);
+    expect($invitationRow['accepted_risk_status'])->toBe('unregistered');
+});
+
+it('the real CLI script exits 1 for --fail-on-unapproved-gaps when Invitation\'s registry entry has expired', function () {
+    $process = runAuditScript(
+        ExceptionManifest::default()->entries(),
+        ['--plugins=security', '--format=json', '--fail-on-unapproved-gaps'],
+        [
+            Invitation::class => [
+                'table'         => 'user_invitations',
+                'tracking'      => '#138',
+                'justification' => 'fixture: deliberately expired',
+                'owner'         => 'Fixture Owner',
+                'review_by'     => '2020-01-01',
+            ],
+        ],
+    );
+
+    expect($process->getExitCode())->toBe(1);
+
+    $payload = json_decode($process->getOutput(), true);
+    expect($payload['summary']['unapproved_gaps'])->toBe(1);
+
+    $invitationRow = collect($payload['rows'])->firstWhere('class', Invitation::class);
+    expect($invitationRow['accepted_risk_status'])->toBe('expired');
+});
+
+it('the real CLI script exits 0 for --fail-on-unapproved-gaps with a fixture registry entry covering Invitation', function () {
+    $process = runAuditScript(
+        ExceptionManifest::default()->entries(),
+        ['--plugins=security', '--format=json', '--fail-on-unapproved-gaps'],
+        [
+            Invitation::class => [
+                'table'         => 'user_invitations',
+                'tracking'      => '#138',
+                'justification' => 'fixture: freshly approved',
+                'owner'         => 'Fixture Owner',
+                'review_by'     => '2099-01-01',
+            ],
+        ],
+    );
+
+    expect($process->getExitCode())->toBe(0);
+
+    $payload = json_decode($process->getOutput(), true);
+    expect($payload['summary']['unapproved_gaps'])->toBe(0);
+    expect($payload['summary']['accepted_risks'])->toBe(1);
+});
+
+it('the real CLI script exits 2 on a malformed accepted-risk entry and never warns, before it ever computes a summary', function () {
+    $process = runAuditScript(
+        ExceptionManifest::default()->entries(),
+        ['--plugins=security', '--format=json'],
+        [
+            Invitation::class => [
+                'table'    => 'user_invitations',
+                'tracking' => '#138',
+                // 'justification' and 'owner' and 'review_by' missing on purpose.
+            ],
+        ],
+    );
+
+    expect($process->getExitCode())->toBe(2);
+
+    $combined = $process->getOutput().$process->getErrorOutput();
+    expect($combined)->not->toContain('Undefined array key');
+    expect($combined)->not->toContain('Warning');
+
+    $payload = json_decode($process->getOutput(), true);
+    expect($payload)->not->toBeNull();
+    expect($payload['rows'])->toBeNull();
+    expect($payload['summary'])->toBeNull();
+    expect($payload['accepted_risk_violations'])->not->toBeEmpty();
 });
