@@ -7,13 +7,31 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Webkul\Chatter\Concerns\ResolvesChatterCompany;
 use Webkul\Chatter\Services\ChatterNotificationService;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\ActivityType;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
+use Webkul\Support\Traits\HasCompanyScope;
 
-class Message extends Model
+/**
+ * company_id is always derived from `messageable` (see
+ * ResolvesChatterCompany::applyChatterOwnerCompany()), never from the
+ * acting causer — a caller passing an explicit company_id is only ever
+ * used as a cross-check, rejected on mismatch, never trusted as the source
+ * of truth (#138 PR4 chatter gap, 2026-08-03 Codex adversarial review).
+ * IncludesSharedCompanyRows: a null company_id here means either a
+ * legitimate company_or_shared owner, or a pre-existing row from before
+ * this migration that has not been backfilled yet (see
+ * Console\Commands\BackfillChatterCompanyId) — visible everywhere rather
+ * than becoming invisible to everyone until backfilled, matching the
+ * ActivityPlan/Route precedent for company_or_shared rollouts.
+ */
+class Message extends Model implements IncludesSharedCompanyRows
 {
+    use HasCompanyScope, ResolvesChatterCompany;
+
     protected $table = 'chatter_messages';
 
     protected $fillable = [
@@ -75,6 +93,10 @@ class Message extends Model
     public static function boot()
     {
         parent::boot();
+
+        static::saving(function (self $message) {
+            static::applyChatterOwnerCompany($message, 'messageable');
+        });
 
         $user = Filament::auth()->user() ?? Auth::user();
 

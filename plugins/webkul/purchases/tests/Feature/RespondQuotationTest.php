@@ -1,12 +1,15 @@
 <?php
 
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
 use Webkul\Chatter\Models\Message;
 use Webkul\Partner\Models\Partner;
 use Webkul\Purchase\Enums\OrderState;
 use Webkul\Purchase\Models\Order;
 use Webkul\Purchase\Services\QuotationResponseService;
+use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 require_once __DIR__.'/../../../support/tests/Helpers/TestBootstrapHelper.php';
 
@@ -21,7 +24,7 @@ beforeEach(function () {
     // cached name index, which isn't rebuilt just by adding routes after
     // it was first queried — force the rebuild explicitly or the very
     // first test in this file sees the route as undefined.
-    if (! app()->routesAreCached() && ! \Illuminate\Support\Facades\Route::has('purchases.quotations.respond')) {
+    if (! app()->routesAreCached() && ! Route::has('purchases.quotations.respond')) {
         require base_path('plugins/webkul/purchases/routes/web.php');
         app('router')->getRoutes()->refreshNameLookups();
     }
@@ -54,6 +57,25 @@ function signedRespondUrl(Order $order, string $action): string
 function permanentSignedRespondUrl(Order $order, string $action): string
 {
     return URL::signedRoute('purchases.quotations.respond', ['order' => $order->id, 'action' => $action]);
+}
+
+/**
+ * Message now carries real CompanyScope of its own (#138 PR4 chatter gap,
+ * 2026-08-03) — reading it through $order->messages() is correctly scoped
+ * to the acting session/CompanyContext, but this whole file's premise is
+ * verifying what QuotationResponseService actually WROTE regardless of who
+ * (if anyone) is "watching" afterward, including from an authenticated
+ * other-company session (see the two tests below explicitly proving the
+ * message belongs to the order's own company, not the acting session's).
+ * An authoritative read bypassing the scope, keyed by the order's own
+ * identity, is what these assertions need — the write-side guarantee is
+ * exercised for real by ChatterCompanyScopeTest, not diluted here.
+ */
+function orderMessages(Order $order)
+{
+    return Message::withoutGlobalScope(CompanyScope::class)
+        ->where('messageable_type', $order->getMorphClass())
+        ->where('messageable_id', $order->id);
 }
 
 // ── Capability and HTTP ──────────────────────────────────────────────────────
@@ -183,7 +205,7 @@ it('rejects an expired temporary signature on POST', function () {
  */
 it('accepts a valid POST and confirms the order, recording new messages only once', function () {
     $order = sentOrderWithVendor();
-    $baseline = $order->messages()->count();
+    $baseline = orderMessages($order)->count();
 
     test()->post(signedRespondUrl($order, 'accept'))->assertOk();
 
@@ -191,12 +213,12 @@ it('accepts a valid POST and confirms the order, recording new messages only onc
 
     expect($order->mail_reception_confirmed)->toBeTrue()
         ->and($order->mail_reception_declined)->toBeFalse()
-        ->and($order->messages()->count())->toBeGreaterThan($baseline);
+        ->and(orderMessages($order)->count())->toBeGreaterThan($baseline);
 });
 
 it('declines a valid POST and records the order as declined, recording new messages only once', function () {
     $order = sentOrderWithVendor();
-    $baseline = $order->messages()->count();
+    $baseline = orderMessages($order)->count();
 
     test()->post(signedRespondUrl($order, 'decline'))->assertOk();
 
@@ -204,7 +226,7 @@ it('declines a valid POST and records the order as declined, recording new messa
 
     expect($order->mail_reception_declined)->toBeTrue()
         ->and($order->mail_reception_confirmed)->toBeFalse()
-        ->and($order->messages()->count())->toBeGreaterThan($baseline);
+        ->and(orderMessages($order)->count())->toBeGreaterThan($baseline);
 });
 
 // ── Message company_id and causer (review round 2) ──────────────────────────
@@ -221,7 +243,7 @@ it('records the response message under the order\'s own company, with the vendor
 
     test()->post(signedRespondUrl($order, 'accept'))->assertOk();
 
-    $message = $order->fresh()->messages()->where('type', 'comment')->latest('id')->first();
+    $message = orderMessages($order)->where('type', 'comment')->latest('id')->first();
 
     expect($message)->not->toBeNull()
         ->and($message->company_id)->toBe($order->company_id)
@@ -233,14 +255,14 @@ it('records the response message under the order\'s own company and the vendor a
     $order = sentOrderWithVendor();
 
     $otherCompany = Company::factory()->create();
-    $otherCompanyUser = \Webkul\Security\Models\User::withoutEvents(fn () => \Webkul\Security\Models\User::factory()->create([
+    $otherCompanyUser = User::withoutEvents(fn () => User::factory()->create([
         'default_company_id' => $otherCompany->id,
     ]));
     test()->actingAs($otherCompanyUser);
 
     test()->post(signedRespondUrl($order, 'accept'))->assertOk();
 
-    $message = $order->fresh()->messages()->where('type', 'comment')->latest('id')->first();
+    $message = orderMessages($order)->where('type', 'comment')->latest('id')->first();
 
     expect($message->company_id)->toBe($order->company_id)
         ->and($message->company_id)->not->toBe($otherCompany->id)
@@ -255,29 +277,29 @@ it('is idempotent on a repeated accept: 200, no new message on the replay', func
     $order = sentOrderWithVendor();
 
     test()->post(signedRespondUrl($order, 'accept'))->assertOk();
-    $afterFirst = $order->refresh()->messages()->count();
+    $afterFirst = orderMessages(tap($order)->refresh())->count();
 
     test()->post(signedRespondUrl($order, 'accept'))->assertOk();
 
-    expect($order->refresh()->messages()->count())->toBe($afterFirst);
+    expect(orderMessages(tap($order)->refresh())->count())->toBe($afterFirst);
 });
 
 it('is idempotent on a repeated decline: 200, no new message on the replay', function () {
     $order = sentOrderWithVendor();
 
     test()->post(signedRespondUrl($order, 'decline'))->assertOk();
-    $afterFirst = $order->refresh()->messages()->count();
+    $afterFirst = orderMessages(tap($order)->refresh())->count();
 
     test()->post(signedRespondUrl($order, 'decline'))->assertOk();
 
-    expect($order->refresh()->messages()->count())->toBe($afterFirst);
+    expect(orderMessages(tap($order)->refresh())->count())->toBe($afterFirst);
 });
 
 it('rejects accept after an existing decline with 409, without changing flags or adding messages', function () {
     $order = sentOrderWithVendor();
 
     test()->post(signedRespondUrl($order, 'decline'))->assertOk();
-    $afterDecline = $order->refresh()->messages()->count();
+    $afterDecline = orderMessages(tap($order)->refresh())->count();
 
     test()->post(signedRespondUrl($order, 'accept'))->assertStatus(409);
 
@@ -285,14 +307,14 @@ it('rejects accept after an existing decline with 409, without changing flags or
 
     expect($order->mail_reception_declined)->toBeTrue()
         ->and($order->mail_reception_confirmed)->toBeFalse()
-        ->and($order->messages()->count())->toBe($afterDecline);
+        ->and(orderMessages($order)->count())->toBe($afterDecline);
 });
 
 it('rejects decline after an existing accept with 409, without changing flags or adding messages', function () {
     $order = sentOrderWithVendor();
 
     test()->post(signedRespondUrl($order, 'accept'))->assertOk();
-    $afterAccept = $order->refresh()->messages()->count();
+    $afterAccept = orderMessages(tap($order)->refresh())->count();
 
     test()->post(signedRespondUrl($order, 'decline'))->assertStatus(409);
 
@@ -300,7 +322,7 @@ it('rejects decline after an existing accept with 409, without changing flags or
 
     expect($order->mail_reception_confirmed)->toBeTrue()
         ->and($order->mail_reception_declined)->toBeFalse()
-        ->and($order->messages()->count())->toBe($afterAccept);
+        ->and(orderMessages($order)->count())->toBe($afterAccept);
 });
 
 it('fails closed with 409 when both flags are already true (historical-invalid state), without adding messages', function () {
@@ -308,11 +330,11 @@ it('fails closed with 409 when both flags are already true (historical-invalid s
         'mail_reception_confirmed' => true,
         'mail_reception_declined'  => true,
     ]);
-    $baseline = $order->messages()->count();
+    $baseline = orderMessages($order)->count();
 
     test()->post(signedRespondUrl($order, 'accept'))->assertStatus(409);
 
-    expect($order->refresh()->messages()->count())->toBe($baseline);
+    expect(orderMessages(tap($order)->refresh())->count())->toBe($baseline);
 });
 
 // ── State and partner ─────────────────────────────────────────────────────────
@@ -366,7 +388,7 @@ it('does not extend the capability to another authenticated company-scoped sessi
     // a Partner) for every model, not just User.
     $otherCompany = Company::factory()->create();
 
-    $otherCompanyUser = \Webkul\Security\Models\User::withoutEvents(fn () => \Webkul\Security\Models\User::factory()->create([
+    $otherCompanyUser = User::withoutEvents(fn () => User::factory()->create([
         'default_company_id' => $otherCompany->id,
     ]));
 
@@ -400,17 +422,17 @@ it('leaves flags and messages untouched when the order cannot be found', functio
  */
 it('rolls back the order update when writing the response message fails', function () {
     $order = sentOrderWithVendor();
-    $baseline = $order->messages()->count();
+    $baseline = orderMessages($order)->count();
 
     Message::creating(function (Message $message) {
         if ($message->type === 'comment' && str_starts_with((string) $message->body, 'The RFQ has been')) {
-            throw new \RuntimeException('Simulated failure while recording the RFQ response.');
+            throw new RuntimeException('Simulated failure while recording the RFQ response.');
         }
     });
 
     try {
         expect(fn () => test()->withoutExceptionHandling()->post(signedRespondUrl($order, 'accept')))
-            ->toThrow(\RuntimeException::class, 'Simulated failure while recording the RFQ response.');
+            ->toThrow(RuntimeException::class, 'Simulated failure while recording the RFQ response.');
     } finally {
         Message::flushEventListeners();
     }
@@ -419,7 +441,7 @@ it('rolls back the order update when writing the response message fails', functi
 
     expect($order->mail_reception_confirmed)->toBeFalse()
         ->and($order->mail_reception_declined)->toBeFalse()
-        ->and($order->messages()->count())->toBe($baseline);
+        ->and(orderMessages($order)->count())->toBe($baseline);
 });
 
 // ── Service-level validation (review round 2) ───────────────────────────────
@@ -430,7 +452,7 @@ it('rolls back the order update when writing the response message fails', functi
 
 it('fails closed on an unknown action at the service level, before any lookup or write', function () {
     $order = sentOrderWithVendor();
-    $baseline = $order->messages()->count();
+    $baseline = orderMessages($order)->count();
 
     $result = app(QuotationResponseService::class)->respond($order->id, 'delete');
 
@@ -441,5 +463,5 @@ it('fails closed on an unknown action at the service level, before any lookup or
 
     expect($order->mail_reception_confirmed)->toBeFalse()
         ->and($order->mail_reception_declined)->toBeFalse()
-        ->and($order->messages()->count())->toBe($baseline);
+        ->and(orderMessages($order)->count())->toBe($baseline);
 });

@@ -66,6 +66,13 @@ trait HasLogActivity
                 'properties'       => $changes,
             ]);
         } catch (Exception $e) {
+            // Includes AuthorizationException from resolveChatterCompanyId()
+            // (via addMessage() -> Message's saving hook) for an actorless
+            // write on a global-owner record with no company scope of its
+            // own (e.g. Partner) — expected, intentional fail-closed
+            // swallow, not a bug. Background/console processes with no
+            // authenticated actor silently stop recording activity logs
+            // for those owners rather than logging with a null company_id.
             report($e);
 
             return null;

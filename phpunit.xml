@@ -91,6 +91,16 @@
         <testsuite name="PaymentsCompanyScopeFeature">
             <directory>plugins/webkul/payments/tests/Feature/CompanyScope</directory>
         </testsuite>
+        <!--
+        #138 PR4 chatter gap: chatter had zero tests of its own before this
+        wave, so (unlike the CompanyScope-subdirectory-only precedent above
+        for recruitments/payments) the whole plugins/webkul/chatter/tests/Feature
+        is registered — there is no preexisting, unrelated failure history
+        to accidentally pull in.
+        -->
+        <testsuite name="ChatterFeature">
+            <directory>plugins/webkul/chatter/tests/Feature</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>

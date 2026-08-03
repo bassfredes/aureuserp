@@ -1250,6 +1250,88 @@ Familia employees residual: cierra los 3 gaps del cluster employees de PR4 (#138
   validacion 100% local. Quedan 4 gaps totales en todo PR4: los 3 de chatter (parent-derivado
   polimorfico, requiere diseno nuevo) y el 1 de security/Invitation (diferido por decision,
   bajo riesgo, no listable).
+Chatter (Message/Attachment/Follower): cierra los 3 gaps residuales de PR4 (#138) del unico
+  cluster que si requeria diseno nuevo -- chatter es polimorfico sobre al menos 19 modelos
+  HasChatter no homogeneos (Company es su propio root_company_entity, Partner es
+  global_party_identity sin scope propio, el resto strict_company/company_or_shared via
+  HasCompanyScope). Diseno decidido via Codex adversarial-review, no manualmente: nuevo
+  trait ResolvesChatterCompany (Concerns/) es el unico punto que resuelve "a que compania
+  pertenece esta fila de chatter", reemplazando la logica previa que derivaba company_id del
+  USUARIO ACTOR (HasChatter::addMessage() leia $user?->defaultCompany?->id) -- un actor de la
+  compania A podia etiquetar como A un mensaje sobre un registro de la compania B, o un actor
+  cuya compania default difiere del registro que comenta lo etiquetaba mal. La compania debe
+  venir siempre del registro comentado/seguido, nunca de quien actua. Fail-closed por diseno:
+  el unico null producido es un owner HasCompanyScope legitimamente company_or_shared con su
+  propio company_id ya null -- nunca un fallback silencioso para un owner no resuelto; un
+  owner sin scope propio (Partner) sin CompanyContext de modo compania activo ni usuario
+  autenticado con compania default lanza AuthorizationException. Message/Attachment/Follower
+  ganan HasCompanyScope + IncludesSharedCompanyRows (null visible en todos lados, nunca
+  invisible, mismo precedente ActivityPlan/Route) + un unico listener saving compartido
+  (applyChatterOwnerCompany) que re-deriva y re-autoriza company_id en CADA save (no solo
+  cuando dirty, aislamiento de lectura no es lo mismo que autorizacion de escritura):
+  company_id explicito del caller solo se acepta como cross-check contra el valor derivado,
+  nunca como fuente de verdad, rechazado en mismatch; el owner (messageable/followable) no
+  puede cambiar en un update existente. Attachment gana ademas assertMessageConsistency:
+  cuando message_id esta presente, el Message referenciado debe compartir el mismo owner Y la
+  misma compania, o se rechaza. Migracion nueva agrega company_id NULLABLE a
+  chatter_followers (Message/Attachment ya la tenian) -- deliberadamente NO agregada a
+  chatter_followers_unique: company_id es funcion pura de followable_id, ampliar la unique key
+  solo dejaria un bug real de fila duplicada esconderse detras de un company_id distinto en
+  vez de ser atrapado por la unique existente. Comando Artisan chatter:backfill-company
+  (preflight-then-backfill sobre las 3 tablas, DB facade directo, mismo patron que
+  sales:tags:backfill-company/A4J): a diferencia de Tag (relacion N:1, conflictos reales
+  posibles), cada fila de chatter tiene exactamente UN owner polimorfico, asi que no hay caso
+  "compania en conflicto" que aborte una tabla entera -- una fila es resolvable o requiere
+  resolucion manual (owner ausente/hard-deleted, clase de morph desconocida, o owner
+  global_party_identity sin scope propio, nunca inferido desde el creator). Correccion
+  aplicada durante el diseno (no en review posterior): el comando tambien escanea filas que YA
+  tienen company_id no-null, no solo whereNull -- datos legacy escritos por la logica previa
+  derivada del actor pueden estar mal etiquetados sin ser nunca null, y un escaneo solo-null
+  los dejaria mal etiquetados de forma permanente y silenciosa, visibles/notificables solo a
+  la compania equivocada bajo HasCompanyScope + IncludesSharedCompanyRows -- exactamente el
+  leak que este comando existe para cerrar; un mismatch se reporta siempre, nunca se
+  auto-corrige. Bug de negocio corregido de paso: Attachment::$fillable tenia
+  'messageable' (nombre de columna que no existe) en vez de las dos columnas reales
+  messageable_type/messageable_id -- Attachment::create([...]) con mass assignment directo
+  siempre habia descartado silenciosamente el owner; solo la relacion attachments()->save()
+  (que setea atributos directo, sin pasar por $fillable) funcionaba. Fix de leak de
+  notificaciones cross-company en ChatterNotificationService (Codex adversarial-review): antes
+  cargaba TODOS los followers de un record y les enviaba email/notificacion sin importar la
+  compania del Message que dispara el aviso -- un follower de la compania A podia recibir
+  notificaciones de un mensaje creado en la compania B; corregido con
+  followerBelongsToMessageCompany() (igualdad estricta company_id follower vs company_id
+  message, ambos derivados del mismo record via ResolvesChatterCompany, null-vs-null en un
+  shared es correcto sin caso especial) mas withoutGlobalScope(CompanyScope::class) explicito
+  y documentado en la lectura de followers (lectura de sistema autoritativa, no de sesion de
+  usuario -- un listener en cola o proceso de consola notificando en nombre de un record ya
+  resuelto legitimamente debe ver TODOS sus followers reales sin importar su propio scope
+  ambiental; la autorizacion la sigue dando followerBelongsToMessageCompany, no CompanyScope).
+  Regresion fail-closed corregida en RespondQuotationTest.php (suite de purchases, no de
+  chatter): Message ahora tiene CompanyScope real, asi que leer via $order->messages() queda
+  correctamente scopeado a la sesion/CompanyContext actuante -- pero el proposito de ese
+  archivo es verificar lo que QuotationResponseService REALMENTE escribio
+  independientemente de quien (si alguien) esta "mirando" despues, incluyendo desde una sesion
+  autenticada de otra compania (dos tests del archivo prueban exactamente eso); corregido con
+  un helper orderMessages() que lee con withoutGlobalScope(CompanyScope::class) keyeado por la
+  identidad propia de la orden -- lectura autoritativa, la garantia del lado-escritura la
+  ejerce de verdad ChatterCompanyScopeTest, no se diluye aqui. 28 tests nuevos (18
+  ChatterCompanyScopeTest, 8 BackfillChatterCompanyIdTest, 2
+  ChatterNotificationServiceCompanyScopeTest), testsuite ChatterFeature nuevo en phpunit.xml
+  (todo plugins/webkul/chatter/tests/Feature, sin precedente de fallas previas que arrastrar a
+  diferencia de recruitments/payments que solo registran su subdirectorio CompanyScope) --
+  28/28 verde (45 assertions); 33/33 verde en RespondQuotationTest.php tras la correccion de
+  regresion (84 assertions). Dos rondas de independent-reviewer: ronda 1 BLOCKING (backfill
+  con blind spot sobre filas legacy no-null desalineadas, comentario enganoso sobre el
+  alcance del scan, swallow no documentado de AuthorizationException en el audit-trail de
+  HasChatter/HasLogActivity, diff residual ajeno en public/js/filament/forms/components/
+  file-upload.js) mas 2 follow-ups, todo corregido; ronda 2: REVIEW_APPROVED,
+  RECOMMEND_APPROVAL, 0 BLOCKING. Inventario 148/152/4 (3+1) -> 151/152/1 (1+0), verificado
+  con dos corridas fresh byte a byte identicas (bases aureuserp_pr4gaps_audit/
+  aureuserp_pr4gaps_audit2), delta exacto de las 3 filas esperadas (Attachment/Follower/
+  Message: missing_scope|not_company_scoped/real_gap_company_column|
+  real_gap_without_company_column -> scoped), sin ninguna transicion colateral en las 301
+  filas restantes. Sin dispatch de CI remoto: validacion 100% local. Queda 1 gap total en todo
+  PR4: security/Invitation (diferido por decision, bajo riesgo, no listable).
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
 #138 / #81: abiertos

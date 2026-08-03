@@ -29,10 +29,10 @@
     ],
     "summary": {
         "total": 304,
-        "scoped": 148,
+        "scoped": 151,
         "classified_exceptions": 152,
-        "real_gaps_with_company_id": 3,
-        "real_gaps_without_company_id": 1,
+        "real_gaps_with_company_id": 1,
+        "real_gaps_without_company_id": 0,
         "table_missing": 0,
         "inspection_errors": 0,
         "manifest_violations": 0
@@ -884,23 +884,23 @@
             "file": "plugins/webkul/chatter/src/Models/Attachment.php",
             "table": "chatter_attachments",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "chatter",
             "class": "Webkul\\Chatter\\Models\\Follower",
             "file": "plugins/webkul/chatter/src/Models/Follower.php",
             "table": "chatter_followers",
-            "has_company_id": false,
-            "uses_company_scope": false,
-            "status": "not_company_scoped",
+            "has_company_id": true,
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "chatter",
@@ -908,11 +908,11 @@
             "file": "plugins/webkul/chatter/src/Models/Message.php",
             "table": "chatter_messages",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "contacts",
