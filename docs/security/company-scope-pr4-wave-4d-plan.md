@@ -1,5 +1,7 @@
 # Ola 4D - propuesta de alcance
 
+**Estado del documento (2026-08-03): listo para revision.** Los 6 paquetes de PR4 (chatter, employees residual, sales/ActivityType+OrderOption, security/Invitation con fix de IDOR en AcceptInvitation, y el barrido final descrito abajo) estan cerrados en la rama `feat/company-scope-remaining-plugins` (PR #18), junto con el barrido de cierre (`withoutGlobalScope()` documentado/clasificado en todo el repo, revision de contextos sin actor, y esta consolidacion documental). No implica merge: `A4D` sigue siendo la unica ola con revision tecnica formal completa (ver seccion de recomendacion final abajo); el resto de paquetes de este PR no tienen revision de arquitectura independiente registrada en este documento todavia. Ver `docs/plans/2026-07-07-company-scope-rollout.md` para el estado consolidado de las 6 rondas.
+
 ## Estado de partida
 
 - PR #18, rama `feat/company-scope-remaining-plugins`.
