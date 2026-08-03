@@ -1190,6 +1190,29 @@ Correccion de revision A4J (independent review, veredicto REVIEW_FAIL, 2 hallazg
   revertido el diff de 1 linea (whitespace de fin de linea) en public/js/filament/forms/
   components/file-upload.js, ajeno a esta ola. Sin dispatch de CI remoto: validacion 100%
   local.
+Tag (familia sales, strict_company): cierra 1 gap residual de PR4 (#138). Diseno decidido via
+  Codex adversarial-review, no manualmente: strict_company, no company_or_shared -- no existe
+  contrato de tags compartidas ni seeder equivalente a Calendar; convertir filas historicas a
+  company_id=null las expondria a todos los tenants. Migracion nueva agrega company_id NULLABLE
+  a sales_tags (se mantiene nullable de forma permanente por diseno, sin segunda migracion
+  NOT NULL: filas huerfanas deben quedar manualmente resolubles para siempre, nunca asignadas
+  por la fuerza). Comando Artisan sales:tags:backfill-company (preflight-then-backfill desde
+  sales_order_tags -> sales_orders.company_id): aborta con cero escrituras si una Tag es usada
+  por ordenes de mas de una compania (conflicto real), nunca infiere la compania de una tag
+  huerfana desde creator.default_company_id. Tag.php gana HasCompanyScope + HasStrictCompanyId.
+  TagRequest.php: unicidad de name pasa de global a scoped por compania (mismo name permitido
+  en dos companias distintas). OrderRequest.php: la regla exists:sales_tags,id (SQL crudo que
+  ignoraba el global scope) reemplazada por un closure que valida via Eloquent respetando
+  CompanyScope, cerrando la via para asociar una Tag ajena a una Order propia.
+  independent-reviewer: REVIEW_APPROVED_WITH_FOLLOW_UPS, 0 BLOCKING (1 FOLLOW_UP menor de
+  mensaje de validacion impreciso en un caso ya bloqueado por 404, no es hueco de seguridad;
+  2 OBSERVATION sin accion: huerfanas permanentemente invisibles/inescribibles es consecuencia
+  documentada del contrato HasStrictCompanyId ya aceptado, y el backfill no usa row-locking
+  pero es un comando de mantenimiento de una sola ejecucion, no una ruta de trafico). 22 tests
+  nuevos en TagCompanyScopeTest.php, verificados independientemente por el coordinador (22/22,
+  47 assertions) ademas del reporte del worker (187/187 suite sales completa). Inventario
+  147/147/10 (3+7) -> 148/147/9 (3+6), verificado con dos corridas fresh byte a byte idénticas.
+  Sin dispatch de CI remoto: validacion 100% local.
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
 #138 / #81: abiertos

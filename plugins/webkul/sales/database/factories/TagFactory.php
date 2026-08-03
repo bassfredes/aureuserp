@@ -5,6 +5,7 @@ namespace Webkul\Sale\Database\Factories;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Webkul\Sale\Models\Tag;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\Company;
 
 /**
  * @extends Factory<Tag>
@@ -26,6 +27,7 @@ class TagFactory extends Factory
     public function definition(): array
     {
         return [
+            'company_id' => Company::factory(),
             'color'      => fake()->hexColor(),
             'name'       => fake()->words(2, true),
             'creator_id' => User::query()->value('id') ?? User::factory(),

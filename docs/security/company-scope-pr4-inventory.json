@@ -29,10 +29,10 @@
     ],
     "summary": {
         "total": 304,
-        "scoped": 147,
+        "scoped": 148,
         "classified_exceptions": 147,
         "real_gaps_with_company_id": 3,
-        "real_gaps_without_company_id": 7,
+        "real_gaps_without_company_id": 6,
         "table_missing": 0,
         "inspection_errors": 0,
         "manifest_violations": 0
@@ -3163,12 +3163,12 @@
             "class": "Webkul\\Sale\\Models\\Tag",
             "file": "plugins/webkul/sales/src/Models/Tag.php",
             "table": "sales_tags",
-            "has_company_id": false,
-            "uses_company_scope": false,
-            "status": "not_company_scoped",
+            "has_company_id": true,
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "sales",

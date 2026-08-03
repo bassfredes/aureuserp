@@ -12,6 +12,7 @@ use Webkul\PluginManager\Console\Commands\InstallCommand;
 use Webkul\PluginManager\Console\Commands\UninstallCommand;
 use Webkul\PluginManager\Package;
 use Webkul\PluginManager\PackageServiceProvider;
+use Webkul\Sale\Console\Commands\BackfillTagCompanyId;
 use Webkul\Sale\Facades\SaleOrder as SaleOrderFacade;
 use Webkul\Sale\Listeners\ComputeSaleOrderListener;
 use Webkul\Sale\Listeners\SendSMSNotificationListener;
@@ -54,6 +55,7 @@ class SaleServiceProvider extends PackageServiceProvider
                 '2026_03_11_103613_alter_sales_order_template_products_table',
                 '2026_04_08_043411_add_procurement_group_id_column_in_sales_orders_table_from_sales',
                 '2026_04_08_043511_add_sale_order_id_column_in_inventories_procurement_groups_table_from_sales',
+                '2026_08_03_120000_add_company_id_column_to_sales_tags_table',
             ])
             ->runsMigrations()
             ->hasSettings([
@@ -63,6 +65,9 @@ class SaleServiceProvider extends PackageServiceProvider
                 '2025_02_05_095005_create_sales_quotation_and_order_settings',
             ])
             ->runsSettings()
+            ->hasCommands([
+                BackfillTagCompanyId::class,
+            ])
             ->hasDependencies([
                 'invoices',
                 'payments',
