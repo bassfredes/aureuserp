@@ -23,9 +23,12 @@ use Webkul\Blog\Models\Post;
 use Webkul\Blog\Models\Tag;
 use Webkul\Employee\Models\DepartureReason;
 use Webkul\Employee\Models\EmployeeCategory;
+use Webkul\Employee\Models\EmployeeEmployeeCategory;
+use Webkul\Employee\Models\EmployeeResume;
 use Webkul\Employee\Models\EmployeeResumeLineType;
 use Webkul\Employee\Models\EmployeeSkill;
 use Webkul\Employee\Models\EmploymentType;
+use Webkul\Employee\Models\JobPositionSkill;
 use Webkul\Employee\Models\Skill;
 use Webkul\Employee\Models\SkillLevel;
 use Webkul\Employee\Models\SkillType;
@@ -388,6 +391,18 @@ return [
         'reason'         => 'Per-user saved UI filter state, never company data. The previously-confirmed IDOR (EditViewAction/deleteTableViewAction/replaceTableViewAction resolving any view by id with no ownership check) is closed: all three now go through TableView::resolveOwnedTableViewOrFail(id, filterable_type, user_id) — a single query requiring exact id + filterable_type + user_id match, so a public view can be read but never written by anyone but its owner. Covered by plugins/webkul/table-views/tests/Feature/TableViewOwnershipTest.php.',
         'tracking'       => '#138 PR4 ola4A',
     ],
+    EmployeeEmployeeCategory::class => [
+        'table'          => 'employees_employee_categories',
+        'classification' => 'not_tenancy',
+        'reason'         => 'Dead pivot class: verified via repo-wide grep that no relation anywhere references it — Employee::categories() uses belongsToMany(EmployeeCategory::class, \'employees_employee_categories\', ...) with the raw table name, never this model class. Structurally incapable of leaking tenant data because nothing in the application ever queries or writes through it; only its own factory references the class.',
+        'tracking'       => '#138 PR4',
+    ],
+    JobPositionSkill::class => [
+        'table'          => 'job_position_skills',
+        'classification' => 'not_tenancy',
+        'reason'         => 'Dead pivot class: verified via repo-wide grep that no relation anywhere references it — EmployeeJobPosition has no skills() relation at all. Structurally incapable of leaking tenant data because nothing in the application ever queries or writes through it; only its own factory references the class.',
+        'tracking'       => '#138 PR4',
+    ],
     TableViewFavorite::class => [
         'table'          => 'table_view_favorites',
         'classification' => 'not_tenancy',
@@ -670,6 +685,12 @@ return [
         'classification' => 'parent_scoped',
         'reason'         => 'Deliberately has no company_id column — its mandatory (non-nullable, cascadeOnDelete) parent Project is HasCompanyScope-enforced (plugins/webkul/projects/src/Models/Project.php), and Milestone::booted() adds a global scope requiring whereHas(\'project\') (plugins/webkul/projects/src/Models/Milestone.php), inheriting Project\'s own CompanyScope filter for reads. Writes are validated by resolveEffectiveCompanyIdOrFail() against the persisted Project, and MilestonePolicy::belongsToAllowedCompany() re-checks the same on every view/update/delete. Covered by plugins/webkul/projects/tests/Feature/MilestoneCompanyScopeTest.php.',
         'tracking'       => '#138 PR4 ola4A',
+    ],
+    EmployeeResume::class => [
+        'table'          => 'employees_employee_resumes',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column — its mandatory (non-nullable, cascadeOnDelete) parent Employee is HasCompanyScope-enforced (plugins/webkul/employees/src/Models/Employee.php), and EmployeeResume::booted() adds a global scope requiring whereHas(\'employee\') (plugins/webkul/employees/src/Models/EmployeeResume.php), inheriting Employee\'s own CompanyScope filter for reads. Reachable via plugins/webkul/employees/src/Filament/Resources/EmployeeResource/RelationManagers/ResumeRelationManager.php. Writes are validated by resolveEffectiveCompanyIdOrFail() against the persisted Employee, rejecting a spoofed or cross-company employee_id and any cross-company retargeting on update. Covered by plugins/webkul/employees/tests/Feature/EmployeeResumeCompanyScopeTest.php.',
+        'tracking'       => '#138 PR4',
     ],
     OrderOption::class => [
         'table'          => 'sales_order_options',

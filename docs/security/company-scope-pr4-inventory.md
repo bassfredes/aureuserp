@@ -1228,6 +1228,28 @@ ActivityType (Sale) + OrderOption (familia sales, manifest + parent_scoped): cie
   9 tests nuevos en OrderOptionCompanyScopeTest.php. Inventario 148/147/9 (3+6) ->
   148/149/7 (3+4), verificado con dos corridas fresh byte a byte identicas. Sin dispatch de
   CI remoto: validacion 100% local.
+Familia employees residual: cierra los 3 gaps del cluster employees de PR4 (#138), corrigiendo
+  la suposicion original de docs/security/company-scope-pr4-wave-4d-plan.md de que
+  EmployeeEmployeeCategory y JobPositionSkill necesitaban HasCompanyScope -- verificado contra
+  el codigo actual (no el plan viejo) que ambas son clases pivote muertas: ninguna relacion las
+  referencia (Employee::categories() usa belongsToMany() con el nombre de tabla crudo,
+  EmployeeJobPosition no tiene metodo skills() en absoluto), solo sus propias factories las
+  instancian. Clasificadas not_tenancy (dead_code no es una categoria valida en
+  ExceptionManifest::CLASSIFICATIONS) en vez de eliminar los archivos, evitando una accion
+  destructiva no prevista. Webkul\Employee\Models\EmployeeResume: a diferencia de lo que
+  asumia el plan viejo, SI tiene exposicion real (ResumeRelationManager.php) y por tanto SI
+  necesitaba proteccion real, no solo documentacion. employee_id es obligatorio (no nullable,
+  cascadeOnDelete) -- gana un global scope companyViaEmployee (whereHas('employee'), mismo
+  patron citado que Milestone/OrderOption) mas resolveEffectiveCompanyIdOrFail() contra el
+  Employee persistido en saving(). Dos bugs latentes corregidos: EmployeeResumeLineType nunca
+  tuvo HasFactory/newFactory() (misma clase de bug que A4J/OrderOption, dependencia de la
+  factory de EmployeeResume), y EmployeeResumeFactory seteaba display_type=null contra una
+  columna NOT NULL sin default, nunca antes ejercitada. 9 tests nuevos en
+  EmployeeResumeCompanyScopeTest.php. Inventario 148/149/7 (3+4) -> 148/152/4 (3+1),
+  verificado con dos corridas fresh byte a byte identicas. Sin dispatch de CI remoto:
+  validacion 100% local. Quedan 4 gaps totales en todo PR4: los 3 de chatter (parent-derivado
+  polimorfico, requiere diseno nuevo) y el 1 de security/Invitation (diferido por decision,
+  bajo riesgo, no listable).
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
 #138 / #81: abiertos
