@@ -65,6 +65,7 @@ use Webkul\Recruitment\Models\RefuseReason;
 use Webkul\Recruitment\Models\StageJob;
 use Webkul\Sale\Models\AdvancedPaymentInvoiceOrderSale;
 use Webkul\Sale\Models\OrderLine;
+use Webkul\Sale\Models\OrderOption;
 use Webkul\Sale\Models\OrderTemplateProduct;
 use Webkul\Sale\Models\TeamMember;
 use Webkul\Security\Models\Permission;
@@ -406,6 +407,13 @@ return [
         'reason'         => 'Plugin-scoped alias of Webkul\\Support\\Models\\ActivityType, no logic of its own.',
         'tracking'       => '#138 PR4 ola4B',
     ],
+    Webkul\Sale\Models\ActivityType::class => [
+        'table'          => 'activity_types',
+        'classification' => 'alias',
+        'alias_of'       => ActivityType::class,
+        'reason'         => 'Plugin-scoped alias of Webkul\\Support\\Models\\ActivityType, no logic of its own.',
+        'tracking'       => '#138 PR4',
+    ],
     ActivityTypeSuggestion::class => [
         'table'          => 'activity_type_suggestions',
         'classification' => 'not_tenancy',
@@ -662,6 +670,12 @@ return [
         'classification' => 'parent_scoped',
         'reason'         => 'Deliberately has no company_id column — its mandatory (non-nullable, cascadeOnDelete) parent Project is HasCompanyScope-enforced (plugins/webkul/projects/src/Models/Project.php), and Milestone::booted() adds a global scope requiring whereHas(\'project\') (plugins/webkul/projects/src/Models/Milestone.php), inheriting Project\'s own CompanyScope filter for reads. Writes are validated by resolveEffectiveCompanyIdOrFail() against the persisted Project, and MilestonePolicy::belongsToAllowedCompany() re-checks the same on every view/update/delete. Covered by plugins/webkul/projects/tests/Feature/MilestoneCompanyScopeTest.php.',
         'tracking'       => '#138 PR4 ola4A',
+    ],
+    OrderOption::class => [
+        'table'          => 'sales_order_options',
+        'classification' => 'parent_scoped',
+        'reason'         => 'Deliberately has no company_id column of its own — order_id is nullable at the schema level (cascadeOnDelete), but no code path in this repo creates an OrderOption without one. OrderOption::booted() adds a global scope requiring whereHas(\'order\') (plugins/webkul/sales/src/Models/OrderOption.php), inheriting Order\'s own CompanyScope filter for reads; a null-order_id row would be hidden by this scope too, which is correct since it is unreachable by any real write path. Writes are validated by resolveEffectiveCompanyIdOrFail() against the persisted Order, rejecting a spoofed or cross-company order_id and any cross-company retargeting on update. Covered by plugins/webkul/sales/tests/Feature/CompanyScope/OrderOptionCompanyScopeTest.php.',
+        'tracking'       => '#138 PR4',
     ],
     ActivityPlanTemplate::class => [
         'table'          => 'activity_plan_templates',

@@ -30,9 +30,9 @@
     "summary": {
         "total": 304,
         "scoped": 148,
-        "classified_exceptions": 147,
+        "classified_exceptions": 149,
         "real_gaps_with_company_id": 3,
-        "real_gaps_without_company_id": 6,
+        "real_gaps_without_company_id": 4,
         "table_missing": 0,
         "inspection_errors": 0,
         "manifest_violations": 0
@@ -2951,8 +2951,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "alias",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "sales",
@@ -3059,8 +3059,8 @@
             "uses_company_scope": false,
             "status": "not_company_scoped",
             "error": null,
-            "classification": null,
-            "effective_status": "real_gap_without_company_column"
+            "classification": "parent_scoped",
+            "effective_status": "classified_exception"
         },
         {
             "plugin": "sales",

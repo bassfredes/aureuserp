@@ -1213,6 +1213,21 @@ Tag (familia sales, strict_company): cierra 1 gap residual de PR4 (#138). Diseno
   47 assertions) ademas del reporte del worker (187/187 suite sales completa). Inventario
   147/147/10 (3+7) -> 148/147/9 (3+6), verificado con dos corridas fresh byte a byte idénticas.
   Sin dispatch de CI remoto: validacion 100% local.
+ActivityType (Sale) + OrderOption (familia sales, manifest + parent_scoped): cierra los 2
+  gaps residuales restantes del cluster sales de PR4 (#138), sin dejar ninguno pendiente en
+  ese plugin. Webkul\Sale\Models\ActivityType: alias vacio de Support\Models\ActivityType
+  (global_reference, catalogo cross-plugin sin columna company_id) -- entrada de manifest
+  identica al alias ya existente de TimeOff\Models\ActivityType, sin codigo. Webkul\Sale\
+  Models\OrderOption: sin company_id propio, order_id nullable a nivel de esquema pero ningun
+  path de escritura en el repo crea una fila sin el -- gana un global scope companyViaOrder
+  (whereHas('order'), mismo patron citado que Milestone/ActivityPlanTemplate) mas
+  resolveEffectiveCompanyIdOrFail() contra el Order persistido en saving(), rechazando
+  order_id spoofeado/cross-company y cualquier retargeting entre companias en update.
+  Bug latente corregido: OrderOption nunca tuvo HasFactory/newFactory() (mismo patron que
+  PaymentToken/PaymentTransaction/UtmStage en A4J, otro modelo nunca antes instanciado).
+  9 tests nuevos en OrderOptionCompanyScopeTest.php. Inventario 148/147/9 (3+6) ->
+  148/149/7 (3+4), verificado con dos corridas fresh byte a byte identicas. Sin dispatch de
+  CI remoto: validacion 100% local.
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
 #138 / #81: abiertos
