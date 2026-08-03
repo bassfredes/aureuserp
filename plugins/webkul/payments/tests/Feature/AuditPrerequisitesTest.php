@@ -1,9 +1,14 @@
 <?php
 
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schema;
 use Webkul\Account\Models\Move;
+use Webkul\Payment\Models\Payment;
 use Webkul\Payment\Models\PaymentToken;
 use Webkul\Payment\Models\PaymentTransaction;
+use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
+use Webkul\Support\Services\CompanyContext;
 
 require_once __DIR__.'/../../../support/tests/Helpers/TestBootstrapHelper.php';
 
@@ -16,7 +21,7 @@ require_once __DIR__.'/../../../support/tests/Helpers/TestBootstrapHelper.php';
 beforeEach(function () {
     TestBootstrapHelper::ensureERPInstalled();
 
-    if (! Illuminate\Support\Facades\Schema::hasTable('payments_payment_tokens')) {
+    if (! Schema::hasTable('payments_payment_tokens')) {
         Artisan::call('payments:install', ['--no-interaction' => true]);
     }
 });
@@ -28,28 +33,45 @@ beforeEach(function () {
  * `payments_payment_tokens`/`payments_payment_transactions` (#138 audit,
  * PR 0 prerequisite #4/#5).
  *
- * Neither model declares $fillable (mass assignment is guarded by
- * default) or a newFactory() override — both separate pre-existing gaps
- * out of scope for this PR — so rows are built via direct property
- * assignment instead of ::factory()->create().
+ * Both models now carry HasCompanyScope + HasStrictCompanyId (#138 PR4
+ * A4J), so a bare save() with no resolvable company_id fails closed —
+ * these rows are built inside an explicit company system context instead
+ * of via direct property assignment.
  */
 it('resolves PaymentToken to its real migrated table and can be queried', function () {
     expect((new PaymentToken)->getTable())->toBe('payments_payment_tokens');
 
-    $token = new PaymentToken;
-    $token->save();
+    $company = Company::factory()->create();
 
-    expect(PaymentToken::query()->whereKey($token->id)->exists())->toBeTrue();
+    $token = CompanyContext::runForCompany($company->id, reason: 'test fixture setup', caller: __FILE__, callback: function () use ($company) {
+        $token = new PaymentToken;
+        $token->company_id = $company->id;
+        $token->save();
+
+        return $token;
+    });
+
+    // Read happens after the fixture context has closed, and CompanyScope
+    // fails closed with no user and no active context — bypass the scope
+    // here since this test is about table resolution, not visibility.
+    expect(PaymentToken::withoutGlobalScope(CompanyScope::class)->whereKey($token->id)->exists())->toBeTrue();
 });
 
 it('resolves PaymentTransaction to its real migrated table and can be queried', function () {
     expect((new PaymentTransaction)->getTable())->toBe('payments_payment_transactions');
 
-    $transaction = new PaymentTransaction;
-    $transaction->move_id = Move::factory()->create()->id;
-    $transaction->save();
+    $company = Company::factory()->create();
 
-    expect(PaymentTransaction::query()->whereKey($transaction->id)->exists())->toBeTrue();
+    $transaction = CompanyContext::runForAllCompanies(reason: 'test fixture setup', caller: __FILE__, callback: function () use ($company) {
+        $transaction = new PaymentTransaction;
+        $transaction->company_id = $company->id;
+        $transaction->move_id = Move::factory()->create(['company_id' => $company->id])->id;
+        $transaction->save();
+
+        return $transaction;
+    });
+
+    expect(PaymentTransaction::withoutGlobalScope(CompanyScope::class)->whereKey($transaction->id)->exists())->toBeTrue();
 });
 
 /**
@@ -59,5 +81,5 @@ it('resolves PaymentTransaction to its real migrated table and can be queried', 
  * than given a `$table` fix (#138 audit, PR 0, "modelo huérfano" case 1 of 2).
  */
 it('no longer ships the orphaned Payment model', function () {
-    expect(class_exists(\Webkul\Payment\Models\Payment::class))->toBeFalse();
+    expect(class_exists(Payment::class))->toBeFalse();
 });

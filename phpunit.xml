@@ -77,6 +77,20 @@
         <testsuite name="RecruitmentCompanyScopeFeature">
             <directory>plugins/webkul/recruitments/tests/Feature/CompanyScope</directory>
         </testsuite>
+        <!--
+        #138 PR4 A4J: same precedent as RecruitmentCompanyScopeFeature above
+        — only the new CompanyScope subdirectory (PaymentToken/
+        PaymentTransaction) is registered, not all of
+        plugins/webkul/payments/tests/Feature. `payments` is one of the four
+        plugins the AnalyticsFeature/etc. comment above already documents as
+        excluded from the canonical runner over preexisting, unrelated
+        failures — widening the whole plugin back in is a separate decision
+        out of scope for this wave, so only the new decisive-case tests are
+        registered here.
+        -->
+        <testsuite name="PaymentsCompanyScopeFeature">
+            <directory>plugins/webkul/payments/tests/Feature/CompanyScope</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>

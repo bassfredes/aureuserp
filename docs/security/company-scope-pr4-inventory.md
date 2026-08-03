@@ -1142,6 +1142,54 @@ Correccion de revision A4I (review 4839130829, CHANGES_REQUIRED_A4I_CALENDAR_LIF
     incluido y verde. Pint, composer validate --strict y git diff --check limpios sobre los
     archivos de esta ola.
   - sin dispatch de CI remoto: validacion 100% local
+A4J (payments: PaymentToken/PaymentTransaction; support: UtmCampaign): HasCompanyScope +
+  HasStrictCompanyId en los 3 modelos, mismo patron owner independiente que Journal/
+  PaymentTerm/CurrencyRate -- no parent_scoped via Account\Payment como proponia
+  originalmente wave-4d-plan.md (filas 15/16); ver nota de desviacion agregada en ese
+  archivo. Hook deleting explicito agregado a los 3 (HasStrictCompanyId no cubre delete,
+  mismo patron que OrderTemplate en A4H). $fillable agregado a PaymentToken/
+  PaymentTransaction (antes vacio, mass assignment totalmente bloqueado). Bugs latentes
+  preexistentes encontrados y corregidos al ejercer las factories por primera vez:
+  PaymentToken/PaymentTransaction/UtmStage sin newFactory() (resolucion de convencion de
+  Eloquent fallaba, Database\Factories\Webkul\...\Models\...Factory no existe en este
+  layout de plugin); PaymentTokenFactory referenciaba Webkul\Account\Models\PaymentMethod
+  (tabla accounts_payment_methods, plugin distinto) para payment_method_id, cuando el FK
+  real de payments_payment_tokens apunta a payments_payment_methods, una tabla sin ningun
+  modelo Eloquent propio en el plugin payments -- corregido dejando payment_method_id en
+  NULL por default (nullable en la migracion) en vez de apuntar a un modelo equivocado.
+  AuditPrerequisitesTest.php actualizado: sus dos tests originales construian filas via
+  save() directo sin actingAs/CompanyContext (documentado en su propio docblock como gap
+  pre-existente fuera de alcance); ahora fallan cerrado como corresponde al nuevo scope,
+  construidas dentro de CompanyContext::runForCompany/runForAllCompanies. 23 tests nuevos
+  (PaymentTokenCompanyScopeTest 12, PaymentTransactionCompanyScopeTest 11) mas
+  UtmCampaignCompanyScopeTest (12) en support: aislamiento de lectura, create/update/
+  delete cross-company rechazado, company_id inmutable tras crear, fails-closed sin
+  usuario/contexto. Sin dispatch de CI remoto: validacion 100% local.
+Correccion de revision A4J (independent review, veredicto REVIEW_FAIL, 2 hallazgos
+  BLOCKING): (1) PaymentTokenCompanyScopeTest.php y PaymentTransactionCompanyScopeTest.php
+  no corrian bajo el runner canonico: phpunit.xml no referencia plugins/webkul/payments/
+  tests en ningun <testsuite> (el plugin queda fuera del runner por fallas preexistentes
+  ajenas, documentado en el propio phpunit.xml desde ola 4B) y el propio wave-4d-plan.md
+  ya advertia no proceder sin resolver esa decision antes. Corregido moviendo ambos
+  archivos a plugins/webkul/payments/tests/Feature/CompanyScope/ y registrando el
+  testsuite PaymentsCompanyScopeFeature apuntando solo a ese subdirectorio, mismo
+  precedente exacto que RecruitmentCompanyScopeFeature (A4E): 23 tests verdes bajo
+  `vendor/bin/pest --testsuite=PaymentsCompanyScopeFeature` (43 assertions). (2)
+  docs/security/company-scope-pr4-inventory.json no se habia regenerado tras A4J: el
+  snapshot committeado seguia marcando PaymentToken/PaymentTransaction/UtmCampaign como
+  missing_scope/real_gap_company_column, desactualizado respecto al codigo real y a lo
+  que el job de CI company_scope_global_audit compara byte a byte. Regenerado sobre
+  instalacion fresh aislada (`migrate:fresh` + `erp:install --force -n` + los 20
+  `<plugin>:install -n`, misma secuencia que el job de CI), dos corridas independientes
+  (bases `aureuserp_pr4gaps_audit`/`aureuserp_pr4gaps_audit2`) byte a byte identicas entre
+  si: `scoped` 144->147, `real_gaps_with_company_id` 6->3, delta exacto de las 3 filas
+  esperadas (PaymentToken, PaymentTransaction, UtmCampaign: missing_scope/
+  real_gap_company_column -> scoped), sin ninguna transicion colateral en las 304 filas
+  restantes. (FOLLOW_UP) nota de desviacion respecto al plan original (parent_scoped via
+  Account\Payment, wave-4d-plan.md filas 15/16) agregada en ese mismo archivo. (OBSERVATION)
+  revertido el diff de 1 linea (whitespace de fin de linea) en public/js/filament/forms/
+  components/file-upload.js, ajeno a esta ola. Sin dispatch de CI remoto: validacion 100%
+  local.
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
 #138 / #81: abiertos

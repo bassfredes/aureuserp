@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Auth;
 use Spatie\EloquentSortable\Sortable;
 use Spatie\EloquentSortable\SortableTrait;
 use Webkul\Security\Models\User;
+use Webkul\Support\Database\Factories\UtmStageFactory;
 
 class UtmStage extends Model implements Sortable
 {
@@ -39,5 +40,10 @@ class UtmStage extends Model implements Sortable
         static::creating(function ($utmStage) {
             $utmStage->creator_id ??= Auth::id();
         });
+    }
+
+    protected static function newFactory(): UtmStageFactory
+    {
+        return UtmStageFactory::new();
     }
 }

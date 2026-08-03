@@ -29,9 +29,9 @@
     ],
     "summary": {
         "total": 304,
-        "scoped": 144,
+        "scoped": 147,
         "classified_exceptions": 147,
-        "real_gaps_with_company_id": 6,
+        "real_gaps_with_company_id": 3,
         "real_gaps_without_company_id": 7,
         "table_missing": 0,
         "inspection_errors": 0,
@@ -2180,11 +2180,11 @@
             "file": "plugins/webkul/payments/src/Models/PaymentToken.php",
             "table": "payments_payment_tokens",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "payments",
@@ -2192,11 +2192,11 @@
             "file": "plugins/webkul/payments/src/Models/PaymentTransaction.php",
             "table": "payments_payment_transactions",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "plugin-manager",
@@ -3500,11 +3500,11 @@
             "file": "plugins/webkul/support/src/Models/UtmCampaign.php",
             "table": "utm_campaigns",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "scoped"
         },
         {
             "plugin": "support",
