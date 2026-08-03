@@ -1332,6 +1332,37 @@ Chatter (Message/Attachment/Follower): cierra los 3 gaps residuales de PR4 (#138
   real_gap_without_company_column -> scoped), sin ninguna transicion colateral en las 301
   filas restantes. Sin dispatch de CI remoto: validacion 100% local. Queda 1 gap total en todo
   PR4: security/Invitation (diferido por decision, bajo riesgo, no listable).
+Security\Invitation (cierre documental, 6/6): cierra el ultimo paquete pendiente de PR4
+  (#138) sin cambios de codigo -- verificado contra el codigo actual, no contra el plan viejo
+  (misma disciplina que employees residual y chatter), que la decision de wave-4d-plan.md de
+  mantenerlo como gap real diferido, no reclasificarlo, sigue vigente. Tres verificaciones
+  puntuales: (1) no existe superficie de listado/admin para Invitation en absoluto --
+  InvitationResource (Http/Resources/V1/InvitationResource.php) esta confirmado codigo muerto,
+  nunca referenciado fuera de su propio archivo (grep global sin resultados en ninguna clase
+  Controller/ruta; plugins/webkul/security/routes/api.php solo registra login/logout via
+  AuthController, sin mencionar V1\InvitationResource en absoluto); el unico lector real es el
+  flujo de invitado AcceptInvitation::mount()/create() (Livewire, ruta firmada
+  invitation/{invitation}/accept en routes/web.php), deliberadamente sin CompanyScope, mas el
+  header action de ListUsers.php (solo escritura, Invitation::create()). (2) el guard de
+  escritura bespoke en Invitation::boot() (assertCanWriteCompany() en creating/updating,
+  company_id inmutable tras creacion salvo por un actor autenticado autorizado, fail-closed sin
+  actor/CompanyContext salvo el propio accept flow con su propio lockForUpdate +
+  chequeos de estado) sigue siendo la misma implementacion documentada desde ola 4B, sin
+  deriva. (3) config/company-scope-exceptions.php NO tiene entrada `Invitation::class` -- el
+  supuesto de que ya existia una clasificacion desde la era wave-4d-plan resulto incorrecto al
+  verificar el archivo real (grep sin match, salvo la mencion en el docblock que EXPLICA por
+  que se omite a proposito: "Models that are real, unresolved gaps ... Invitation ... son
+  deliberadamente NOT in this file"); no se agrega ninguna entrada nueva, agregar una
+  reclasificaria el gap como `classified_exception` y contradiria la decision ya tomada de
+  mantenerlo como `real_gap_company_column` en el inventario. JSON regenerado sobre instalacion
+  fresh aislada (misma secuencia erp:install --force -n + 20 `<plugin>:install -n`), dos
+  corridas independientes (bases aureuserp_pr4gaps_audit/aureuserp_pr4gaps_audit2) byte a byte
+  identicas entre si Y con el archivo ya committeado (diff vacio en los tres): summary sin
+  cambios, 151/152/1 (1+0) -- Invitation es el unico gap real restante de todo PR4, por
+  decision, no por trabajo pendiente. Sin dispatch de CI remoto: validacion 100% local. Cierra
+  el paquete 6/6 de PR4 (#138): security/Invitation, Chatter, familia employees residual,
+  ActivityType+OrderOption, Tag, A4J (payments+UtmCampaign) -- no quedan paquetes de gaps de
+  company-scope pendientes en el set original de PR4.
 PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma rama/PR #18
 PR 5: no autorizada
 #138 / #81: abiertos
