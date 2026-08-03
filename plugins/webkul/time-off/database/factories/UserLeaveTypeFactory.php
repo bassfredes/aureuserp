@@ -30,6 +30,9 @@ class UserLeaveTypeFactory extends Factory
             // column and the insert fails; the same reason every other
             // fixture in this codebase creates Users via
             // User::withoutEvents(...), not plain User::factory()->create().
+            // withoutGlobalScope below reads the related LeaveType's real
+            // company_id to build a coherent fixture — authoritative read of
+            // an already-known id, not a general visibility grant.
             'user_id'       => fn (array $attributes) => User::withoutEvents(fn () => User::factory()->create([
                 'default_company_id' => LeaveType::withoutGlobalScope(CompanyScope::class)->find($attributes['leave_type_id'])?->company_id,
             ]))->id,

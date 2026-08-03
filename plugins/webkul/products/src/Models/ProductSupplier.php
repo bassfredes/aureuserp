@@ -131,6 +131,10 @@ class ProductSupplier extends Model implements Sortable
             return;
         }
 
+        // withoutGlobalScope: the referenced Product's real company_id must
+        // be resolvable even if the acting actor cannot see it under
+        // CompanyScope, so a mismatch is caught rather than treated as
+        // "not found, nothing to compare".
         $product = Product::withoutGlobalScope(CompanyScope::class)->find($productSupplier->product_id);
 
         if (! $product) {

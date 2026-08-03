@@ -26,6 +26,9 @@ class ApplicantInterviewerFactory extends Factory
     {
         return [
             'applicant_id'   => Applicant::factory(),
+            // withoutGlobalScope: reads the related Applicant's real
+            // company_id to build a coherent fixture — authoritative read of
+            // an already-known id, not a general visibility grant.
             'interviewer_id' => fn (array $attributes) => User::withoutEvents(fn () => User::factory()->create([
                 'default_company_id' => Applicant::withoutGlobalScope(CompanyScope::class)->find($attributes['applicant_id'])->company_id,
             ]))->id,

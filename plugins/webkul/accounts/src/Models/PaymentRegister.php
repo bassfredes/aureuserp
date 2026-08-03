@@ -268,6 +268,10 @@ class PaymentRegister extends Model
             return $this->lines()->sync($uniqueIds);
         }
 
+        // withoutGlobalScope: the candidate MoveLines' real company_id must
+        // be resolvable even if some are outside the acting actor's visible
+        // companies — the mismatch (or lack of one) is what this validation
+        // exists to catch, not a general visibility grant.
         $lines = MoveLine::withoutGlobalScope(CompanyScope::class)
             ->whereKey($uniqueIds)
             ->get(['id', 'company_id']);

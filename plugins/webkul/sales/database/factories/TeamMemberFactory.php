@@ -38,6 +38,9 @@ class TeamMemberFactory extends Factory
     {
         return [
             'team_id' => Team::factory(),
+            // withoutGlobalScope: reads the related Team's real company_id to
+            // build a coherent fixture — authoritative read of an
+            // already-known id, not a general visibility grant.
             'user_id' => fn (array $attributes) => User::withoutEvents(fn () => User::factory()->create([
                 'default_company_id' => Team::withoutGlobalScope(CompanyScope::class)->withTrashed()->find($attributes['team_id'])?->company_id,
             ]))->id,

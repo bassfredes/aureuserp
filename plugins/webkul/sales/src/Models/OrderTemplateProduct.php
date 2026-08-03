@@ -176,6 +176,10 @@ class OrderTemplateProduct extends Model
             throw new AuthorizationException('An OrderTemplateProduct line requires a product.');
         }
 
+        // withoutGlobalScope: the referenced Product must be resolvable even
+        // if the acting actor cannot see it under CompanyScope, so a mismatch
+        // is reported as "different company" rather than "not found" —
+        // withTrashed() likewise so a soft-deleted Product is still caught.
         $product = Product::withoutGlobalScope(CompanyScope::class)
             ->withTrashed()
             ->find($line->product_id);

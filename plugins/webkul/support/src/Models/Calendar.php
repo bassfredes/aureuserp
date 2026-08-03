@@ -160,7 +160,10 @@ class Calendar extends Model implements IncludesSharedCompanyRows
             // a CalendarLeave with calendar_id = NULL — a state the
             // strict_company CalendarLeave contract forbids creating
             // through the application (#138 A4I). Blocking here keeps
-            // that invariant true regardless of delete path.
+            // that invariant true regardless of delete path. withoutGlobalScope
+            // is required because a shared Calendar can have CalendarLeave
+            // rows anchored to companies other than the acting actor's own —
+            // all of them must count, not just the visible ones.
             if ($calendar->calendarLeaves()->withoutGlobalScope(CompanyScope::class)->exists()) {
                 throw new AuthorizationException('Cannot permanently delete a Calendar that is still referenced by CalendarLeave records.');
             }

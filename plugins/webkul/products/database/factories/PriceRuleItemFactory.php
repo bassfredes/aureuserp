@@ -52,6 +52,9 @@ class PriceRuleItemFactory extends Factory
             'base'             => PriceRuleBase::LIST_PRICE,
             'type'             => PriceRuleType::PERCENTAGE,
             'price_rule_id'    => PriceRule::factory(),
+            // withoutGlobalScope: reads the related PriceRule's real
+            // company_id to build a coherent fixture — authoritative read of
+            // an already-known id, not a general visibility grant.
             'company_id'       => fn (array $attributes) => PriceRule::withoutGlobalScope(CompanyScope::class)
                 ->find($attributes['price_rule_id'])?->company_id,
             'product_id'       => fn (array $attributes) => Product::factory()->create([

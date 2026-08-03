@@ -53,6 +53,9 @@ class ProductSupplierFactory extends Factory
             'partner_id'   => Partner::query()->value('id') ?? Partner::factory(),
             'currency_id'  => Currency::factory(),
             'creator_id'   => User::query()->value('id') ?? User::factory(),
+            // withoutGlobalScope: reads the related Product's real
+            // company_id to build a coherent fixture — authoritative read of
+            // an already-known id, not a general visibility grant.
             'company_id'   => fn (array $attributes) => Product::withoutGlobalScope(CompanyScope::class)
                 ->find($attributes['product_id'])?->company_id
                 ?? Company::factory()->create()->id,

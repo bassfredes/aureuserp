@@ -133,6 +133,10 @@ class PriceRuleItem extends Model
             return;
         }
 
+        // withoutGlobalScope: the referenced PriceRule's real company_id must
+        // be resolvable even if the acting actor cannot see it under
+        // CompanyScope, so a mismatch is caught rather than treated as
+        // "not found, nothing to compare".
         $priceRule = PriceRule::withoutGlobalScope(CompanyScope::class)->find($priceRuleItem->price_rule_id);
 
         if (! $priceRule) {

@@ -95,6 +95,13 @@ class CandidateSkill extends Model
         return static::resolveEffectiveCompanyIdOrFail($candidateId, Candidate::class, null, 'Candidate');
     }
 
+    /**
+     * Re-queries candidate_id fresh by primary key, bypassing this model's
+     * own scope — never getOriginal() and never the in-memory attribute.
+     * Same rationale as EmployeeSkill::resolvePersistedEmployeeId() (#138
+     * PR4 A4D review 4811425870, finding 2): a row fetched via a partial
+     * projection never populates candidate_id at all.
+     */
     private static function resolvePersistedCandidateId(self $candidateSkill): ?int
     {
         if (! $candidateSkill->exists) {

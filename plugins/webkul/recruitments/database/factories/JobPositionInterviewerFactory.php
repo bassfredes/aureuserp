@@ -26,6 +26,9 @@ class JobPositionInterviewerFactory extends Factory
     {
         return [
             'job_position_id' => JobPosition::factory(),
+            // withoutGlobalScope: reads the related JobPosition's real
+            // company_id to build a coherent fixture — authoritative read of
+            // an already-known id, not a general visibility grant.
             'user_id'         => fn (array $attributes) => User::withoutEvents(fn () => User::factory()->create([
                 'default_company_id' => JobPosition::withoutGlobalScope(CompanyScope::class)->find($attributes['job_position_id'])->company_id,
             ]))->id,

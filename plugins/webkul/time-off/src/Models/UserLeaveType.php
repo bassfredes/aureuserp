@@ -59,6 +59,10 @@ class UserLeaveType extends Model
         static::saving(function (self $userLeaveType): void {
             $companyId = static::resolveEffectiveCompanyIdOrFail($userLeaveType->leave_type_id, LeaveType::class, null, 'LeaveType');
 
+            // withoutGlobalScope: the notified User's real membership must be
+            // resolvable even if the acting context cannot see them under
+            // CompanyScope — same "read broadly, authorize narrowly" pattern
+            // as ValidatesRelatedCompanyScope, not a general visibility grant.
             $user = User::withoutGlobalScope(CompanyScope::class)->find($userLeaveType->user_id);
 
             if ($user === null) {
