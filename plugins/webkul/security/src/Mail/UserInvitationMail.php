@@ -45,9 +45,17 @@ class UserInvitationMail extends Mailable
         return new Content(
             markdown: 'security::emails.user-invitation',
             with: [
+                // 'token' rides along as a query parameter covered by the
+                // signature (it isn't a route segment, see routes/web.php)
+                // and is what AcceptInvitation re-validates at mutation
+                // time, not just at this initial signed GET (#138 PR4
+                // IDOR fix).
                 'acceptUrl' => URL::signedRoute(
                     'security.invitation.accept',
-                    ['invitation' => $this->invitation]
+                    [
+                        'invitation' => $this->invitation,
+                        'token'      => $this->invitation->token,
+                    ]
                 ),
             ]
         );

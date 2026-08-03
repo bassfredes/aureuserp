@@ -1367,4 +1367,34 @@ PR adicional para PR 4: prohibido: los cambios de negocio landean en esta misma 
 PR 5: no autorizada
 #138 / #81: abiertos
 AGENTS.md: stashes intactos (ambos checkouts)
+Security\Invitation (corrección IDOR post-cierre, hallazgo Codex adversarial-review): la
+  entrada "Security\Invitation (cierre documental, 6/6)" de arriba, y la de "Familia
+  employees residual" antes de ella, describen el gap de company-scope de Invitation como
+  "diferido por decision, bajo riesgo, no listable" -- esa frase hablaba solo de la
+  superficie de company-scope (ausencia de HasCompanyScope), no de la seguridad del flujo
+  de aceptacion en si, y quedo desactualizada: una revision adversarial posterior (Codex)
+  encontro una IDOR real y explotable en AcceptInvitation.php, no una cuestion de
+  clasificacion. La propiedad publica $invitation del componente Livewire no tenia
+  #[Locked]: la firma de la URL firmada (middleware `signed`) solo protege el GET inicial
+  que monta el componente -- el POST mutante create() corre contra el endpoint separado
+  /livewire/update, que ese middleware nunca toca -- por lo que quien tuviera un enlace
+  firmado valido podia, en teoria, retargetear el componente hacia otra invitacion aun
+  pendiente (de otra compania/usuario) y completar la creacion de cuenta bajo esa
+  invitacion ajena. Correccion de dos capas: (1) $invitation y el nuevo $token ganan
+  #[Locked] (mismo patron que ResetPassword.php en website), cerrando la via de tamper
+  client-side; (2) el token aleatorio que ya existia en el modelo (Invitation::boot(),
+  nunca antes usado en el flujo de aceptacion) ahora viaja como query param dentro de la
+  propia URL firmada (UserInvitationMail::content()) y se re-valida con hash_equals()
+  contra la fila efectivamente bloqueada (lockForUpdate()) dentro de la transaccion de
+  create() -- no solo en mount() -- que es la autorizacion real que Codex pidio verificar,
+  no #[Locked] como unico mecanismo. 4 tests adversariales nuevos (Locked rechaza el
+  intento de retargeting; el guard de re-validacion assertTokenMatches(), invocado via
+  reflection, rechaza el par token/invitation cruzado con 403; falta de token -> 403;
+  token desalineado -> 403), 14/14 verde en InvitationCompanyScopeTest.php
+  (37 assertions), Pint limpio. Esto NO cambia la clasificacion de company-scope de
+  Invitation: sigue siendo real_gap_company_column en el inventario -- esa es una
+  pregunta de taxonomia de ExceptionManifest::CLASSIFICATIONS/semantica de
+  --fail-on-missing, separada y aun abierta (ver nota de la propia entrada de cierre 6/6
+  arriba), no relacionada con este fix de seguridad. Sin dispatch de CI remoto:
+  validacion 100% local.
 ```
