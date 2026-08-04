@@ -1505,4 +1505,34 @@ Superseded: framing del punto 7 de la ronda 2 de ola 4A (arriba, ~linea 409). Aq
   bloqueantes — solo dos follow-ups documentales (el framing de duplicados vs. no-op silencioso
   en el docblock de BackfillProductionLocationCompanyId.php, y esta misma entrada), ambos
   cerrados en el commit que agrega este parrafo.
+docs/security/company-scope-pr4-inventory.json (regeneracion de campos de riesgos aceptados,
+  2026-08-04): la entrada "Registro de riesgos aceptados: --fail-on-unapproved-gaps" (arriba)
+  agrego accepted_risk_status por fila y accepted_risks/unapproved_gaps/accepted_risk_violations
+  a nivel summary en el output del auditor (commit 8ca2e2b1a), pero el JSON committeado nunca se
+  regenero tras ese cambio de shape: la ultima regeneracion real (c928a85e1) predata 8ca2e2b1a,
+  asi que el step de CI "Comparing generated inventory against the committed snapshot"
+  (.github/workflows/pest_tests.yml, corregido por separado en 5e1fde78a para invocar
+  --fail-on-unapproved-gaps) habria fallado HOY contra una instalacion fresh real, independiente
+  del fix de workflow — un bloqueador real, no hipotetico, descubierto durante la validacion de
+  ese mismo fix. Regenerado siguiendo el ritual establecido en esta sesion: instalacion fresh
+  aislada completa (migrate:fresh + erp:install --force -n + los 20 <plugin>:install -n, misma
+  secuencia y flags que el job de CI) sobre dos bases independientes recreadas desde cero
+  (aureuserp_pr4gaps_audit/aureuserp_pr4gaps_audit2), byte a byte identicas entre si. Diff
+  verificado estructuralmente fila por fila contra el JSON previamente committeado (el diff
+  textual son ~3057 lineas solo por el desplazamiento de una clave nueva en cada fila
+  pretty-printed, no por contenido distinto): summary sin cambios en total/scoped/
+  classified_exceptions/real_gaps_with_company_id/real_gaps_without_company_id/table_missing/
+  inspection_errors/manifest_violations (304/151/152/1/0/0/0/0), unicamente tres campos nuevos a
+  nivel summary (accepted_risks=1, unapproved_gaps=0, accepted_risk_violations=[]) mas
+  accepted_risk_status por fila (null en 303 filas, "approved" solo en security/Invitation, la
+  unica entrada del registro de riesgos aceptados); las 304 filas permanecen identicas en
+  plugin/class/file/table/has_company_id/uses_company_scope/status/classification/
+  effective_status, cero filas agregadas o quitadas, manifest_violations/plugins sin cambios.
+  Confirmado ademas que `php scripts/audit-company-scope.php --format=json
+  --fail-on-unapproved-gaps` (tercera corrida fresh independiente, misma base
+  aureuserp_pr4gaps_audit) reproduce exactamente el paso de diff -u de CI contra el archivo ya
+  reemplazado: diff limpio, exit 0. Esto desbloquea el fix del gate de CI de 5e1fde78a
+  (--fail-on-unapproved-gaps): sin esta regeneracion, ese step de CI habria fallado por el drift
+  de shape del snapshot, no por ningun gap real nuevo. Sin dispatch de CI remoto: validacion
+  100% local.
 ```

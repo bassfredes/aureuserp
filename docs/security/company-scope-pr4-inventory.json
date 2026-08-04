@@ -35,7 +35,10 @@
         "real_gaps_without_company_id": 0,
         "table_missing": 0,
         "inspection_errors": 0,
-        "manifest_violations": 0
+        "manifest_violations": 0,
+        "accepted_risks": 1,
+        "unapproved_gaps": 0,
+        "accepted_risk_violations": 0
     },
     "rows": [
         {
@@ -48,7 +51,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -60,7 +64,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -72,7 +77,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -84,7 +90,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -96,7 +103,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -108,7 +116,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -120,7 +129,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -132,7 +142,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -144,7 +155,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -156,7 +168,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -168,7 +181,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -180,7 +194,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -192,7 +207,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -204,7 +220,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -216,7 +233,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -228,7 +246,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -240,7 +259,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -252,7 +272,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -264,7 +285,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -276,7 +298,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -288,7 +311,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -300,7 +324,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -312,7 +337,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounting",
@@ -324,7 +350,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -336,7 +363,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -348,7 +376,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -360,7 +389,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -372,7 +402,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -384,7 +415,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -396,7 +428,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -408,7 +441,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -420,7 +454,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -432,7 +467,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -444,7 +480,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -456,7 +493,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -468,7 +506,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -480,7 +519,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -492,7 +532,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -504,7 +545,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -516,7 +558,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -528,7 +571,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -540,7 +584,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -552,7 +597,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -564,7 +610,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -576,7 +623,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -588,7 +636,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -600,7 +649,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -612,7 +662,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -624,7 +675,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -636,7 +688,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -648,7 +701,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -660,7 +714,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -672,7 +727,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -684,7 +740,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -696,7 +753,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -708,7 +766,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -720,7 +779,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -732,7 +792,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -744,7 +805,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -756,7 +818,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -768,7 +831,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -780,7 +844,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -792,7 +857,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -804,7 +870,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -816,7 +883,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "accounts",
@@ -828,7 +896,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "analytics",
@@ -840,7 +909,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "blogs",
@@ -852,7 +922,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "blogs",
@@ -864,7 +935,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "blogs",
@@ -876,7 +948,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "chatter",
@@ -888,7 +961,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "chatter",
@@ -900,7 +974,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "chatter",
@@ -912,7 +987,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "contacts",
@@ -924,7 +1000,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "contacts",
@@ -936,7 +1013,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "contacts",
@@ -948,7 +1026,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "contacts",
@@ -960,7 +1039,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "contacts",
@@ -972,7 +1052,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "contacts",
@@ -984,7 +1065,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "contacts",
@@ -996,7 +1078,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1008,7 +1091,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1020,7 +1104,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1032,7 +1117,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1044,7 +1130,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1056,7 +1143,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1068,7 +1156,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1080,7 +1169,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1092,7 +1182,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1104,7 +1195,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1116,7 +1208,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1128,7 +1221,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1140,7 +1234,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1152,7 +1247,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1164,7 +1260,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1176,7 +1273,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1188,7 +1286,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1200,7 +1299,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1212,7 +1312,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "employees",
@@ -1224,7 +1325,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "fields",
@@ -1236,7 +1338,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1248,7 +1351,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1260,7 +1364,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1272,7 +1377,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1284,7 +1390,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1296,7 +1403,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1308,7 +1416,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1320,7 +1429,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1332,7 +1442,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1344,7 +1455,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1356,7 +1468,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1368,7 +1481,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1380,7 +1494,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1392,7 +1507,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1404,7 +1520,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1416,7 +1533,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1428,7 +1546,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1440,7 +1559,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1452,7 +1572,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1464,7 +1585,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1476,7 +1598,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1488,7 +1611,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1500,7 +1624,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1512,7 +1637,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1524,7 +1650,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1536,7 +1663,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1548,7 +1676,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1560,7 +1689,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1572,7 +1702,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1584,7 +1715,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "inventories",
@@ -1596,7 +1728,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1608,7 +1741,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1620,7 +1754,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1632,7 +1767,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1644,7 +1780,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1656,7 +1793,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1668,7 +1806,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1680,7 +1819,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1692,7 +1832,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1704,7 +1845,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1716,7 +1858,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1728,7 +1871,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1740,7 +1884,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1752,7 +1897,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1764,7 +1910,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1776,7 +1923,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1788,7 +1936,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "invoices",
@@ -1800,7 +1949,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "maintenance",
@@ -1812,7 +1962,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "maintenance",
@@ -1824,7 +1975,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "maintenance",
@@ -1836,7 +1988,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "maintenance",
@@ -1848,7 +2001,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "maintenance",
@@ -1860,7 +2014,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -1872,7 +2027,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -1884,7 +2040,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -1896,7 +2053,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -1908,7 +2066,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -1920,7 +2079,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -1932,7 +2092,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -1944,7 +2105,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -1956,7 +2118,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -1968,7 +2131,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -1980,7 +2144,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -1992,7 +2157,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -2004,7 +2170,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -2016,7 +2183,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -2028,7 +2196,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -2040,7 +2209,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -2052,7 +2222,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -2064,7 +2235,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -2076,7 +2248,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "manufacturing",
@@ -2088,7 +2261,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "partners",
@@ -2100,7 +2274,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "partners",
@@ -2112,7 +2287,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "partners",
@@ -2124,7 +2300,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "multi_company_membership",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "partners",
@@ -2136,7 +2313,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "partners",
@@ -2148,7 +2326,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "global_party_identity",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "partners",
@@ -2160,7 +2339,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "partners",
@@ -2172,7 +2352,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "payments",
@@ -2184,7 +2365,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "payments",
@@ -2196,7 +2378,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "plugin-manager",
@@ -2208,7 +2391,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "products",
@@ -2220,7 +2404,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "products",
@@ -2232,7 +2417,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "products",
@@ -2244,7 +2430,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "products",
@@ -2256,7 +2443,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "products",
@@ -2268,7 +2456,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "products",
@@ -2280,7 +2469,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "products",
@@ -2292,7 +2482,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "products",
@@ -2304,7 +2495,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "products",
@@ -2316,7 +2508,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "products",
@@ -2328,7 +2521,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "products",
@@ -2340,7 +2534,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "products",
@@ -2352,7 +2547,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "products",
@@ -2364,7 +2560,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "projects",
@@ -2376,7 +2573,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "projects",
@@ -2388,7 +2586,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "projects",
@@ -2400,7 +2599,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "projects",
@@ -2412,7 +2612,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "projects",
@@ -2424,7 +2625,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "projects",
@@ -2436,7 +2638,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "projects",
@@ -2448,7 +2651,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "projects",
@@ -2460,7 +2664,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2472,7 +2677,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2484,7 +2690,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2496,7 +2703,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2508,7 +2716,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2520,7 +2729,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2532,7 +2742,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2544,7 +2755,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2556,7 +2768,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2568,7 +2781,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2580,7 +2794,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2592,7 +2807,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2604,7 +2820,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2616,7 +2833,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2628,7 +2846,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2640,7 +2859,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2652,7 +2872,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2664,7 +2885,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "purchases",
@@ -2676,7 +2898,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2688,7 +2911,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2700,7 +2924,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2712,7 +2937,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2724,7 +2950,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2736,7 +2963,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2748,7 +2976,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2760,7 +2989,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2772,7 +3002,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2784,7 +3015,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2796,7 +3028,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2808,7 +3041,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2820,7 +3054,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2832,7 +3067,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2844,7 +3080,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2856,7 +3093,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2868,7 +3106,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2880,7 +3119,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2892,7 +3132,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2904,7 +3145,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2916,7 +3158,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "recruitments",
@@ -2928,7 +3171,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -2940,7 +3184,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -2952,7 +3197,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -2964,7 +3210,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -2976,7 +3223,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -2988,7 +3236,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3000,7 +3249,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3012,7 +3262,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3024,7 +3275,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3036,7 +3288,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3048,7 +3301,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3060,7 +3314,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3072,7 +3327,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3084,7 +3340,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3096,7 +3353,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3108,7 +3366,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3120,7 +3379,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3132,7 +3392,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3144,7 +3405,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3156,7 +3418,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3168,7 +3431,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3180,7 +3444,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "sales",
@@ -3192,7 +3457,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "security",
@@ -3204,7 +3470,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "security",
@@ -3216,7 +3483,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column"
+            "effective_status": "real_gap_company_column",
+            "accepted_risk_status": "approved"
         },
         {
             "plugin": "security",
@@ -3228,7 +3496,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "security",
@@ -3240,7 +3509,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "security",
@@ -3252,7 +3522,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "security",
@@ -3264,7 +3535,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "multi_company_membership",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3276,7 +3548,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3288,7 +3561,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3300,7 +3574,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3312,7 +3587,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3324,7 +3600,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3336,7 +3613,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3348,7 +3626,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3360,7 +3639,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3372,7 +3652,8 @@
             "status": "missing_scope",
             "error": null,
             "classification": "root_company_entity",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3384,7 +3665,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3396,7 +3678,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3408,7 +3691,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3420,7 +3704,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3432,7 +3717,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3444,7 +3730,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3456,7 +3743,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3468,7 +3756,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3480,7 +3769,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3492,7 +3782,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3504,7 +3795,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "support",
@@ -3516,7 +3808,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "global_reference",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "table-views",
@@ -3528,7 +3821,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "table-views",
@@ -3540,7 +3834,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "time-off",
@@ -3552,7 +3847,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "time-off",
@@ -3564,7 +3860,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "time-off",
@@ -3576,7 +3873,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "time-off",
@@ -3588,7 +3886,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "time-off",
@@ -3600,7 +3899,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "time-off",
@@ -3612,7 +3912,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "time-off",
@@ -3624,7 +3925,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "time-off",
@@ -3636,7 +3938,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "time-off",
@@ -3648,7 +3951,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "parent_scoped",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "timesheets",
@@ -3660,7 +3964,8 @@
             "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "scoped"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "website",
@@ -3672,7 +3977,8 @@
             "status": "not_company_scoped",
             "error": null,
             "classification": "not_tenancy",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         },
         {
             "plugin": "website",
@@ -3684,8 +3990,10 @@
             "status": "missing_scope",
             "error": null,
             "classification": "alias",
-            "effective_status": "classified_exception"
+            "effective_status": "classified_exception",
+            "accepted_risk_status": null
         }
     ],
-    "manifest_violations": []
+    "manifest_violations": [],
+    "accepted_risk_violations": []
 }
