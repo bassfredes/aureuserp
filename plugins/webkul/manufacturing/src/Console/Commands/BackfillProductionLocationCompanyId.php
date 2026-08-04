@@ -2,9 +2,12 @@
 
 namespace Webkul\Manufacturing\Console\Commands;
 
+use Closure;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Webkul\Manufacturing\Models\Warehouse;
+use Webkul\Support\Services\CompanyContext;
 
 /**
  * Preflight-check and repoint each manufacturing-enabled Warehouse's
@@ -35,6 +38,30 @@ use Webkul\Manufacturing\Models\Warehouse;
  * Repointing an existing Rule's destination_location_id is a plain column
  * update via the DB facade — Rule carries no equivalent boot() guard to
  * preserve.
+ *
+ * The Eloquent portion (Warehouse::find(), resolveOrCreateProductionLocation()'s
+ * own "does one already exist?" read, and Location::boot()'s
+ * guardSingleProductionLocationPerCompany() duplicate check) all go through
+ * CompanyScope. In real deploy execution there is no authenticated user, and
+ * CompanyScope::apply() fails closed (`1 = 0`) with no user and no active
+ * CompanyContext (ADR 0007) — every one of those reads would silently see
+ * zero rows, defeating both the idempotency check and the uniqueness guard
+ * and letting duplicate Production locations slip through on every run.
+ * withCompanyContext() opens CompanyContext::runForCompany() for exactly
+ * that per-warehouse company around the Eloquent calls when there is no
+ * authenticated actor (console/queue execution — the normal case for this
+ * command), matching TestBootstrapHelper::withSystemContextIfNoUser()'s
+ * "already authenticated? just run; otherwise open a system context" shape.
+ *
+ * Out of scope: Move/MoveLine rows created before this fix that already
+ * reference a wrong-company Production location are NOT repointed by this
+ * command — it only fixes the Warehouse's own
+ * "Pre-Production -> Production" Rule, the single write path that produced
+ * the corruption. No production data exists in any environment yet (#138
+ * PR4), and this dev/test worktree's own database was audited when this
+ * fix was authored: a single company, a single warehouse, and its one
+ * Production location was already correctly owned — so there are no known
+ * affected Move/MoveLine rows to backfill anywhere today.
  */
 class BackfillProductionLocationCompanyId extends Command
 {
@@ -147,23 +174,25 @@ class BackfillProductionLocationCompanyId extends Command
 
         DB::transaction(function () use ($toRepoint, $toProvision): void {
             foreach ($toProvision as $warehouseRow) {
-                $warehouse = Warehouse::find($warehouseRow->id);
+                $this->withCompanyContext((int) $warehouseRow->company_id, function () use ($warehouseRow): void {
+                    $warehouse = Warehouse::find($warehouseRow->id);
 
-                if (! $warehouse) {
-                    continue;
-                }
+                    if (! $warehouse) {
+                        return;
+                    }
 
-                $productionLocation = $warehouse->resolveOrCreateProductionLocation();
+                    $productionLocation = $warehouse->resolveOrCreateProductionLocation();
 
-                $rule = DB::table('inventories_rules')
-                    ->where('route_id', $warehouseRow->pbm_route_id)
-                    ->where('operation_type_id', $warehouseRow->manu_type_id)
-                    ->where('source_location_id', $warehouseRow->pbm_loc_id)
-                    ->first(['id']);
+                    $rule = DB::table('inventories_rules')
+                        ->where('route_id', $warehouseRow->pbm_route_id)
+                        ->where('operation_type_id', $warehouseRow->manu_type_id)
+                        ->where('source_location_id', $warehouseRow->pbm_loc_id)
+                        ->first(['id']);
 
-                if ($rule) {
-                    DB::table('inventories_rules')->where('id', $rule->id)->update(['destination_location_id' => $productionLocation->id]);
-                }
+                    if ($rule) {
+                        DB::table('inventories_rules')->where('id', $rule->id)->update(['destination_location_id' => $productionLocation->id]);
+                    }
+                });
             }
 
             foreach ($toRepoint as $entry) {
@@ -174,5 +203,32 @@ class BackfillProductionLocationCompanyId extends Command
         $this->info(sprintf('Repointed %d rule(s) and provisioned %d missing Production location(s).', count($toRepoint), count($toProvision)));
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Runs $callback under CompanyScope correctly scoped to $companyId —
+     * required for every Eloquent read/write inside it
+     * (Warehouse::find(), resolveOrCreateProductionLocation()'s own
+     * existence check, Location's single-Production-per-company guard) to
+     * see the right rows instead of CompanyScope's fail-closed `1 = 0`
+     * default. An already-authenticated actor (e.g. a test wrapping this
+     * command in actingAs()) is scoped by CompanyScope through its own
+     * allowedCompanyIds() already, and CompanyContext::run() refuses to
+     * open a context on top of an authenticated user (ADR 0007) — so this
+     * only opens one when there truly is no actor, the normal console/queue
+     * case for this command.
+     */
+    private function withCompanyContext(int $companyId, Closure $callback): mixed
+    {
+        if (Auth::check()) {
+            return $callback();
+        }
+
+        return CompanyContext::runForCompany(
+            companyId: $companyId,
+            reason: 'manufacturing:production-location:backfill — resolve/provision this company\'s own Production location',
+            caller: self::class,
+            callback: $callback,
+        );
     }
 }

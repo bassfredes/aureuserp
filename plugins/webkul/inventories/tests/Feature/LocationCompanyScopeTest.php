@@ -1,6 +1,5 @@
 <?php
 
-use Illuminate\Support\Facades\Auth;
 use Webkul\Inventory\Enums\LocationType;
 use Webkul\Inventory\Models\Location;
 use Webkul\Inventory\Models\Warehouse;
@@ -306,4 +305,22 @@ it('allows re-creating a Production location for a company after the previous on
 
     expect($replacement->id)->not->toBe($original->id)
         ->and($replacement->company_id)->toBe($company->id);
+});
+
+it('allows re-creating a Production location for a company after the previous one was only soft-deleted (not force-deleted)', function () {
+    $company = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $company->id,
+    ]));
+
+    test()->actingAs($user);
+
+    $original = Location::factory()->production()->create(['company_id' => $company->id]);
+    $original->delete();
+
+    $replacement = Location::factory()->production()->create(['company_id' => $company->id]);
+
+    expect($replacement->id)->not->toBe($original->id)
+        ->and($replacement->company_id)->toBe($company->id)
+        ->and(Location::withTrashed()->find($original->id)?->trashed())->toBeTrue();
 });

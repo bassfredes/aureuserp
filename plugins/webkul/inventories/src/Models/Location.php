@@ -170,6 +170,14 @@ class Location extends Model implements IncludesSharedCompanyRows
      * count. Shared (company_id null) PRODUCTION rows are exempt: those
      * predate per-company provisioning and stay governed by
      * guardSharedRowMutation(), not this invariant.
+     *
+     * Known accepted debt: like the is_replenish guard right below, this is
+     * a read-then-write check with no transactional/locking guarantee, so
+     * two concurrent authenticated requests could both pass the exists()
+     * check before either commits and create two Production locations for
+     * the same company. Judged an acceptable, low-concurrency-risk
+     * trade-off (Warehouse creation/company provisioning is not a
+     * high-concurrency path) — not fixed here, only declared.
      */
     protected static function guardSingleProductionLocationPerCompany(Location $location): void
     {
