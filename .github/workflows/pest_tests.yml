@@ -231,7 +231,10 @@ jobs:
 
       - name: Running global company-scope audit
         run: |
-          php scripts/audit-company-scope.php --format=json > company-scope-audit.json
+          php scripts/audit-company-scope.php \
+            --format=json \
+            --fail-on-unapproved-gaps \
+            > company-scope-audit.json
           cat company-scope-audit.json
           php -r '
             $data = json_decode(file_get_contents("company-scope-audit.json"), true);
