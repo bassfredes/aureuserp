@@ -1473,4 +1473,36 @@ Registro de riesgos aceptados: --fail-on-unapproved-gaps (recomendacion Codex
   documentado aqui como el candidato sostenible para un futuro gate de CI, respaldado por un
   registro de riesgos aceptados auditable, con expiracion obligatoria y sin devaluar la
   taxonomia de ExceptionManifest.
+Superseded: framing del punto 7 de la ronda 2 de ola 4A (arriba, ~linea 409). Aquella entrada
+  documentaba `Location::withoutGlobalScope(CompanyScope::class)->where(...)` como "el fix" del
+  gap de Production Location en manufacturing/Warehouse.php, enmarcandolo como un bypass seguro
+  e intencional que preservaba el comportamiento existente. Ese framing quedo superado: el
+  codigo actual de Warehouse.php ya no usa withoutGlobalScope en ningun punto (verificado por
+  grep sobre inventories/src/Models/Warehouse.php y manufacturing/src/Models/Warehouse.php, sin
+  coincidencias, 2026-08-04). Una revision adversarial de Codex (#138 PR4) encontro que ese
+  bypass era en realidad un bug HIGH-severity de referencia cross-company: al resolver "la"
+  Production location con una consulta global sin scope de compañia, toda compañia terminaba
+  apuntando a la MISMA fila de Production sin importar cual la poseyera realmente, rompiendo el
+  aislamiento operacional de movimientos de stock entre compañias. El fix real es la cadena de
+  tres commits `3dcf7ad0a`/`6a4a8b407`/`b08b9cffb`: (1) `3dcf7ad0a` reemplaza la consulta global
+  por resolucion por company_id en Warehouse::resolveOrCreateProductionLocation() (mismo patron
+  que Order::computeProductionLocationId()), aprovisionando una Production Location idempotente
+  por compañia y fallando explicito si el warehouse no tiene company_id; (2) `6a4a8b407` agrega
+  el comando manufacturing:production-location:backfill (mismo patron que
+  sales:tags:backfill-company) para repuntar la Rule "Pre-Production -> Production" de cada
+  Warehouse existente hacia la Production Location de su propia compañia; (3) `b08b9cffb`
+  corrige un hallazgo BLOCKING de la primera ronda de independent-reviewer: en ejecucion real de
+  consola sin actor autenticado, CompanyScope::apply() falla cerrado (ADR 0007) sin un
+  CompanyContext activo, dejando ciegas la comprobacion de idempotencia y el guard de unicidad
+  de Location — el propio backfill podia crear Production locations duplicadas por compañia,
+  exactamente el invariante que el paquete existe para establecer; withCompanyContext() abre
+  CompanyContext::runForCompany() por cada compañia solo cuando no hay actor autenticado (mismo
+  patron que TestBootstrapHelper::withSystemContextIfNoUser()). Estado verificado actual: 66/66
+  en la suite de manufacturing, 557/557 en la suite de inventories. Dos rondas de
+  independent-reviewer sobre esta cadena: la primera encontro el hallazgo BLOCKING ya descrito
+  (CompanyContext ausente en el backfill sin actor), corregido en `b08b9cffb`; la segunda,
+  posterior a los tres commits, devolvio REVIEW_APPROVED_WITH_FOLLOW_UPS sin hallazgos
+  bloqueantes — solo dos follow-ups documentales (el framing de duplicados vs. no-op silencioso
+  en el docblock de BackfillProductionLocationCompanyId.php, y esta misma entrada), ambos
+  cerrados en el commit que agrega este parrafo.
 ```

@@ -44,10 +44,13 @@ use Webkul\Support\Services\CompanyContext;
  * guardSingleProductionLocationPerCompany() duplicate check) all go through
  * CompanyScope. In real deploy execution there is no authenticated user, and
  * CompanyScope::apply() fails closed (`1 = 0`) with no user and no active
- * CompanyContext (ADR 0007) — every one of those reads would silently see
- * zero rows, defeating both the idempotency check and the uniqueness guard
- * and letting duplicate Production locations slip through on every run.
- * withCompanyContext() opens CompanyContext::runForCompany() for exactly
+ * CompanyContext (ADR 0007). Warehouse::find() is itself scoped by the same
+ * CompanyScope, so under that fail-closed branch it returns null before ever
+ * reaching resolveOrCreateProductionLocation() — the command silently does
+ * nothing (no row is created or repointed, not even a duplicate) and still
+ * reports success (exit 0), leaving every affected Warehouse's Rule pointing
+ * at whatever Production location it already had, including a wrong-company
+ * one. withCompanyContext() opens CompanyContext::runForCompany() for exactly
  * that per-warehouse company around the Eloquent calls when there is no
  * authenticated actor (console/queue execution — the normal case for this
  * command), matching TestBootstrapHelper::withSystemContextIfNoUser()'s
