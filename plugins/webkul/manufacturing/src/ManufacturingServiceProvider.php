@@ -13,6 +13,7 @@ use Webkul\Inventory\Models\OperationType;
 use Webkul\Inventory\Models\Route;
 use Webkul\Inventory\Models\Rule;
 use Webkul\Inventory\Models\Warehouse;
+use Webkul\Manufacturing\Console\Commands\BackfillProductionLocationCompanyId;
 use Webkul\Manufacturing\Facades\Manufacturing as ManufacturingFacade;
 use Webkul\Manufacturing\Observers\MoveObserver;
 use Webkul\Manufacturing\Observers\WarehouseObserver;
@@ -76,6 +77,9 @@ class ManufacturingServiceProvider extends PackageServiceProvider
                 '2026_05_08_094031_create_manufacturing_planning_settings',
             ])
             ->runsSettings()
+            ->hasCommands([
+                BackfillProductionLocationCompanyId::class,
+            ])
             ->hasDependencies([
                 'products',
                 'inventories',
