@@ -249,13 +249,12 @@ it('forbids an UnbuildOrder for company A referencing a manufacturing Order from
     // creating()/saving() guards, which would prove nothing about
     // UnbuildOrder's guard in a security test (#138 review, 2026-07-18).
     // A real Warehouse::create() wires the operation type + "production"
-    // Location Order's own side effects need; $user already has both
-    // companies allowed, so the manufacturing WarehouseObserver's own
-    // Location::where(...) lookup for the just-created "production"
-    // Location stays visible under normal CompanyScope. That lookup is
-    // itself company-blind (a pre-existing manufacturing gap, out of this
-    // PR's scope) and returns nothing at all on a fresh DB with zero
-    // production locations, so one is seeded first.
+    // Location Order's own side effects need. Since #138 PR4's Production
+    // location fix, Warehouse::resolveOrCreateProductionLocation() would
+    // auto-provision company B's own Production location on demand anyway
+    // (see ProductionLocationCompanyScopeTest) — seeding it explicitly
+    // here just keeps this fixture deterministic and independent of that
+    // provisioning path.
     Location::factory()->create(['type' => LocationType::PRODUCTION, 'company_id' => $companyB->id]);
 
     // WarehouseObserver implements ShouldHandleEventsAfterCommit — its

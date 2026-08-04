@@ -18,7 +18,6 @@ use Webkul\Inventory\Models\OperationType;
 use Webkul\Inventory\Models\Route;
 use Webkul\Inventory\Models\Rule;
 use Webkul\Inventory\Models\Warehouse as BaseWarehouse;
-use Webkul\Support\Models\Scopes\CompanyScope;
 
 class Warehouse extends BaseWarehouse
 {
@@ -287,22 +286,39 @@ class Warehouse extends BaseWarehouse
         ])->id;
     }
 
+    /**
+     * Resolves this warehouse's company's own PRODUCTION-type Location,
+     * provisioning one idempotently if it doesn't exist yet (aureuserp #138
+     * PR4 gap: this used to be an unscoped, company-blind global lookup that
+     * silently handed every company the same row — see git history for the
+     * prior implementation. Order::computeProductionLocationId() already
+     * resolves it the same way: type + company_id, proving one Production
+     * location per company was always the intended shape, not a shared
+     * one). Fails closed — never falls back to another company's row.
+     * Public: also reused by Console\Commands\BackfillProductionLocationCompanyId
+     * to provision a missing Production location for a pre-existing company.
+     */
+    public function resolveOrCreateProductionLocation(): Location
+    {
+        if (! $this->company_id) {
+            throw new \RuntimeException("Cannot resolve a Production location for warehouse [{$this->code}] because it has no company_id.");
+        }
+
+        return Location::where('type', LocationType::PRODUCTION)
+            ->where('company_id', $this->company_id)
+            ->first() ?? Location::create([
+                'type'         => LocationType::PRODUCTION,
+                'name'         => 'Production',
+                'is_scrap'     => false,
+                'is_replenish' => false,
+                'creator_id'   => $this->creator_id,
+                'company_id'   => $this->company_id,
+            ]);
+    }
+
     protected function createManufacturingRules(): void
     {
-        // withoutGlobalScope: preserves pre-existing behavior — there is
-        // exactly one PRODUCTION-type Location seeded system-wide (tied to
-        // the single company that existed at seed time), and no per-company
-        // Production location is created for any company created afterward.
-        // Without this bypass, CompanyScope would silently return null for
-        // any other company's Warehouse and crash on ->id below; WITH it,
-        // every company's manufacturing rules point at the same Location
-        // row regardless of which company actually owns it. This is a
-        // pre-existing multi-company data-model gap (not introduced by this
-        // bypass, which only keeps prior single-company behavior from
-        // crashing under CompanyScope) — deciding whether Production should
-        // become company_or_shared or seeded per company is out of scope for
-        // this sweep; see #138 PR4 wave 4D sweep report.
-        $productionLocation = Location::withoutGlobalScope(CompanyScope::class)->where('type', LocationType::PRODUCTION)->first();
+        $productionLocation = $this->resolveOrCreateProductionLocation();
 
         $this->manufactureRuleIds[] = Rule::create([
             'sort'                     => 15,
@@ -439,20 +455,7 @@ class Warehouse extends BaseWarehouse
             'deleted_at' => $this->manufacture_steps === ManufactureStep::ONE_STEP ? now() : null,
         ]);
 
-        // withoutGlobalScope: preserves pre-existing behavior — there is
-        // exactly one PRODUCTION-type Location seeded system-wide (tied to
-        // the single company that existed at seed time), and no per-company
-        // Production location is created for any company created afterward.
-        // Without this bypass, CompanyScope would silently return null for
-        // any other company's Warehouse and crash on ->id below; WITH it,
-        // every company's manufacturing rules point at the same Location
-        // row regardless of which company actually owns it. This is a
-        // pre-existing multi-company data-model gap (not introduced by this
-        // bypass, which only keeps prior single-company behavior from
-        // crashing under CompanyScope) — deciding whether Production should
-        // become company_or_shared or seeded per company is out of scope for
-        // this sweep; see #138 PR4 wave 4D sweep report.
-        $productionLocation = Location::withoutGlobalScope(CompanyScope::class)->where('type', LocationType::PRODUCTION)->first();
+        $productionLocation = $this->resolveOrCreateProductionLocation();
 
         $this->updateRules(
             'manufacture_steps',

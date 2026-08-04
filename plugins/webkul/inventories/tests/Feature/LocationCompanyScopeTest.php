@@ -241,3 +241,69 @@ it('does not affect shared locations when soft-deleting and restoring a company 
     expect(Location::find($companyLocation->id))->not->toBeNull();
     expect(Location::withTrashed()->find($vendors->id)->trashed())->toBeFalse();
 });
+
+// ── At most one PRODUCTION Location per company (aureuserp #138 PR4 gap) ──
+
+it('forbids creating a second Production location for a company that already has one', function () {
+    $company = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $company->id,
+    ]));
+
+    test()->actingAs($user);
+
+    Location::factory()->production()->create(['company_id' => $company->id]);
+
+    expect(fn () => Location::factory()->production()->create(['company_id' => $company->id]))
+        ->toThrow(Exception::class);
+});
+
+it('allows two different companies to each have their own Production location', function () {
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $companyA->id,
+    ]));
+    $user->allowedCompanies()->attach([$companyA->id, $companyB->id]);
+
+    test()->actingAs($user);
+
+    $productionA = Location::factory()->production()->create(['company_id' => $companyA->id]);
+    $productionB = Location::factory()->production()->create(['company_id' => $companyB->id]);
+
+    expect($productionA->id)->not->toBe($productionB->id)
+        ->and($productionA->company_id)->toBe($companyA->id)
+        ->and($productionB->company_id)->toBe($companyB->id);
+});
+
+it('forbids changing an existing location\'s type to Production for a company that already has one', function () {
+    $company = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $company->id,
+    ]));
+
+    test()->actingAs($user);
+
+    Location::factory()->production()->create(['company_id' => $company->id]);
+    $internal = Location::factory()->internal()->create(['company_id' => $company->id]);
+
+    expect(fn () => $internal->update(['type' => LocationType::PRODUCTION]))
+        ->toThrow(Exception::class);
+});
+
+it('allows re-creating a Production location for a company after the previous one was hard-deleted', function () {
+    $company = Company::factory()->create();
+    $user = User::withoutEvents(fn () => User::factory()->create([
+        'default_company_id' => $company->id,
+    ]));
+
+    test()->actingAs($user);
+
+    $original = Location::factory()->production()->create(['company_id' => $company->id]);
+    $original->forceDelete();
+
+    $replacement = Location::factory()->production()->create(['company_id' => $company->id]);
+
+    expect($replacement->id)->not->toBe($original->id)
+        ->and($replacement->company_id)->toBe($company->id);
+});
