@@ -24,6 +24,8 @@ class PartnerServiceProvider extends PackageServiceProvider
                 '2024_12_11_101927_create_partners_tags_table',
                 '2024_12_11_111929_create_partners_partner_tag_table',
                 '2025_03_28_115218_add_address_columns_in_partners_partners_table',
+                '2026_07_23_130000_create_partners_bank_account_companies_table',
+                '2026_07_23_130100_backfill_partners_bank_account_companies_table',
             ])
             ->runsMigrations();
     }

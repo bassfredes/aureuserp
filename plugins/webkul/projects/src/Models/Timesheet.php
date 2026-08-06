@@ -2,8 +2,10 @@
 
 namespace Webkul\Project\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Webkul\Analytic\Models\Record;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 class Timesheet extends Record
 {
@@ -32,6 +34,64 @@ class Timesheet extends Record
     public function task()
     {
         return $this->belongsTo(Task::class);
+    }
+
+    /**
+     * Overrides Record's generic resolution to derive (and cross-validate)
+     * the full Timesheet → Task → Project → company graph instead of
+     * trusting a plain company_id column. Task's own saving hook already
+     * guarantees Task.company_id == its Project's company at the moment
+     * Task is saved, but that Task row could since have been corrupted by
+     * a bug or a manual DB edit — this re-verifies it directly rather than
+     * assuming it still holds (#138 PR4 ola4A round 2 review).
+     */
+    protected function resolveEffectiveCompanyId(): int
+    {
+        if ($this->task_id === null) {
+            // Only a row that was ALREADY orphaned before this exact save
+            // (its Task was deleted via nullOnDelete, outside any Eloquent
+            // hook) may keep saving without one, re-authorizing its own
+            // already-persisted company_id — a brand new Timesheet with no
+            // Task, or an existing one being manually detached, is rejected
+            // outright (#138 PR4 ola4A round 2 review).
+            $wasAlreadyOrphaned = $this->exists && $this->getOriginal('task_id') === null;
+
+            if (! $wasAlreadyOrphaned) {
+                throw new AuthorizationException(static::class.' requires a task_id.');
+            }
+
+            return parent::resolveEffectiveCompanyId();
+        }
+
+        $task = Task::withoutGlobalScope(CompanyScope::class)->find($this->task_id);
+
+        if (! $task) {
+            throw new AuthorizationException('The Task could not be found.');
+        }
+
+        if ($task->company_id === null) {
+            throw new AuthorizationException('The Task has no company of its own to anchor to.');
+        }
+
+        if ($task->project_id !== null) {
+            $project = Project::withoutGlobalScope(CompanyScope::class)->find($task->project_id);
+
+            if ($project && (int) $task->company_id !== (int) $project->company_id) {
+                throw new AuthorizationException("The Task's company does not match its Project's company.");
+            }
+        }
+
+        if ($this->company_id !== null && (int) $this->company_id !== (int) $task->company_id) {
+            throw new AuthorizationException("The company_id does not match the Task's company.");
+        }
+
+        if ($this->project_id !== null && $task->project_id !== null && (int) $this->project_id !== (int) $task->project_id) {
+            throw new AuthorizationException("The Timesheet's project_id does not match its Task's project.");
+        }
+
+        CompanyScope::assertCanWriteCompany((int) $task->company_id);
+
+        return (int) $task->company_id;
     }
 
     public function updateTaskTimes()

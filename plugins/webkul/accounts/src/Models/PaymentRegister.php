@@ -199,6 +199,12 @@ class PaymentRegister extends Model
             // explicitly enabled for this company via the
             // accounts_account_companies pivot (#138 review, 2026-07-18).
             Account::assertEnabledForCompany($paymentRegister->writeoff_account_id, $paymentRegister->company_id, 'Writeoff Account');
+
+            // partner_bank_id must belong to partner_id and be enabled for
+            // this PaymentRegister's own persisted company (#138 PR4
+            // ola4B, approved contract).
+            BankAccount::assertBelongsToPartner($paymentRegister->partner_bank_id, $paymentRegister->partner_id, 'Partner Bank Account');
+            BankAccount::assertEnabledForCompany($paymentRegister->partner_bank_id, $paymentRegister->company_id, 'Partner Bank Account');
         });
     }
 
@@ -262,6 +268,10 @@ class PaymentRegister extends Model
             return $this->lines()->sync($uniqueIds);
         }
 
+        // withoutGlobalScope: the candidate MoveLines' real company_id must
+        // be resolvable even if some are outside the acting actor's visible
+        // companies — the mismatch (or lack of one) is what this validation
+        // exists to catch, not a general visibility grant.
         $lines = MoveLine::withoutGlobalScope(CompanyScope::class)
             ->whereKey($uniqueIds)
             ->get(['id', 'company_id']);

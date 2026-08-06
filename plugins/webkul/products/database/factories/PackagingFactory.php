@@ -47,6 +47,9 @@ class PackagingFactory extends Factory
             'sort'       => 1,
             'creator_id' => User::query()->value('id') ?? User::factory(),
             'product_id' => Product::factory(),
+            // withoutGlobalScope: reads the related Product's real
+            // company_id to build a coherent fixture — authoritative read of
+            // an already-known id, not a general visibility grant.
             'company_id' => fn (array $attributes) => Product::withoutGlobalScope(CompanyScope::class)
                 ->find($attributes['product_id'])?->company_id
                 ?? Company::factory()->create()->id,

@@ -3,7 +3,6 @@
 namespace Webkul\Payment\Database\Factories;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
-use Webkul\Account\Models\PaymentMethod;
 use Webkul\Partner\Models\Partner;
 use Webkul\Payment\Models\PaymentToken;
 use Webkul\Security\Models\User;
@@ -24,10 +23,16 @@ class PaymentTokenFactory extends Factory
     public function definition(): array
     {
         return [
-            'company_id'        => Company::factory(),
-            'payment_method_id' => PaymentMethod::factory(),
+            'company_id' => Company::factory(),
+            // payments_payment_tokens.payment_method_id references the
+            // `payments_payment_methods` table, a separate gateway-methods
+            // catalog with no Eloquent model anywhere in this plugin
+            // (Webkul\Account\Models\PaymentMethod backs the unrelated
+            // `accounts_payment_methods` table) — nullable per migration,
+            // left null here rather than pointing at the wrong model.
+            'payment_method_id' => null,
             'partner_id'        => Partner::query()->value('id') ?? Partner::factory(),
-            'creator_id'        => User::query()->value('id') ?? User::factory(),
+            'created_by'        => User::query()->value('id') ?? User::factory(),
             'payment_details'   => [
                 'token' => fake()->uuid(),
                 'type'  => 'card',

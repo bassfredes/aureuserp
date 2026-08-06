@@ -22,7 +22,10 @@ class EmployeeResumeFactory extends Factory
 
         return [
             'name'                         => fake()->sentence(4),
-            'display_type'                 => null,
+            // NOT NULL in the migration (2024_12_16_070029) — no enum or
+            // established convention exists elsewhere in the codebase for
+            // this column, so a plain non-empty default is used (#138 PR4).
+            'display_type'                 => 'text',
             'start_date'                   => $startDate,
             'end_date'                     => $endDate,
             'description'                  => fake()->optional()->paragraph(),

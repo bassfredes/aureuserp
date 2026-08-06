@@ -58,4 +58,10 @@ return [
 
     ],
 
+    'errors' => [
+        'already-accepted' => 'Esta invitación ya fue aceptada.',
+        'expired'          => 'Esta invitación expiró.',
+        'invalid-token'    => 'Este enlace de invitación no es válido.',
+    ],
+
 ];

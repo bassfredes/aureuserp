@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
+use Webkul\Account\Database\Factories\PaymentFactory;
 use Webkul\Account\Enums\AccountType;
 use Webkul\Account\Enums\JournalType;
 use Webkul\Account\Enums\MoveType;
@@ -255,6 +256,12 @@ class Payment extends Model
             // accounts_account_companies pivot (#138 review, 2026-07-18).
             Account::assertEnabledForCompany($payment->outstanding_account_id, $payment->company_id, 'Outstanding Account');
             Account::assertEnabledForCompany($payment->destination_account_id, $payment->company_id, 'Destination Account');
+
+            // partner_bank_id must belong to partner_id and be enabled for
+            // this Payment's own company (#138 PR4 ola4B, approved
+            // contract).
+            BankAccount::assertBelongsToPartner($payment->partner_bank_id, $payment->partner_id, 'Partner Bank Account');
+            BankAccount::assertEnabledForCompany($payment->partner_bank_id, $payment->company_id, 'Partner Bank Account');
 
             $payment->computeAmountCompanyCurrencySigned();
 
@@ -686,5 +693,10 @@ class Payment extends Model
         return [
             ['type' => 'label', 'value' => $label],
         ];
+    }
+
+    protected static function newFactory(): PaymentFactory
+    {
+        return PaymentFactory::new();
     }
 }

@@ -2,6 +2,7 @@
 
 namespace Webkul\Employee\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,17 +12,36 @@ use Illuminate\Support\Facades\Auth;
 use Webkul\Chatter\Traits\HasChatter;
 use Webkul\Chatter\Traits\HasLogActivity;
 use Webkul\Employee\Database\Factories\EmployeeFactory;
+use Webkul\Employee\Models\Concerns\GuardsCompanyLifecycleOnSoftDelete;
 use Webkul\Field\Traits\HasCustomFields;
 use Webkul\Partner\Models\BankAccount;
 use Webkul\Partner\Models\Partner;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Country;
+use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Models\State;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\HasStrictCompanyId;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
+/**
+ * Company ownership (#138 PR4 A4D): HasCompanyScope + HasStrictCompanyId
+ * make Employee itself a strict_company owner. Beyond that baseline, every
+ * tenant-aware FK this model carries is validated against the Employee's
+ * own already-authorized company_id: department_id/job_id/work_location_id
+ * (related models with their own company_id column, compared via
+ * ValidatesRelatedCompanyScope), parent_id/coach_id (self-relations, same
+ * mechanism), and user_id/attendance_manager_id/leave_manager_id (User has
+ * no single company_id — membership is checked via
+ * CompanyScope::allowedCompanyIds(), same rule the scope itself uses for
+ * the acting user, applied here to the referenced User instead).
+ * bank_account_id keeps its ola4B contract (BankAccount::assertEnabledForCompany())
+ * unchanged, now running against an already-authorized company_id.
+ */
 class Employee extends Model
 {
-    use HasChatter, HasCustomFields, HasFactory, HasLogActivity, SoftDeletes;
+    use GuardsCompanyLifecycleOnSoftDelete, HasChatter, HasCompanyScope, HasCustomFields, HasFactory, HasLogActivity, HasStrictCompanyId, SoftDeletes, ValidatesRelatedCompanyScope;
 
     public const ACTIVITY_PLAN_PLUGIN = 'employees';
 
@@ -237,9 +257,108 @@ class Employee extends Model
         return $this->belongsTo(Partner::class, 'address_id');
     }
 
+    /**
+     * User has no single authoritative company_id — membership is
+     * "default_company_id + allowedCompanies() pivot", the same rule
+     * CompanyScope::allowedCompanyIds() already applies to the acting
+     * user, applied here to a referenced User instead. Always re-fetches
+     * the User fresh, never trusts an in-memory relation object.
+     */
+    private static function assertUserBelongsToCompany(?int $userId, ?int $companyId, string $label): void
+    {
+        if ($userId === null) {
+            return;
+        }
+
+        $user = User::find($userId);
+
+        if (! $user || $companyId === null || ! CompanyScope::allowedCompanyIds($user)->contains((int) $companyId)) {
+            throw new AuthorizationException("The related {$label} is not a member of this Employee's company.");
+        }
+    }
+
+    /**
+     * Calendar is company_or_shared (#138 A4I), unlike Department/JobPosition
+     * /WorkLocation/self — assertRelatedBelongsToCompany() fails closed on a
+     * NULL company on either side, which would reject the seeded shared
+     * default calendar for every Employee. A shared (company_id IS NULL)
+     * Calendar is always assignable; a company-owned one must match. A
+     * soft-deleted Calendar is only rejected for a NEW assignment — an
+     * Employee already pointing at one (e.g. via WorkCenter::calendar()'s
+     * own withTrashed() precedent) keeps resolving it.
+     */
+    private static function assertCalendarIsAssignable(?int $calendarId, ?int $companyId, bool $isNewAssignment): void
+    {
+        if ($calendarId === null) {
+            return;
+        }
+
+        $calendar = Calendar::withoutGlobalScope(CompanyScope::class)->withTrashed()->find($calendarId);
+
+        if (! $calendar) {
+            throw new AuthorizationException('The related Calendar does not exist.');
+        }
+
+        if ($isNewAssignment && $calendar->trashed()) {
+            throw new AuthorizationException('The related Calendar has been deleted and cannot be newly assigned.');
+        }
+
+        if ($calendar->company_id === null) {
+            return;
+        }
+
+        if ($companyId === null || (int) $calendar->company_id !== (int) $companyId) {
+            throw new AuthorizationException('The related Calendar belongs to a different company.');
+        }
+    }
+
     protected static function boot()
     {
         parent::boot();
+
+        static::saving(function (self $employee) {
+            // Runs after HasStrictCompanyId's own `saving` listener (trait
+            // boot order: parent::boot() registers it first), so
+            // $employee->company_id is already resolved/authorized by the
+            // time these relation checks run.
+            static::assertRelatedBelongsToCompany($employee->department_id, Department::class, 'Department', $employee->company_id);
+            static::assertRelatedBelongsToCompany($employee->job_id, EmployeeJobPosition::class, 'Job Position', $employee->company_id);
+            static::assertRelatedBelongsToCompany($employee->work_location_id, WorkLocation::class, 'Work Location', $employee->company_id);
+            static::assertCalendarIsAssignable($employee->calendar_id, $employee->company_id, ! $employee->exists || $employee->isDirty('calendar_id'));
+
+            if ($employee->exists && $employee->parent_id !== null && (int) $employee->parent_id === (int) $employee->id) {
+                throw new AuthorizationException('An Employee cannot be its own parent/manager.');
+            }
+
+            static::assertRelatedBelongsToCompany($employee->parent_id, self::class, 'Parent/Manager', $employee->company_id);
+            static::assertRelatedBelongsToCompany($employee->coach_id, self::class, 'Coach', $employee->company_id);
+
+            static::assertUserBelongsToCompany($employee->user_id, $employee->company_id, 'Related User');
+            static::assertUserBelongsToCompany($employee->attendance_manager_id, $employee->company_id, 'Attendance Manager');
+            static::assertUserBelongsToCompany($employee->leave_manager_id, $employee->company_id, 'Leave Manager');
+
+            // partner_id is managed exclusively by handlePartnerCreation()/
+            // handlePartnerUpdation() below — once linked, it must never be
+            // replaced (including cleared to null) by a request pointing at
+            // an arbitrary, unrelated Partner identity, or unlinked entirely
+            // (#138 PR4 A4D review 4811425870, finding 3 — the previous
+            // check exempted the existing-to-null transition, which let a
+            // cleared partner_id silently trigger handlePartnerCreation()
+            // into creating a brand new Partner, replacing the "immutable"
+            // link). The internal flow only ever sets partner_id when it
+            // was previously null, so this cannot conflict with the nested
+            // save it performs.
+            $originalPartnerId = $employee->getOriginal('partner_id');
+
+            if ($originalPartnerId !== null && (int) $originalPartnerId !== (int) $employee->partner_id) {
+                throw new AuthorizationException("Changing an Employee's linked Partner is forbidden — it is managed automatically.");
+            }
+
+            // bank_account_id must be enabled for this Employee's own
+            // company (#138 PR4 ola4B, approved contract) — BankAccount
+            // has no company_id of its own, only a membership pivot.
+            BankAccount::assertEnabledForCompany($employee->bank_account_id, $employee->company_id, 'Employee Bank Account');
+        });
 
         static::saved(function (self $employee) {
             $employee->creator_id ??= Auth::id();
@@ -264,7 +383,12 @@ class Employee extends Model
             'phone'        => $employee?->work_phone,
             'mobile'       => $employee?->mobile_phone,
             'color'        => $employee?->color,
-            'parent_id'    => $employee?->parent_id,
+            // The manager's own Partner id, not the manager's Employee id
+            // (partners_partners.parent_id references other partners) —
+            // pre-existing bug (#138 PR4 A4D), dormant until parent_id was
+            // ever set to a real Employee id whose numeric value didn't
+            // also happen to be a valid partner id.
+            'parent_id'    => $employee?->parent?->partner_id,
             'company_id'   => $employee?->company_id,
             'user_id'      => $employee?->user_id,
         ]);
@@ -287,7 +411,7 @@ class Employee extends Model
                 'phone'        => $employee?->work_phone,
                 'mobile'       => $employee?->mobile_phone,
                 'color'        => $employee?->color,
-                'parent_id'    => $employee?->parent_id,
+                'parent_id'    => $employee?->parent?->partner_id,
                 'company_id'   => $employee?->company_id,
                 'user_id'      => $employee?->user_id,
             ]

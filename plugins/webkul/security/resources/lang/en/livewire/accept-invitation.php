@@ -58,4 +58,10 @@ return [
 
     ],
 
+    'errors' => [
+        'already-accepted' => 'This invitation has already been accepted.',
+        'expired'          => 'This invitation has expired.',
+        'invalid-token'    => 'This invitation link is invalid.',
+    ],
+
 ];

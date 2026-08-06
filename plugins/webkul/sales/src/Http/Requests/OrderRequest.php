@@ -2,9 +2,11 @@
 
 namespace Webkul\Sale\Http\Requests;
 
+use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Webkul\Product\Models\Product;
+use Webkul\Sale\Models\Tag;
 
 class OrderRequest extends FormRequest
 {
@@ -42,7 +44,20 @@ class OrderRequest extends FormRequest
             'utm_source_id'                 => ['nullable', 'integer', 'exists:utm_sources,id'],
             'medium_id'                     => ['nullable', 'integer', 'exists:utm_mediums,id'],
             'sales_order_tags'              => ['nullable', 'array'],
-            'sales_order_tags.*'            => ['integer', 'exists:sales_tags,id'],
+            // Not 'exists:sales_tags,id': that's a raw SQL check that ignores
+            // Tag's CompanyScope global scope, letting an actor associate a
+            // tag belonging to another company to their own order (#138 PR4
+            // A4K). Tag::query() re-applies the scope, so a tag id that
+            // exists in the DB but isn't visible to the acting user's
+            // allowed companies fails validation exactly like a nonexistent one.
+            'sales_order_tags.*'            => [
+                'integer',
+                function (string $attribute, mixed $value, Closure $fail): void {
+                    if (! Tag::query()->whereKey($value)->exists()) {
+                        $fail('The selected '.$attribute.' is invalid.');
+                    }
+                },
+            ],
             'lines'                         => [...$requiredRule, 'array', 'min:1'],
             'lines.*.id'                    => ['nullable', 'integer', 'exists:sales_order_lines,id'],
             'lines.*.product_id'            => ['required', 'integer', 'exists:products_products,id'],

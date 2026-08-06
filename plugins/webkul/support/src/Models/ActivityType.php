@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Auth;
 use Spatie\EloquentSortable\Sortable;
 use Spatie\EloquentSortable\SortableTrait;
 use Webkul\Security\Models\User;
+use Webkul\Support\Database\Factories\ActivityTypeFactory;
 
 class ActivityType extends Model implements Sortable
 {
@@ -87,5 +88,10 @@ class ActivityType extends Model implements Sortable
         static::creating(function ($activityType) {
             $activityType->creator_id ??= Auth::id();
         });
+    }
+
+    protected static function newFactory(): ActivityTypeFactory
+    {
+        return ActivityTypeFactory::new();
     }
 }

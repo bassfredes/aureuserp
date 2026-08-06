@@ -10,10 +10,12 @@ use Illuminate\Support\Facades\Auth;
 use Webkul\Maintenance\Database\Factories\EquipmentCategoryFactory;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\HasStrictCompanyId;
 
 class EquipmentCategory extends Model
 {
-    use HasFactory;
+    use HasCompanyScope, HasFactory, HasStrictCompanyId;
 
     protected $table = 'maintenance_equipment_categories';
 
@@ -65,10 +67,7 @@ class EquipmentCategory extends Model
         parent::boot();
 
         static::creating(function (self $category): void {
-            $authUser = Auth::user();
-
-            $category->creator_id ??= $authUser?->id;
-            $category->company_id ??= $authUser?->default_company_id;
+            $category->creator_id ??= Auth::id();
         });
     }
 }

@@ -8,9 +8,6 @@ use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
-use Filament\Actions\ForceDeleteBulkAction;
-use Filament\Actions\RestoreAction;
-use Filament\Actions\RestoreBulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -26,9 +23,7 @@ use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Webkul\Support\Enums\CalendarDisplayType;
 use Webkul\Support\Enums\DayOfWeek;
 use Webkul\Support\Enums\DayPeriod;
@@ -115,9 +110,6 @@ class CalendarAttendance extends RelationManager
     public function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->withoutGlobalScopes([
-                SoftDeletingScope::class,
-            ]))
             ->columns([
                 TextColumn::make('name')
                     ->label(__('support::filament/resources/calendar/relation-managers/working-hours.table.columns.name'))
@@ -199,13 +191,6 @@ class CalendarAttendance extends RelationManager
                                 ->title(__('support::filament/resources/calendar/relation-managers/working-hours.table.actions.delete.notification.title'))
                                 ->body(__('support::filament/resources/calendar/relation-managers/working-hours.table.actions.delete.notification.body')),
                         ),
-                    RestoreAction::make()
-                        ->successNotification(
-                            Notification::make()
-                                ->success()
-                                ->title(__('support::filament/resources/calendar/relation-managers/working-hours.table.actions.restore.notification.title'))
-                                ->body(__('support::filament/resources/calendar/relation-managers/working-hours.table.actions.restore.notification.body')),
-                        ),
                 ]),
             ])
             ->toolbarActions([
@@ -216,20 +201,6 @@ class CalendarAttendance extends RelationManager
                                 ->success()
                                 ->title(__('support::filament/resources/calendar/relation-managers/working-hours.table.bulk-actions.delete.notification.title'))
                                 ->body(__('support::filament/resources/calendar/relation-managers/working-hours.table.bulk-actions.delete.notification.body')),
-                        ),
-                    ForceDeleteBulkAction::make()
-                        ->successNotification(
-                            Notification::make()
-                                ->success()
-                                ->title(__('support::filament/resources/calendar/relation-managers/working-hours.table.bulk-actions.force-delete.notification.title'))
-                                ->body(__('support::filament/resources/calendar/relation-managers/working-hours.table.bulk-actions.force-delete.notification.body')),
-                        ),
-                    RestoreBulkAction::make()
-                        ->successNotification(
-                            Notification::make()
-                                ->success()
-                                ->title(__('support::filament/resources/calendar/relation-managers/working-hours.table.bulk-actions.restore.notification.title'))
-                                ->body(__('support::filament/resources/calendar/relation-managers/working-hours.table.bulk-actions.restore.notification.body')),
                         ),
                 ]),
             ])

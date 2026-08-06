@@ -6,6 +6,7 @@ use Filament\Panel;
 use Filament\Support\Assets\Css;
 use Filament\Support\Facades\FilamentAsset;
 use Livewire\Livewire;
+use Webkul\Chatter\Console\Commands\BackfillChatterCompanyId;
 use Webkul\Chatter\Livewire\ChatterPanel;
 use Webkul\PluginManager\Package;
 use Webkul\PluginManager\PackageServiceProvider;
@@ -28,8 +29,12 @@ class ChatterServiceProvider extends PackageServiceProvider
                 '2024_12_23_080148_create_chatter_attachments_table',
                 '2025_03_12_072356_add_column_is_read_to_chatter_messages_table',
                 '2026_07_13_000000_make_causer_nullable_in_chatter_messages_table',
+                '2026_08_03_130000_add_company_id_column_to_chatter_followers_table',
             ])
-            ->runsMigrations();
+            ->runsMigrations()
+            ->hasCommands([
+                BackfillChatterCompanyId::class,
+            ]);
     }
 
     public function packageBooted(): void

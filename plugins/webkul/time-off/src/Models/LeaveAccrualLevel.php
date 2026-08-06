@@ -2,6 +2,7 @@
 
 namespace Webkul\TimeOff\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -9,10 +10,18 @@ use Illuminate\Support\Facades\Auth;
 use Spatie\EloquentSortable\Sortable;
 use Spatie\EloquentSortable\SortableTrait;
 use Webkul\Security\Models\User;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
+use Webkul\TimeOff\Database\Factories\LeaveAccrualLevelFactory;
 
+/**
+ * No company_id of its own — accrual_plan_id is a mandatory FK (migration:
+ * cascade-delete), so read isolation is entirely derived by requiring a
+ * visible LeaveAccrualPlan, the same shape as Milestone::companyViaProject
+ * / ActivityPlanTemplate::companyViaActivityPlan (#138 PR4 ola4B).
+ */
 class LeaveAccrualLevel extends Model implements Sortable
 {
-    use HasFactory, SortableTrait;
+    use HasFactory, SortableTrait, ValidatesRelatedCompanyScope;
 
     protected $table = 'time_off_leave_accrual_levels';
 
@@ -60,12 +69,32 @@ class LeaveAccrualLevel extends Model implements Sortable
         return $this->belongsTo(User::class, 'creator_id');
     }
 
+    protected static function booted(): void
+    {
+        static::addGlobalScope('companyViaAccrualPlan', function (Builder $builder): void {
+            $builder->whereHas('accrualPlan');
+        });
+    }
+
     protected static function boot()
     {
         parent::boot();
 
         static::creating(function ($leaveAccrualLevel) {
-            $leaveAccrualLevel->creator_id = Auth::id();
+            $leaveAccrualLevel->creator_id ??= Auth::id();
         });
+
+        // No company_id to persist — exists purely for its authorization
+        // side effect: the persisted LeaveAccrualPlan must exist, have a
+        // company of its own, and the acting user must be write-authorized
+        // for it.
+        static::saving(function (self $leaveAccrualLevel): void {
+            static::resolveEffectiveCompanyIdOrFail($leaveAccrualLevel->accrual_plan_id, LeaveAccrualPlan::class, null, 'LeaveAccrualPlan');
+        });
+    }
+
+    protected static function newFactory(): LeaveAccrualLevelFactory
+    {
+        return LeaveAccrualLevelFactory::new();
     }
 }

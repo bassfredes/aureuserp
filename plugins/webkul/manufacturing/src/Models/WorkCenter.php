@@ -295,6 +295,39 @@ class WorkCenter extends Model implements Sortable
         return WorkCenterFactory::new();
     }
 
+    /**
+     * Calendar is company_or_shared (#138 A4I) — a shared (company_id IS
+     * NULL) Calendar is always assignable; a company-owned one must match
+     * this WorkCenter's own company. A soft-deleted Calendar is only
+     * rejected for a NEW assignment — calendar()'s own withTrashed()
+     * keeps an already-linked trashed Calendar resolving. Previously
+     * unvalidated entirely.
+     */
+    private static function assertCalendarIsAssignable(?int $calendarId, ?int $companyId, bool $isNewAssignment): void
+    {
+        if ($calendarId === null) {
+            return;
+        }
+
+        $calendar = Calendar::withoutGlobalScope(CompanyScope::class)->withTrashed()->find($calendarId);
+
+        if (! $calendar) {
+            throw new AuthorizationException('The related Calendar does not exist.');
+        }
+
+        if ($isNewAssignment && $calendar->trashed()) {
+            throw new AuthorizationException('The related Calendar has been deleted and cannot be newly assigned.');
+        }
+
+        if ($calendar->company_id === null) {
+            return;
+        }
+
+        if ($companyId === null || (int) $calendar->company_id !== (int) $companyId) {
+            throw new AuthorizationException('The related Calendar belongs to a different company.');
+        }
+    }
+
     protected static function boot(): void
     {
         parent::boot();
@@ -326,6 +359,8 @@ class WorkCenter extends Model implements Sortable
 
                 CompanyScope::assertCanWriteCompany((int) $workCenter->company_id);
 
+                static::assertCalendarIsAssignable($workCenter->calendar_id, (int) $workCenter->company_id, true);
+
                 return;
             }
 
@@ -342,6 +377,8 @@ class WorkCenter extends Model implements Sortable
             if ($originalCompanyId !== null) {
                 CompanyScope::assertCanWriteCompany((int) $originalCompanyId);
             }
+
+            static::assertCalendarIsAssignable($workCenter->calendar_id, $workCenter->company_id, $workCenter->isDirty('calendar_id'));
         });
 
         static::updating(function (self $workCenter): void {

@@ -2,21 +2,40 @@
 
 namespace Webkul\TimeOff\Models;
 
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Auth;
+use LogicException;
 use Webkul\Chatter\Traits\HasChatter;
 use Webkul\Chatter\Traits\HasLogActivity;
 use Webkul\Employee\Models\Department;
 use Webkul\Employee\Models\Employee;
 use Webkul\Security\Models\User;
+use Webkul\Support\Enums\CompanyContextMode;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Models\Scopes\CompanyScope;
+use Webkul\Support\Services\CompanyContext;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
+use Webkul\TimeOff\Database\Factories\LeaveAllocationFactory;
 use Webkul\TimeOff\Enums\AllocationType;
 
+/**
+ * Child tenant-owned anchored on Employee — there is no `company_id`
+ * column on this table by design (approved contract, #138 PR4 ola4B): the
+ * existing `employee_company_id` IS the tenant column, always derived from
+ * the persisted Employee, never from the acting user directly. Because it
+ * isn't literally named `company_id`, HasCompanyScope's own CompanyScope
+ * class (which hardcodes that column name) cannot be reused for reads —
+ * booted() below replicates the exact same precedence (ADR 0007) filtered
+ * on employee_company_id instead, using CompanyScope's own public helpers
+ * rather than duplicating their logic.
+ */
 class LeaveAllocation extends Model
 {
-    use HasChatter, HasFactory, HasLogActivity;
+    use HasChatter, HasFactory, HasLogActivity, ValidatesRelatedCompanyScope;
 
     public const ACTIVITY_PLAN_PLUGIN = 'time-off';
 
@@ -142,16 +161,89 @@ class LeaveAllocation extends Model
         return $this->belongsTo(LeaveType::class, 'holiday_status_id');
     }
 
+    /**
+     * Same precedence CompanyScope::apply() implements, filtered on
+     * employee_company_id instead of company_id — no company_or_shared
+     * branch (this table has no shared/NULL-company concept per the
+     * approved contract).
+     */
+    protected static function booted(): void
+    {
+        static::addGlobalScope('viaEmployeeCompany', function (Builder $builder): void {
+            $user = Auth::user();
+
+            if ($user && CompanyContext::current()) {
+                throw new LogicException('An authenticated user is active while a CompanyContext is still open — these are mutually exclusive (ADR 0007).');
+            }
+
+            if ($user) {
+                $companyIds = CompanyScope::allowedCompanyIds($user);
+
+                if ($companyIds->isEmpty()) {
+                    $builder->whereRaw('1 = 0');
+
+                    return;
+                }
+
+                $builder->whereIn('employee_company_id', $companyIds);
+
+                return;
+            }
+
+            $context = CompanyContext::current();
+
+            if ($context?->mode === CompanyContextMode::COMPANY) {
+                $builder->where('employee_company_id', $context->companyId);
+
+                return;
+            }
+
+            if ($context?->mode === CompanyContextMode::ALL_COMPANIES || $context?->mode === CompanyContextMode::BOOTSTRAP) {
+                return;
+            }
+
+            $builder->whereRaw('1 = 0');
+        });
+    }
+
     protected static function boot()
     {
         parent::boot();
 
         static::creating(function ($leaveAllocation) {
-            $authUser = Auth::user();
-
-            $leaveAllocation->creator_id = $authUser->id;
-
-            $leaveAllocation->employee_company_id ??= $authUser?->default_company_id;
+            $leaveAllocation->creator_id ??= Auth::id();
         });
+
+        static::saving(function (self $leaveAllocation): void {
+            $effectiveCompanyId = static::resolveEffectiveCompanyIdOrFail($leaveAllocation->employee_id, Employee::class, $leaveAllocation->employee_company_id, 'Employee');
+
+            $leaveAllocation->employee_company_id = $effectiveCompanyId;
+
+            static::assertRelatedBelongsToCompany($leaveAllocation->manager_id, Employee::class, 'manager', $effectiveCompanyId);
+            static::assertRelatedBelongsToCompany($leaveAllocation->approver_id, Employee::class, 'approver', $effectiveCompanyId);
+            static::assertRelatedBelongsToCompany($leaveAllocation->second_approver_id, Employee::class, 'second approver', $effectiveCompanyId);
+            static::assertRelatedBelongsToCompany($leaveAllocation->department_id, Department::class, 'Department', $effectiveCompanyId);
+
+            if (! $leaveAllocation->exists) {
+                return;
+            }
+
+            $persisted = static::withoutGlobalScope('viaEmployeeCompany')->find($leaveAllocation->getKey());
+
+            if ($persisted === null) {
+                return;
+            }
+
+            $originalCompanyId = static::resolveEffectiveCompanyIdOrFail($persisted->employee_id, Employee::class, null, 'Employee');
+
+            if ($originalCompanyId !== $effectiveCompanyId) {
+                throw new AuthorizationException('Changing the company of this LeaveAllocation (via employee_id) is forbidden — archive it and create a new one instead.');
+            }
+        });
+    }
+
+    protected static function newFactory(): LeaveAllocationFactory
+    {
+        return LeaveAllocationFactory::new();
     }
 }

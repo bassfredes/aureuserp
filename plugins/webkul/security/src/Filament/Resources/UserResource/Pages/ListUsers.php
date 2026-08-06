@@ -5,6 +5,7 @@ namespace Webkul\Security\Filament\Resources\UserResource\Pages;
 use Exception;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
@@ -13,6 +14,7 @@ use Illuminate\Support\Facades\Mail;
 use Webkul\Security\Filament\Resources\UserResource;
 use Webkul\Security\Mail\UserInvitationMail;
 use Webkul\Security\Models\Invitation;
+use Webkul\Security\Models\Role;
 use Webkul\Security\Settings\UserSettings;
 
 class ListUsers extends ListRecords
@@ -51,6 +53,11 @@ class ListUsers extends ListRecords
                         ->email()
                         ->label(__('security::filament/resources/user/pages/list-user.header-actions.invite.form.email'))
                         ->required(),
+                    Select::make('role_id')
+                        ->label(__('security::filament/resources/user/pages/list-user.header-actions.invite.form.role'))
+                        ->options(fn () => Role::query()->pluck('name', 'id'))
+                        ->default(fn () => settings(UserSettings::class)->default_role_id)
+                        ->required(),
                 ])
                 ->action(function ($data) {
                     if (! isset(settings(UserSettings::class)->default_company_id)) {
@@ -63,7 +70,14 @@ class ListUsers extends ListRecords
                         return;
                     }
 
-                    $invitation = Invitation::create(['email' => $data['email']]);
+                    // company_id/invited_by default from the acting user via
+                    // HasStrictCompanyId/Invitation::boot() — the operative
+                    // company captured here is what the accepted User
+                    // inherits (#138 PR4 ola4B).
+                    $invitation = Invitation::create([
+                        'email'   => $data['email'],
+                        'role_id' => $data['role_id'],
+                    ]);
 
                     try {
                         Mail::to($invitation->email)->send(new UserInvitationMail($invitation));

@@ -21,10 +21,12 @@ use Webkul\Security\Models\Scopes\UserPermissionScope;
 use Webkul\Security\Models\User;
 use Webkul\Security\Traits\HasPermissionScope;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\HasStrictCompanyId;
 
 class Project extends Model implements Sortable
 {
-    use HasChatter, HasCustomFields, HasFactory, HasLogActivity, HasPermissionScope, SoftDeletes, SortableTrait;
+    use HasChatter, HasCompanyScope, HasCustomFields, HasFactory, HasLogActivity, HasPermissionScope, HasStrictCompanyId, SoftDeletes, SortableTrait;
 
     public const ACTIVITY_PLAN_PLUGIN = 'projects';
 

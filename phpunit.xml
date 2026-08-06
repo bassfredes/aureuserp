@@ -5,6 +5,9 @@
          colors="true"
 >
     <testsuites>
+        <testsuite name="CoreFeature">
+            <directory>tests/Feature</directory>
+        </testsuite>
         <testsuite name="AccountFeature">
             <directory>plugins/webkul/accounts/tests/Feature</directory>
         </testsuite>
@@ -28,6 +31,75 @@
         </testsuite>
         <testsuite name="ManufacturingFeature">
             <directory>plugins/webkul/manufacturing/tests/Feature</directory>
+        </testsuite>
+        <!--
+        #138 PR4: phpunit.xml's own <testsuites> list, not tests/Pest.php's
+        `->in('Feature', '../plugins/*/*/tests/Feature')` glob, is what
+        determines which directories a bare `pest`/`composer test`
+        invocation actually scans. Ola 4B (A4B-AUD-002) added CoreFeature
+        (root tests/Feature, which had NO entry at all — CompanyScopeAuditorTest
+        and SeedGoldStandardDatasetCommandTest never ran under the canonical
+        runner), AnalyticsFeature and TableViewsFeature, on top of ola 4B's
+        own Maintenance/Security/TimeOff. Four plugins with their own
+        tests/Feature directory remain outside this runner: payments,
+        plugin-manager, products, recruitments. A one-off widened run against
+        those four surfaced dozens of pre-existing failures unrelated to
+        company-scope (some real bugs, others cross-file bootstrap-ordering
+        assumptions that only held by accident of the previous directory
+        list). Fixing those four is out of scope here; flagged as a
+        discovered, deferred infrastructure issue rather than silently
+        expanded into.
+        -->
+        <testsuite name="AnalyticsFeature">
+            <directory>plugins/webkul/analytics/tests/Feature</directory>
+        </testsuite>
+        <testsuite name="MaintenanceFeature">
+            <directory>plugins/webkul/maintenance/tests/Feature</directory>
+        </testsuite>
+        <testsuite name="SecurityFeature">
+            <directory>plugins/webkul/security/tests/Feature</directory>
+        </testsuite>
+        <testsuite name="TableViewsFeature">
+            <directory>plugins/webkul/table-views/tests/Feature</directory>
+        </testsuite>
+        <testsuite name="TimeOffFeature">
+            <directory>plugins/webkul/time-off/tests/Feature</directory>
+        </testsuite>
+        <testsuite name="EmployeesFeature">
+            <directory>plugins/webkul/employees/tests/Feature</directory>
+        </testsuite>
+        <!--
+        #138 PR4 A4E: only the new CompanyScope subdirectory is registered,
+        not all of plugins/webkul/recruitments/tests/Feature — the rest of
+        that plugin's historical suite has known preexisting failures
+        unrelated to company-scope, out of scope for this wave.
+        -->
+        <testsuite name="RecruitmentCompanyScopeFeature">
+            <directory>plugins/webkul/recruitments/tests/Feature/CompanyScope</directory>
+        </testsuite>
+        <!--
+        #138 PR4 A4J: same precedent as RecruitmentCompanyScopeFeature above
+        — only the new CompanyScope subdirectory (PaymentToken/
+        PaymentTransaction) is registered, not all of
+        plugins/webkul/payments/tests/Feature. `payments` is one of the four
+        plugins the AnalyticsFeature/etc. comment above already documents as
+        excluded from the canonical runner over preexisting, unrelated
+        failures — widening the whole plugin back in is a separate decision
+        out of scope for this wave, so only the new decisive-case tests are
+        registered here.
+        -->
+        <testsuite name="PaymentsCompanyScopeFeature">
+            <directory>plugins/webkul/payments/tests/Feature/CompanyScope</directory>
+        </testsuite>
+        <!--
+        #138 PR4 chatter gap: chatter had zero tests of its own before this
+        wave, so (unlike the CompanyScope-subdirectory-only precedent above
+        for recruitments/payments) the whole plugins/webkul/chatter/tests/Feature
+        is registered — there is no preexisting, unrelated failure history
+        to accidentally pull in.
+        -->
+        <testsuite name="ChatterFeature">
+            <directory>plugins/webkul/chatter/tests/Feature</directory>
         </testsuite>
     </testsuites>
     <source>

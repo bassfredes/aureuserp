@@ -8,7 +8,6 @@ use Webkul\Project\Models\Project;
 use Webkul\Project\Models\Task;
 use Webkul\Project\Models\TaskStage;
 use Webkul\Security\Models\User;
-use Webkul\Support\Models\Company;
 
 /**
  * @extends Factory<Task>
@@ -29,6 +28,18 @@ class TaskFactory extends Factory
      */
     public function definition(): array
     {
+        // Built eagerly (not as two independent Model::factory() placeholders)
+        // so the default project_id and stage_id are always self-consistent —
+        // Task now validates that its stage_id's own project_id matches its
+        // own project_id, which two independently-random factory defaults
+        // would violate almost every time (#138 PR4 ola4A round 2 review). A
+        // caller overriding either key still wins — Factory::create() merges
+        // overrides over this array, so this eager pair is simply unused
+        // (and harmlessly orphaned) whenever project_id/stage_id are
+        // explicitly provided.
+        $project = Project::factory()->create();
+        $stage = TaskStage::factory()->create(['project_id' => $project->id]);
+
         return [
             'title'               => fake()->name(),
             'description'         => fake()->sentence(),
@@ -49,10 +60,14 @@ class TaskFactory extends Factory
             'overtime'            => 0,
             'progress'            => 0,
             'parent_id'           => null,
-            'project_id'          => Project::factory(),
-            'stage_id'            => TaskStage::factory(),
+            'project_id'          => $project->id,
+            'stage_id'            => $stage->id,
             'partner_id'          => Partner::query()->value('id') ?? Partner::factory(),
-            'company_id'          => Company::factory(),
+            // Left unset by default: the model's own saving() hook always
+            // re-derives company_id from project_id and now rejects an
+            // explicit mismatch — a random Company::factory() here would
+            // spuriously conflict with whatever Project a caller overrides
+            // project_id with (#138 PR4 ola4A).
             'creator_id'          => User::query()->value('id') ?? User::factory(),
         ];
     }

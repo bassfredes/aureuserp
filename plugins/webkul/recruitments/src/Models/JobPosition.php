@@ -10,9 +10,18 @@ use Webkul\Employee\Models\Skill;
 use Webkul\Partner\Models\Industry;
 use Webkul\Partner\Models\Partner;
 use Webkul\Security\Models\User;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
+/**
+ * manager_id is code this alias adds on top of the owner (EmployeeJobPosition)
+ * — not inherited, so it needs its own validation here (#138 PR4 A4D).
+ * address_id/industry_id keep their existing global contract unchanged
+ * (Partner is global_party_identity, Industry is a global catalog).
+ */
 class JobPosition extends BaseJobPosition
 {
+    use ValidatesRelatedCompanyScope;
+
     public function __construct(array $attributes = [])
     {
         $this->mergeFillable([
@@ -45,7 +54,12 @@ class JobPosition extends BaseJobPosition
 
     public function interviewers()
     {
-        return $this->belongsToMany(User::class, 'recruitments_job_position_interviewers', 'job_position_id', 'user_id');
+        // ->using(JobPositionInterviewer::class): without it, attach()/
+        // detach() run a raw query-builder insert/delete on the pivot
+        // table, bypassing every company-scope/membership guard
+        // JobPositionInterviewer declares entirely (#138 PR4 A4E).
+        return $this->belongsToMany(User::class, 'recruitments_job_position_interviewers', 'job_position_id', 'user_id')
+            ->using(JobPositionInterviewer::class);
     }
 
     public function manager(): BelongsTo
@@ -111,6 +125,10 @@ class JobPosition extends BaseJobPosition
     protected static function boot()
     {
         parent::boot();
+
+        static::saving(function (self $jobPosition) {
+            static::assertRelatedBelongsToCompany($jobPosition->manager_id, Employee::class, 'Manager', $jobPosition->company_id);
+        });
 
         static::updated(function ($jobPosition) {
             cache()->forget("job_position_{$jobPosition->id}_employee_count");

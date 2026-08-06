@@ -12,10 +12,13 @@ use Webkul\Maintenance\Database\Factories\EquipmentFactory;
 use Webkul\Partner\Models\Partner;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\HasStrictCompanyId;
+use Webkul\Support\Traits\ValidatesRelatedCompanyScope;
 
 class Equipment extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasCompanyScope, HasFactory, HasStrictCompanyId, SoftDeletes, ValidatesRelatedCompanyScope;
 
     protected $table = 'maintenance_equipments';
 
@@ -110,13 +113,21 @@ class Equipment extends Model
         parent::boot();
 
         static::creating(function (self $equipment): void {
-            $authUser = Auth::user();
-
-            $equipment->creator_id ??= $authUser?->id;
-            $equipment->company_id ??= $authUser?->default_company_id;
+            $equipment->creator_id ??= Auth::id();
             $equipment->effective_date ??= now()->toDateString();
             $equipment->maintenance_count ??= 0;
             $equipment->maintenance_open_count ??= 0;
+        });
+
+        // Runs after HasStrictCompanyId's own `saving` listener has already
+        // resolved/authorized $equipment->company_id — category_id and
+        // maintenance_team_id are independently selectable on the Equipment
+        // form with no server-side company check today, so a submitted
+        // combination could otherwise anchor an Equipment to one company
+        // while its category/team belong to another (#138 PR4 ola4B).
+        static::saving(function (self $equipment): void {
+            static::assertRelatedBelongsToCompany($equipment->category_id, EquipmentCategory::class, 'EquipmentCategory', $equipment->company_id);
+            static::assertRelatedBelongsToCompany($equipment->maintenance_team_id, Team::class, 'Team', $equipment->company_id);
         });
     }
 }

@@ -49,7 +49,11 @@ class Stage extends Model implements Sortable
 
     public function jobs()
     {
-        return $this->belongsToMany(EmployeeJobPosition::class, 'recruitments_stages_jobs', 'stage_id', 'job_id');
+        // ->using(StageJob::class): without it, attach()/detach() run a raw
+        // query-builder insert/delete on the pivot table, bypassing every
+        // company-scope guard StageJob declares entirely (#138 PR4 A4E).
+        return $this->belongsToMany(EmployeeJobPosition::class, 'recruitments_stages_jobs', 'stage_id', 'job_id')
+            ->using(StageJob::class);
     }
 
     protected static function boot()

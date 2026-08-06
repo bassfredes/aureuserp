@@ -1,5 +1,6 @@
 <?php
 
+use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Currency;
 use Webkul\Support\Models\CurrencyRate;
 
@@ -64,18 +65,15 @@ it('lists currency rates for authorized users', function () {
 
     $currency = Currency::factory()->create();
     $otherCurrency = Currency::factory()->create();
-    $firstRate = CurrencyRate::factory()->create([
-        'currency_id' => $currency->id,
-        'company_id'  => null,
-    ]);
-    $secondRate = CurrencyRate::factory()->create([
-        'currency_id' => $currency->id,
-        'company_id'  => null,
-    ]);
-    CurrencyRate::factory()->create([
-        'currency_id' => $otherCurrency->id,
-        'company_id'  => null,
-    ]);
+    // No explicit company_id: the factory's own Company::factory() default
+    // creates a fresh company per rate, auto-granted to the already
+    // authenticated acting user by the global Company::created listener
+    // (tests/TestCase.php) — company_id null is no longer a bare fixture
+    // default under the new write guard (#138 PR4 A4D-0), only an
+    // explicit, authorized choice.
+    $firstRate = CurrencyRate::factory()->create(['currency_id' => $currency->id]);
+    $secondRate = CurrencyRate::factory()->create(['currency_id' => $currency->id]);
+    CurrencyRate::factory()->create(['currency_id' => $otherCurrency->id]);
 
     $response = $this->getJson(currencyRateRoute('index', $currency));
 
@@ -91,9 +89,15 @@ it('creates a currency rate with valid payload', function () {
     actingAsCurrencyRateApiUser(['update_support_currency']);
 
     $currency = Currency::factory()->create();
+    // A regular actor cannot submit company_id: null (shared row) — that is
+    // now restricted to super_admin (#138 PR4 A4D-0). Company created after
+    // the user is authenticated, so the global Company::created listener
+    // (tests/TestCase.php) auto-grants it, matching this codebase's
+    // established fixture convention.
+    $company = Company::factory()->create();
     $payload = CurrencyRate::factory()->make([
         'currency_id' => $currency->id,
-        'company_id'  => null,
+        'company_id'  => $company->id,
     ])->toArray();
     unset($payload['currency_id']);
 
@@ -127,10 +131,7 @@ it('shows a currency rate for authorized users', function () {
     actingAsCurrencyRateApiUser(['view_support_currency']);
 
     $currency = Currency::factory()->create();
-    $rate = CurrencyRate::factory()->create([
-        'currency_id' => $currency->id,
-        'company_id'  => null,
-    ]);
+    $rate = CurrencyRate::factory()->create(['currency_id' => $currency->id]);
 
     $this->getJson(currencyRateRoute('show', $currency, $rate))
         ->assertOk()
@@ -143,10 +144,7 @@ it('returns not found for a rate that does not belong to the currency', function
 
     $currency = Currency::factory()->create();
     $otherCurrency = Currency::factory()->create();
-    $rate = CurrencyRate::factory()->create([
-        'currency_id' => $otherCurrency->id,
-        'company_id'  => null,
-    ]);
+    $rate = CurrencyRate::factory()->create(['currency_id' => $otherCurrency->id]);
 
     $this->getJson(currencyRateRoute('show', $currency, $rate))
         ->assertNotFound();
@@ -156,10 +154,7 @@ it('updates a currency rate for authorized users', function () {
     actingAsCurrencyRateApiUser(['update_support_currency']);
 
     $currency = Currency::factory()->create();
-    $rate = CurrencyRate::factory()->create([
-        'currency_id' => $currency->id,
-        'company_id'  => null,
-    ]);
+    $rate = CurrencyRate::factory()->create(['currency_id' => $currency->id]);
 
     $this->patchJson(currencyRateRoute('update', $currency, $rate), ['rate' => 1.25])
         ->assertOk()
@@ -176,10 +171,7 @@ it('deletes a currency rate for authorized users', function () {
     actingAsCurrencyRateApiUser(['update_support_currency', 'delete_support_currency']);
 
     $currency = Currency::factory()->create();
-    $rate = CurrencyRate::factory()->create([
-        'currency_id' => $currency->id,
-        'company_id'  => null,
-    ]);
+    $rate = CurrencyRate::factory()->create(['currency_id' => $currency->id]);
 
     $this->deleteJson(currencyRateRoute('destroy', $currency, $rate))
         ->assertOk()

@@ -286,9 +286,39 @@ class Warehouse extends BaseWarehouse
         ])->id;
     }
 
+    /**
+     * Resolves this warehouse's company's own PRODUCTION-type Location,
+     * provisioning one idempotently if it doesn't exist yet (aureuserp #138
+     * PR4 gap: this used to be an unscoped, company-blind global lookup that
+     * silently handed every company the same row — see git history for the
+     * prior implementation. Order::computeProductionLocationId() already
+     * resolves it the same way: type + company_id, proving one Production
+     * location per company was always the intended shape, not a shared
+     * one). Fails closed — never falls back to another company's row.
+     * Public: also reused by Console\Commands\BackfillProductionLocationCompanyId
+     * to provision a missing Production location for a pre-existing company.
+     */
+    public function resolveOrCreateProductionLocation(): Location
+    {
+        if (! $this->company_id) {
+            throw new \RuntimeException("Cannot resolve a Production location for warehouse [{$this->code}] because it has no company_id.");
+        }
+
+        return Location::where('type', LocationType::PRODUCTION)
+            ->where('company_id', $this->company_id)
+            ->first() ?? Location::create([
+                'type'         => LocationType::PRODUCTION,
+                'name'         => 'Production',
+                'is_scrap'     => false,
+                'is_replenish' => false,
+                'creator_id'   => $this->creator_id,
+                'company_id'   => $this->company_id,
+            ]);
+    }
+
     protected function createManufacturingRules(): void
     {
-        $productionLocation = Location::where('type', LocationType::PRODUCTION)->first();
+        $productionLocation = $this->resolveOrCreateProductionLocation();
 
         $this->manufactureRuleIds[] = Rule::create([
             'sort'                     => 15,
@@ -425,7 +455,7 @@ class Warehouse extends BaseWarehouse
             'deleted_at' => $this->manufacture_steps === ManufactureStep::ONE_STEP ? now() : null,
         ]);
 
-        $productionLocation = Location::where('type', LocationType::PRODUCTION)->first();
+        $productionLocation = $this->resolveOrCreateProductionLocation();
 
         $this->updateRules(
             'manufacture_steps',

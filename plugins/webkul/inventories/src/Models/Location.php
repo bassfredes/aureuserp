@@ -155,12 +155,54 @@ class Location extends Model implements IncludesSharedCompanyRows
         throw new AuthorizationException('Shared Location records (company_id is null) can only be created or modified by a super_admin or a system process.');
     }
 
+    /**
+     * At most one PRODUCTION-type Location per company (aureuserp #138 PR4
+     * gap: Warehouse::createManufacturingRules()/syncManufacturingWarehouseConfiguration()
+     * used to resolve "the" Production location via an unscoped, company-blind
+     * lookup because the domain model assumed exactly one existed system-wide;
+     * Order::computeProductionLocationId() already resolved it scoped by
+     * type + company_id, proving one-per-company was always the intended
+     * shape). Application-level check, not a DB constraint, mirroring the
+     * existing is_replenish "single location in scope" guard right below —
+     * this project supports sqlite/mysql/mariadb/pgsql/sqlsrv (config/database.php)
+     * and a type-filtered partial unique index isn't portable across all of
+     * them once archived (SoftDeletes) rows must also be excluded from the
+     * count. Shared (company_id null) PRODUCTION rows are exempt: those
+     * predate per-company provisioning and stay governed by
+     * guardSharedRowMutation(), not this invariant.
+     *
+     * Known accepted debt: like the is_replenish guard right below, this is
+     * a read-then-write check with no transactional/locking guarantee, so
+     * two concurrent authenticated requests could both pass the exists()
+     * check before either commits and create two Production locations for
+     * the same company. Judged an acceptable, low-concurrency-risk
+     * trade-off (Warehouse creation/company provisioning is not a
+     * high-concurrency path) — not fixed here, only declared.
+     */
+    protected static function guardSingleProductionLocationPerCompany(Location $location): void
+    {
+        if ($location->type !== LocationType::PRODUCTION || $location->company_id === null) {
+            return;
+        }
+
+        $exists = static::where('type', LocationType::PRODUCTION)
+            ->where('company_id', $location->company_id)
+            ->when($location->exists, fn ($query) => $query->where('id', '!=', $location->id))
+            ->exists();
+
+        if ($exists) {
+            throw new \Exception("Company #{$location->company_id} already has a Production location; only one Production location is allowed per company.");
+        }
+    }
+
     protected static function boot()
     {
         parent::boot();
 
         static::creating(function ($category) {
             static::guardSharedRowMutation($category->company_id === null);
+
+            static::guardSingleProductionLocationPerCompany($category);
 
             $category->creator_id ??= Auth::id();
 
@@ -202,6 +244,10 @@ class Location extends Model implements IncludesSharedCompanyRows
 
         static::updating(function (Location $location) {
             static::guardSharedRowMutation($location->getOriginal('company_id') === null);
+
+            if ($location->isDirty('type')) {
+                static::guardSingleProductionLocationPerCompany($location);
+            }
 
             if ($location->isDirty('is_replenish') && $location->is_replenish) {
                 $exists = static::query()

@@ -11,11 +11,14 @@ use Spatie\EloquentSortable\Sortable;
 use Spatie\EloquentSortable\SortableTrait;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Company;
+use Webkul\Support\Traits\HasCompanyScope;
+use Webkul\Support\Traits\HasStrictCompanyId;
+use Webkul\TimeOff\Database\Factories\LeaveTypeFactory;
 use Webkul\TimeOff\Enums\LeaveValidationType;
 
 class LeaveType extends Model implements Sortable
 {
-    use HasFactory, SoftDeletes, SortableTrait;
+    use HasCompanyScope, HasFactory, HasStrictCompanyId, SoftDeletes, SortableTrait;
 
     protected $table = 'time_off_leave_types';
 
@@ -70,11 +73,12 @@ class LeaveType extends Model implements Sortable
         parent::boot();
 
         static::creating(function ($leaveType) {
-            $authUser = Auth::user();
-
-            $leaveType->creator_id = $authUser->id;
-
-            $leaveType->company_id ??= $authUser?->default_company_id;
+            $leaveType->creator_id ??= Auth::id();
         });
+    }
+
+    protected static function newFactory(): LeaveTypeFactory
+    {
+        return LeaveTypeFactory::new();
     }
 }

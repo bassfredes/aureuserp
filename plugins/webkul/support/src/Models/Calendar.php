@@ -3,18 +3,44 @@
 namespace Webkul\Support\Models;
 
 use Carbon\Carbon;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Auth;
 use Webkul\Field\Traits\HasCustomFields;
 use Webkul\Security\Models\User;
 use Webkul\Support\Database\Factories\CalendarFactory;
+use Webkul\Support\Enums\CompanyContextMode;
+use Webkul\Support\Models\Contracts\IncludesSharedCompanyRows;
+use Webkul\Support\Models\Scopes\CompanyScope;
+use Webkul\Support\Services\CompanyContext;
+use Webkul\Support\Traits\HasCompanyScope;
 
-class Calendar extends Model
+/**
+ * company_id IS NULL rows are system-managed shared references (the
+ * CalendarSeeder-installed "Standard 40 hours/week" default, referenced by
+ * every fresh install's WorkCenterResource) — same company_or_shared
+ * treatment as ActivityPlan/CurrencyRate (ADR 0007). The shared-row
+ * mutation guard follows CurrencyRate's stricter precedent rather than
+ * ActivityPlan's: a no-authenticated-user caller must be inside an
+ * explicit ALL_COMPANIES/BOOTSTRAP CompanyContext to mutate a shared row,
+ * not merely unauthenticated (#138 A4I, per orchestrator decision).
+ * resource_type/resource_id were removed from $fillable — those columns do
+ * not exist on the `calendars` table (only calendar_leaves and
+ * calendar_attendances got nullableMorphs).
+ */
+class Calendar extends Model implements IncludesSharedCompanyRows
 {
-    use HasCustomFields, HasFactory, SoftDeletes;
+    use HasCompanyScope, HasCustomFields, HasFactory, SoftDeletes;
+
+    /** Sentinel for resolveAnonymousLeaveBucketCompanyId(): no company restriction (ALL_COMPANIES/BOOTSTRAP + anyCalendar only). */
+    private const LEAVE_BUCKET_UNRESTRICTED = -1;
+
+    /** Sentinel for resolveAnonymousLeaveBucketCompanyId(): no single effective company could be determined — bucket stays empty. */
+    private const LEAVE_BUCKET_EMPTY = 0;
 
     protected $table = 'calendars';
 
@@ -26,8 +52,6 @@ class Calendar extends Model
         'two_weeks_calendar',
         'flexible_hours',
         'full_time_required_hours',
-        'resource_type',
-        'resource_id',
         'creator_id',
         'company_id',
     ];
@@ -47,12 +71,112 @@ class Calendar extends Model
         return $this->hasMany(CalendarAttendance::class);
     }
 
+    public function calendarLeaves(): HasMany
+    {
+        return $this->hasMany(CalendarLeave::class);
+    }
+
+    /**
+     * Mirrors CurrencyRate::guardSharedRowMutation() rather than
+     * ActivityPlan's looser variant: a no-user caller must also be inside
+     * an explicit ALL_COMPANIES/BOOTSTRAP system context to mutate a
+     * shared row here — an absent context (no user, no CompanyContext at
+     * all) is rejected rather than treated as an unrestricted system
+     * process (#138 A4I, explicit orchestrator decision).
+     */
+    protected static function guardSharedRowMutation(bool $isNullCompany): void
+    {
+        if (! $isNullCompany) {
+            return;
+        }
+
+        if (static::actingUserIsSuperAdmin()) {
+            return;
+        }
+
+        if (! Auth::check()) {
+            $context = CompanyContext::current();
+
+            if ($context?->mode === CompanyContextMode::ALL_COMPANIES || $context?->mode === CompanyContextMode::BOOTSTRAP) {
+                return;
+            }
+        }
+
+        throw new AuthorizationException('Shared Calendar records (company_id is null) can only be created or modified by a super_admin or an explicit system process.');
+    }
+
     protected static function boot()
     {
         parent::boot();
 
-        static::creating(function ($calendar) {
-            $calendar->creator_id ??= Auth::id();
+        static::creating(function (self $calendar) {
+            $authUser = Auth::user();
+
+            $calendar->creator_id ??= $authUser?->id;
+            $calendar->company_id ??= $authUser?->default_company_id;
+
+            static::guardSharedRowMutation($calendar->company_id === null);
+
+            if ($calendar->company_id !== null) {
+                CompanyScope::assertCanWriteCompany((int) $calendar->company_id);
+            }
+        });
+
+        static::updating(function (self $calendar) {
+            $originalCompanyId = $calendar->getOriginal('company_id');
+
+            static::guardSharedRowMutation($originalCompanyId === null);
+
+            if ($calendar->isDirty('company_id')) {
+                throw new AuthorizationException('Changing the company of this Calendar is forbidden — archive it and create a new one instead.');
+            }
+
+            if ($originalCompanyId !== null) {
+                CompanyScope::assertCanWriteCompany((int) $originalCompanyId);
+            }
+        });
+
+        static::deleting(function (self $calendar) {
+            $companyId = $calendar->getOriginal('company_id');
+
+            static::guardSharedRowMutation($companyId === null);
+
+            if ($companyId !== null) {
+                CompanyScope::assertCanWriteCompany((int) $companyId);
+            }
+        });
+
+        static::forceDeleting(function (self $calendar) {
+            $companyId = $calendar->getOriginal('company_id');
+
+            static::guardSharedRowMutation($companyId === null);
+
+            if ($companyId !== null) {
+                CompanyScope::assertCanWriteCompany((int) $companyId);
+            }
+
+            // A force-delete triggers the calendar_leaves FK's ON DELETE
+            // SET NULL at the database level, which would silently produce
+            // a CalendarLeave with calendar_id = NULL — a state the
+            // strict_company CalendarLeave contract forbids creating
+            // through the application (#138 A4I). Blocking here keeps
+            // that invariant true regardless of delete path. withoutGlobalScope
+            // is required because a shared Calendar can have CalendarLeave
+            // rows anchored to companies other than the acting actor's own —
+            // all of them must count, not just the visible ones.
+            if ($calendar->calendarLeaves()->withoutGlobalScope(CompanyScope::class)->exists()) {
+                throw new AuthorizationException('Cannot permanently delete a Calendar that is still referenced by CalendarLeave records.');
+            }
+        });
+
+        static::restoring(function (self $calendar) {
+            $companyId = $calendar->company_id;
+
+            static::guardSharedRowMutation($companyId === null);
+
+            if ($companyId !== null) {
+                CompanyScope::assertCanWriteCompany((int) $companyId);
+            }
         });
     }
 
@@ -359,6 +483,44 @@ class Calendar extends Model
         return $resultPerResourceId;
     }
 
+    /**
+     * The `null`/anonymous bucket of getLeaveIntervalsBatch() represents
+     * exactly one effective company, never every company the caller's
+     * CompanyScope on CalendarLeave happens to make visible (#138 A4I
+     * review round 2 — a multi-company actor was seeing every allowed
+     * company's leaves merged into that one bucket). Returns
+     * LEAVE_BUCKET_UNRESTRICTED only when anyCalendar=true under an
+     * explicit ALL_COMPANIES/BOOTSTRAP system context — anyCalendar never
+     * widens company visibility for an authenticated user or a
+     * CompanyContext::COMPANY caller, only which calendars are searched.
+     * Returns LEAVE_BUCKET_EMPTY when no single effective company can be
+     * determined, so the bucket fails closed instead of guessing.
+     */
+    private function resolveAnonymousLeaveBucketCompanyId(bool $anyCalendar): int
+    {
+        if ($this->company_id !== null) {
+            return (int) $this->company_id;
+        }
+
+        $context = CompanyContext::current();
+
+        if ($anyCalendar && ($context?->mode === CompanyContextMode::ALL_COMPANIES || $context?->mode === CompanyContextMode::BOOTSTRAP)) {
+            return self::LEAVE_BUCKET_UNRESTRICTED;
+        }
+
+        if (Auth::check()) {
+            $companyId = Auth::user()?->default_company_id;
+
+            return $companyId !== null ? (int) $companyId : self::LEAVE_BUCKET_EMPTY;
+        }
+
+        if ($context?->mode === CompanyContextMode::COMPANY) {
+            return (int) $context->companyId;
+        }
+
+        return self::LEAVE_BUCKET_EMPTY;
+    }
+
     public function getLeaveIntervalsBatch(
         Carbon $startDt,
         Carbon $endDt,
@@ -377,6 +539,8 @@ class Calendar extends Model
             $filters = [['time_type', '=', 'leave']];
         }
 
+        $anonymousBucketCompanyId = $this->resolveAnonymousLeaveBucketCompanyId($anyCalendar);
+
         $resourcesByType = collect($resourcesList)
             ->filter()
             ->groupBy(fn ($resource) => $resource->getMorphClass())
@@ -385,7 +549,12 @@ class Calendar extends Model
 
         $allLeaves = CalendarLeave::query()
             ->where(fn ($q) => $this->applyFilters($q, $filters))
-            ->when(! $anyCalendar, fn ($q) => $q->where(fn ($q) => $q->whereNull('calendar_id')->orWhere('calendar_id', $this->id)))
+            // A leave never mixes calendars — calendar_id IS NULL is not a
+            // cross-calendar/cross-company wildcard, it is not a state
+            // CalendarLeave can persist at all under its strict_company
+            // contract (#138 A4I, closes the cross-company leak this
+            // wildcard produced).
+            ->when(! $anyCalendar, fn ($q) => $q->where('calendar_id', $this->id))
             ->where(function ($q) use ($resourcesByType) {
                 $q->whereNull('resource_id');
                 foreach ($resourcesByType as $type => $ids) {
@@ -417,6 +586,15 @@ class Calendar extends Model
                         ! $leaveResource
                         && $resource
                         && $resource->company_id !== $leaveCompany?->id
+                    )
+                    || (
+                        ! $leaveResource
+                        && ! $resource
+                        && $anonymousBucketCompanyId !== self::LEAVE_BUCKET_UNRESTRICTED
+                        && (
+                            $anonymousBucketCompanyId === self::LEAVE_BUCKET_EMPTY
+                            || (int) $leaveCompany?->id !== $anonymousBucketCompanyId
+                        )
                     )
                 ) {
                     continue;

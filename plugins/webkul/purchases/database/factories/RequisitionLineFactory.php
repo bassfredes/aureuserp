@@ -41,6 +41,9 @@ class RequisitionLineFactory extends Factory
     public function definition(): array
     {
         return [
+            // withoutGlobalScope: reads the related Requisition's real
+            // company_id to build a coherent fixture — authoritative read of
+            // an already-known id, not a general visibility grant.
             'company_id' => fn (array $attributes) => Requisition::withoutGlobalScope(CompanyScope::class)
                 ->find($attributes['requisition_id'] ?? null)?->company_id,
             'product_id' => fn (array $attributes) => Product::factory()->create([

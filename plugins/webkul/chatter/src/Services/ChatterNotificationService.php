@@ -7,11 +7,13 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Throwable;
 use Webkul\Chatter\Mail\MessageMail;
+use Webkul\Chatter\Models\Follower;
 use Webkul\Chatter\Models\Message;
 use Webkul\Chatter\Notifications\ChatterDatabaseNotification;
 use Webkul\Chatter\Support\ChatterMentions;
 use Webkul\Partner\Models\Partner;
 use Webkul\Security\Models\User;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 class ChatterNotificationService
 {
@@ -32,7 +34,24 @@ class ChatterNotificationService
             return;
         }
 
-        $followers = $record->followers()->with('partner')->get();
+        // withoutGlobalScope: this is an authoritative system read, not a
+        // user session read. Once $record has resolved (the early return
+        // above already covers the case where it can't), the ambient
+        // CompanyScope reflects the executing process's own session/
+        // CompanyContext, not the followers' actual company — a queued
+        // listener or console process notifying on behalf of a record it
+        // has already legitimately resolved must still see all of that
+        // record's real followers regardless of its own scope. Authorization
+        // is not weakened by the bypass: followerBelongsToMessageCompany()
+        // below is this method's own explicit, narrower check (follower
+        // company_id must match the message's owner-derived company_id)
+        // and does not depend on CompanyScope at all — same "read broadly,
+        // authorize narrowly" pattern as ValidatesRelatedCompanyScope.
+        $followers = $record->followers()
+            ->withoutGlobalScope(CompanyScope::class)
+            ->with('partner')
+            ->get()
+            ->filter(fn (Follower $follower) => $this->followerBelongsToMessageCompany($follower, $message));
 
         if ($followers->isEmpty()) {
             return;
@@ -115,7 +134,7 @@ class ChatterNotificationService
 
         $excludedIds = array_merge([$causerUserId, $assignedUserId], $mentionedUserIds);
 
-        $recipients = $this->resolveFollowerUsers($record, $excludedIds);
+        $recipients = $this->resolveFollowerUsers($record, $message, $excludedIds);
 
         if ($recipients->isEmpty()) {
             return;
@@ -249,18 +268,43 @@ class ChatterNotificationService
         ));
     }
 
-    protected function resolveFollowerUsers(Model $record, array $excludedIds)
+    protected function resolveFollowerUsers(Model $record, Message $message, array $excludedIds)
     {
         $excludedIds = array_filter($excludedIds);
 
+        // withoutGlobalScope: same rationale as viaEmail() above.
         return $record->followers()
+            ->withoutGlobalScope(CompanyScope::class)
             ->with('partner.user')
             ->get()
+            ->filter(fn (Follower $follower) => $this->followerBelongsToMessageCompany($follower, $message))
             ->map(fn ($follower) => $follower->partner?->user)
             ->filter()
             ->reject(fn (User $user) => in_array((int) $user->id, array_map('intval', $excludedIds), true))
             ->unique('id')
             ->values();
+    }
+
+    /**
+     * Closes the cross-company notification leak Codex flagged in the #138
+     * PR4 adversarial review (2026-08-03): this used to load every
+     * follower of $record and email/notify all of them regardless of which
+     * company the triggering Message actually belongs to — a follower of
+     * company A could receive email/database notifications for a message
+     * created in company B. Strict equality is intentional and sufficient:
+     * both Follower.company_id and Message.company_id are independently
+     * derived from the very same `$record` (see ResolvesChatterCompany), so
+     * a legitimately shared/company_or_shared record naturally produces
+     * null on both sides — no special-casing needed to keep those visible,
+     * and any other null/non-null asymmetry is exactly the data-drift
+     * scenario (e.g. a not-yet-backfilled legacy row) this must reject.
+     */
+    protected function followerBelongsToMessageCompany(Follower $follower, Message $message): bool
+    {
+        $followerCompanyId = $follower->company_id !== null ? (int) $follower->company_id : null;
+        $messageCompanyId = $message->company_id !== null ? (int) $message->company_id : null;
+
+        return $followerCompanyId === $messageCompanyId;
     }
 
     protected function resolveTypeMeta(Message $message): array

@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
+use Webkul\Chatter\Concerns\ResolvesChatterCompany;
 use Webkul\Chatter\Models\Attachment;
 use Webkul\Chatter\Models\Follower;
 use Webkul\Chatter\Models\Message;
@@ -26,6 +27,8 @@ use Webkul\Support\Models\ActivityPlan;
 
 trait HasChatter
 {
+    use ResolvesChatterCompany;
+
     public static function bootHasChatter(): void
     {
         static::created(function (Model $model): void {
@@ -53,6 +56,10 @@ trait HasChatter
                     $this->addFollower($partner);
                 }
             } catch (Throwable $e) {
+                // Includes AuthorizationException from resolveChatterCompanyId()
+                // for an actorless write on a global-owner record with no
+                // company scope of its own (e.g. Partner) — expected,
+                // intentional fail-closed swallow, not a bug.
                 report($e);
             }
         }
@@ -298,6 +305,10 @@ trait HasChatter
                 }
             }
         } catch (Throwable $e) {
+            // Includes AuthorizationException from resolveChatterCompanyId()
+            // for an actorless write on a global-owner record with no
+            // company scope of its own (e.g. Partner) — expected,
+            // intentional fail-closed swallow, not a bug.
             report($e);
         }
     }
@@ -418,11 +429,17 @@ trait HasChatter
 
         $user = Filament::auth()->user() ?? Auth::user();
 
+        // company_id is intentionally NOT set here from the acting user
+        // (#138 PR4 chatter gap, 2026-08-03 Codex adversarial review): the
+        // acting user's own default company is not necessarily the company
+        // of the record being commented on. Message::applyChatterOwnerCompany()
+        // derives it from `messageable` on save; a $data['company_id'] left
+        // in place by a caller (e.g. replyToMessage()) is only ever used
+        // there as a cross-check, rejected on mismatch, never trusted.
         $message->fill(array_merge([
             'date_deadline' => $data['date_deadline'] ?? now(),
             'causer_type'   => $user?->getMorphClass(),
             'causer_id'     => $user?->id,
-            'company_id'    => $data['company_id'] ?? ($user?->defaultCompany?->id ?? null),
         ], $data));
 
         $this->messages()->save($message);
@@ -682,9 +699,19 @@ trait HasChatter
 
     public function addFollower(Partner $partner): Follower
     {
+        // Pre-derive company_id here too (not just inside Follower's own
+        // saving hook, #138 PR4 chatter gap) so an unresolvable owner
+        // fails at the same call site addDefaultChatterFollowers()/
+        // syncResponsibleChatterFollower() already wrap in try/catch,
+        // rather than surfacing only once the relation's create() runs.
+        $owner = $this->resolveChatterMessageOwner();
+
         return $this->followers()->firstOrCreate(
             ['partner_id' => $partner->id],
-            ['followed_at' => now()],
+            [
+                'followed_at' => now(),
+                'company_id'  => static::resolveChatterCompanyId($owner),
+            ],
         );
     }
 

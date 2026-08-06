@@ -4,6 +4,9 @@ namespace Webkul\Sale\Http\Requests;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rule;
+use Webkul\Sale\Models\Tag;
 
 class TagRequest extends FormRequest
 {
@@ -26,8 +29,29 @@ class TagRequest extends FormRequest
         $requiredRule = $isUpdate ? ['sometimes', 'required'] : ['required'];
         $tagId = $this->route('tag');
 
+        // Name uniqueness is scoped per company (#138 PR4 A4K): the same
+        // name may legitimately exist in two different companies, only a
+        // duplicate within the SAME company is a conflict. On create, the
+        // effective company is the one Tag::creating() will assign (the
+        // acting user's default company); on update, it's the tag's own
+        // already-persisted company_id.
+        $effectiveCompanyId = $tagId
+            ? Tag::find($tagId)?->company_id
+            : Auth::user()?->default_company_id;
+
         return [
-            'name'  => [...$requiredRule, 'string', 'max:255', 'unique:sales_tags,name,'.($tagId ?: 'NULL').',id'],
+            'name' => [
+                ...$requiredRule,
+                'string',
+                'max:255',
+                Rule::unique('sales_tags', 'name')
+                    ->where(function ($query) use ($effectiveCompanyId) {
+                        $effectiveCompanyId === null
+                            ? $query->whereNull('company_id')
+                            : $query->where('company_id', $effectiveCompanyId);
+                    })
+                    ->ignore($tagId, 'id'),
+            ],
             'color' => ['nullable', 'string', 'max:7'],
         ];
     }

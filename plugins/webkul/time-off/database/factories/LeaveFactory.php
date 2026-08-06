@@ -7,7 +7,6 @@ use Webkul\Employee\Models\Department;
 use Webkul\Employee\Models\Employee;
 use Webkul\Security\Models\User;
 use Webkul\Support\Models\Calendar;
-use Webkul\Support\Models\Company;
 use Webkul\TimeOff\Enums\RequestDateFromPeriod;
 use Webkul\TimeOff\Enums\State;
 use Webkul\TimeOff\Models\Leave;
@@ -28,7 +27,12 @@ class LeaveFactory extends Factory
     public function definition(): array
     {
         $requestDateFrom = fake()->dateTimeBetween('now', '+30 days');
-        $requestDateTo = fake()->dateTimeBetween($requestDateFrom, '+7 days');
+        // '+7 days' is relative to *now*, not $requestDateFrom — when
+        // $requestDateFrom itself landed past now+7 days (most of the
+        // time, since it's drawn from a 30-day window), the range was
+        // inverted and Faker threw. Never hit before this factory's first
+        // real invocation (#138 PR4 ola4B, unrelated to company-scope).
+        $requestDateTo = fake()->dateTimeBetween($requestDateFrom, (clone $requestDateFrom)->modify('+7 days'));
         $numberOfDays = $requestDateFrom->diff($requestDateTo)->days + 1;
 
         return [
@@ -36,8 +40,12 @@ class LeaveFactory extends Factory
             'manager_id'               => null,
             'holiday_status_id'        => LeaveType::factory(),
             'employee_id'              => Employee::factory(),
+            // Both derived from employee_id's own company at save time
+            // (#138 PR4 ola4B) — an independently generated Company here
+            // would conflict with the Employee's and trip the model's
+            // relation-integrity check.
             'employee_company_id'      => null,
-            'company_id'               => Company::factory(),
+            'company_id'               => null,
             'department_id'            => null,
             'calendar_id'              => null,
             'meeting_id'               => null,

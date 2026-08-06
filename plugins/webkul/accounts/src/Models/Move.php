@@ -456,6 +456,11 @@ class Move extends Model implements Sortable
             $move->computeInvoiceDateDue();
 
             $move->computePaymentState();
+
+            // partner_bank_id must belong to partner_id and be enabled for
+            // this Move's own company (#138 PR4 ola4B, approved contract).
+            BankAccount::assertBelongsToPartner($move->partner_bank_id, $move->partner_id, 'Partner Bank Account');
+            BankAccount::assertEnabledForCompany($move->partner_bank_id, $move->company_id, 'Partner Bank Account');
         });
     }
 
