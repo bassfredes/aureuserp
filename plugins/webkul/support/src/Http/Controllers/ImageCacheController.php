@@ -92,7 +92,7 @@ class ImageCacheController
          */
         $eTag = md5($decodedContent);
 
-        $notModified = isset($_SERVER['HTTP_IF_NONE_MATCH']) && $_SERVER['HTTP_IF_NONE_MATCH'] == $eTag;
+        $notModified = isset($_SERVER['HTTP_IF_NONE_MATCH']) && $_SERVER['HTTP_IF_NONE_MATCH'] === $eTag;
 
         $responseContent = $notModified ? null : $decodedContent;
 
