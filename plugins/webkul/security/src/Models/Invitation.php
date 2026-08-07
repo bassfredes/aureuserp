@@ -12,20 +12,36 @@ use Webkul\Security\Database\Factories\InvitationFactory;
 use Webkul\Support\Models\Company;
 use Webkul\Support\Models\Scopes\CompanyScope;
 use Webkul\Support\Services\CompanyContext;
+use Webkul\Support\Traits\HasCompanyScope;
 
 /**
  * company_id is captured from the inviting actor's own authorized company
  * at issue time and carried through unchanged to the accepted User — see
- * AcceptInvitation::create(). Deliberately does NOT use HasCompanyScope:
- * the accept route is guest-accessible by design (signed URL, no
- * authenticated actor, see routes/web.php), and CompanyScope's global
- * scope fails closed with no user/context — enabling it here would 404
- * every legitimate invitee (#138 PR4 ola4B). The signed URL itself, plus
- * the not-accepted/not-expired checks in AcceptInvitation, are the accept
- * path's authorization — the same shape as the documented Partner/
- * customer-guard portal bypass (ADR 0007).
+ * AcceptInvitation::create().
  *
- * Also deliberately does NOT use HasStrictCompanyId: that trait
+ * Reads ARE company-scoped (HasCompanyScope, #264): an authenticated actor
+ * of company A must not be able to resolve, list or enumerate an
+ * invitation issued by company B. This closes the last real gap of the
+ * #138 PR4 inventory, which had accepted it as a time-boxed risk on the
+ * grounds that no listing surface existed yet — an argument about today's
+ * callers, never about the model's own isolation.
+ *
+ * The guest accept route is the one narrow, explicit exception. It runs
+ * with no authenticated actor and no CompanyContext, which is exactly the
+ * shape CompanyScope fails closed on — left to the global scope it would
+ * 404 every legitimate invitee. So AcceptInvitation resolves its row
+ * through `withoutGlobalScope(CompanyScope::class)` at both of its read
+ * points (mount() and the locked read inside create()'s transaction).
+ * That bypass is safe because company membership was never that route's
+ * authorization: the signed URL plus assertTokenMatches() is — a
+ * constant-time hash_equals() that fails closed on an empty or non-string
+ * token and is re-checked inside the mutating transaction against the row
+ * locked for update (hardened in commit a32f381f0). Both bypassed reads
+ * resolve exactly one row by primary key, never a listing, so neither can
+ * enumerate. Same shape as the documented Partner/customer-guard portal
+ * bypass (ADR 0007).
+ *
+ * Deliberately does NOT use HasStrictCompanyId: that trait
  * re-authorizes company_id on EVERY save, including updates with no actor
  * at all — which is exactly what the guest accept flow's own
  * `accepted_at` update is. A bespoke boot() below authorizes company_id
@@ -37,6 +53,7 @@ use Webkul\Support\Services\CompanyContext;
  */
 class Invitation extends Model
 {
+    use HasCompanyScope;
     use HasFactory;
 
     protected $table = 'user_invitations';

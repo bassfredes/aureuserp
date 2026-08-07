@@ -75,6 +75,88 @@ it('defaults token, invited_by, and a 7-day expires_at on creation', function ()
         ->and($invitation->expires_at->diffInDays(now()))->toBeLessThanOrEqual(7);
 });
 
+// ── aislamiento de lectura (HasCompanyScope, #264) ────────────────────────
+// Hasta #264 Invitation era el último real_gap del inventario de #138 PR4:
+// tenía company_id y guardas de escritura a medida, pero ninguna
+// restricción de lectura — un actor autenticado de la compañía A podía
+// resolver una invitación de B con solo conocer su id. Estos casos son la
+// evidencia de que el gap quedó cerrado.
+
+/** @return array{0: Company, 1: Company, 2: Invitation, 3: Invitation} */
+function invitationsInTwoCompanies(): array
+{
+    $companyA = Company::factory()->create();
+    $companyB = Company::factory()->create();
+
+    $invitationA = CompanyContext::runForCompany(
+        $companyA->id, reason: 'fixture', caller: __FILE__,
+        callback: fn () => Invitation::factory()->create(['company_id' => $companyA->id]),
+    );
+    $invitationB = CompanyContext::runForCompany(
+        $companyB->id, reason: 'fixture', caller: __FILE__,
+        callback: fn () => Invitation::factory()->create(['company_id' => $companyB->id]),
+    );
+
+    return [$companyA, $companyB, $invitationA, $invitationB];
+}
+
+it('hides another company\'s invitations from an authenticated actor', function () {
+    [$companyA, , $invitationA, $invitationB] = invitationsInTwoCompanies();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => $companyA->id]));
+    test()->actingAs($user);
+
+    expect(Invitation::query()->pluck('id')->all())
+        ->toContain($invitationA->id)
+        ->not->toContain($invitationB->id);
+
+    // Knowing the id is the actual IDOR shape — visibility, not just the
+    // listing, is what must fail.
+    expect(Invitation::find($invitationB->id))->toBeNull();
+});
+
+it('shows no invitation at all to an authenticated user with no company (fail closed)', function () {
+    invitationsInTwoCompanies();
+
+    $user = User::withoutEvents(fn () => User::factory()->create(['default_company_id' => null]));
+    test()->actingAs($user);
+
+    expect(Invitation::query()->count())->toBe(0);
+});
+
+it('shows no invitation with no authenticated user and no CompanyContext (fail closed)', function () {
+    invitationsInTwoCompanies();
+
+    expect(Invitation::query()->count())->toBe(0);
+});
+
+it('shows only the context company\'s invitations under CompanyContext::COMPANY', function () {
+    [$companyA, , $invitationA, $invitationB] = invitationsInTwoCompanies();
+
+    $visible = CompanyContext::runForCompany(
+        $companyA->id, reason: 'read isolation assertion', caller: __FILE__,
+        callback: fn () => Invitation::query()->pluck('id')->all(),
+    );
+
+    expect($visible)->toContain($invitationA->id)->not->toContain($invitationB->id);
+});
+
+it('shows every company\'s invitations under the all_companies and bootstrap contexts', function () {
+    [, , $invitationA, $invitationB] = invitationsInTwoCompanies();
+
+    $underAllCompanies = CompanyContext::runForAllCompanies(
+        reason: 'read isolation assertion', caller: __FILE__,
+        callback: fn () => Invitation::query()->pluck('id')->all(),
+    );
+    $underBootstrap = CompanyContext::runForBootstrap(
+        reason: 'read isolation assertion', caller: __FILE__,
+        callback: fn () => Invitation::query()->pluck('id')->all(),
+    );
+
+    expect($underAllCompanies)->toContain($invitationA->id)->toContain($invitationB->id)
+        ->and($underBootstrap)->toContain($invitationA->id)->toContain($invitationB->id);
+});
+
 // ── isExpired() / isAccepted() ────────────────────────────────────────────
 
 it('reports isExpired() and isAccepted() from persisted state', function () {
@@ -91,7 +173,30 @@ it('reports isExpired() and isAccepted() from persisted state', function () {
         ->and($accepted->isAccepted())->toBeTrue();
 });
 
-// ── guest accept flow: no HasCompanyScope lockout, expiry/consumed enforced ──
+// ── guest accept flow: explicit CompanyScope bypass, expiry/consumed enforced ──
+// The guest route has no actor and no CompanyContext, exactly the shape
+// CompanyScope fails closed on, so AcceptInvitation resolves its single row
+// through withoutGlobalScope(CompanyScope::class) at both read points
+// (#264). These cases are what stops that bypass from being dropped: the
+// same read that must return nothing through the scope must still resolve
+// through the route.
+
+it('resolves the guest\'s own invitation through the accept route even though the plain scoped query cannot see it', function () {
+    $companyA = Company::factory()->create();
+    $invitation = CompanyContext::runForCompany(
+        $companyA->id, reason: 'fixture', caller: __FILE__,
+        callback: fn () => Invitation::factory()->create(['company_id' => $companyA->id, 'accepted_at' => null, 'expires_at' => now()->addDay()]),
+    );
+
+    // Guest, no context: the global scope fails closed, as it must.
+    expect(Invitation::find($invitation->id))->toBeNull();
+
+    // The very same guest, arriving through the route with the token the
+    // signed link carries, still gets their invitation.
+    Livewire::test(AcceptInvitation::class, ['invitation' => $invitation->id, 'token' => $invitation->token])
+        ->assertStatus(200)
+        ->assertSet('data.email', $invitation->email);
+});
 
 it('lets an unauthenticated guest resolve a fresh invitation via the signed accept route', function () {
     $companyA = Company::factory()->create();

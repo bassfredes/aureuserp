@@ -16,6 +16,7 @@ use Webkul\Project\Filament\Pages\Dashboard;
 use Webkul\Security\Models\Invitation;
 use Webkul\Security\Models\User;
 use Webkul\Security\Settings\UserSettings;
+use Webkul\Support\Models\Scopes\CompanyScope;
 
 class AcceptInvitation extends SimplePage
 {
@@ -51,7 +52,14 @@ class AcceptInvitation extends SimplePage
     {
         $this->token = $token ?? request()->query('token');
 
-        $this->invitationModel = Invitation::findOrFail($this->invitation);
+        // Invitation is company-scoped for every authenticated reader
+        // (#264), but this route is guest-only: no actor, no
+        // CompanyContext — the exact shape CompanyScope fails closed on,
+        // which would 404 every legitimate invitee. Bypass it explicitly.
+        // Company membership is not this route's authorization;
+        // assertTokenMatches() below is, and this read resolves exactly
+        // one row by primary key, so it can never enumerate.
+        $this->invitationModel = Invitation::withoutGlobalScope(CompanyScope::class)->findOrFail($this->invitation);
 
         $this->assertTokenMatches($this->invitationModel);
 
@@ -126,7 +134,10 @@ class AcceptInvitation extends SimplePage
             // the same still-valid signed URL — without it, both could
             // pass the not-accepted/not-expired checks below and both
             // create a User from the same Invitation (#138 PR4 ola4B).
-            $invitation = Invitation::query()->lockForUpdate()->findOrFail($this->invitation);
+            // Same explicit, guest-route-only CompanyScope bypass as
+            // mount() (#264) — and for the same reason: the authorization
+            // re-anchored right below is the token, not the company.
+            $invitation = Invitation::withoutGlobalScope(CompanyScope::class)->lockForUpdate()->findOrFail($this->invitation);
 
             // Re-anchor authorization here, inside the mutation's own
             // transaction, against the row actually locked for update —
