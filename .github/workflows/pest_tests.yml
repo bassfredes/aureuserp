@@ -231,9 +231,21 @@ jobs:
 
       - name: Running global company-scope audit
         run: |
+          # --fail-on-missing, not --fail-on-unapproved-gaps (#264): the strict
+          # zero-gap certification became satisfiable once Invitation — the last
+          # real gap — was actually isolated instead of deferred behind an
+          # accepted-risk entry. It subsumes the older gate (every unapproved gap
+          # is also a real gap), so passing both would be redundant.
+          #
+          # The escalation changes what the accepted-risk registry buys: an entry
+          # in config/company-scope-accepted-risks.php still documents a gap and
+          # annotates its row, but no longer keeps CI green. A new real gap breaks
+          # this job regardless of who signed off. Going back to
+          # --fail-on-unapproved-gaps is an explicit owner-level decision to
+          # reopen that escape hatch, not a cleanup.
           php scripts/audit-company-scope.php \
             --format=json \
-            --fail-on-unapproved-gaps \
+            --fail-on-missing \
             > company-scope-audit.json
           cat company-scope-audit.json
           # The single quotes below are required: they wrap PHP source, and $summary

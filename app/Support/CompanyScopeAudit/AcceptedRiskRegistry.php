@@ -19,6 +19,11 @@ namespace App\Support\CompanyScopeAudit;
  * `real_gap_*` row, only additionally annotated with an
  * `accepted_risk_status`. This registry documents WHO accepted the risk,
  * WHY, and UNTIL WHEN, never that the gap is actually isolated.
+ *
+ * Since #264 the CI workflow gates on `--fail-on-missing`, so an entry
+ * here no longer buys a green build: it records a deferral that is
+ * already breaking CI. The flag it governs still exists and is still
+ * tested, but it is no longer what the pipeline runs.
  */
 final class AcceptedRiskRegistry
 {

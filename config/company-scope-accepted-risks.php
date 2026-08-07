@@ -11,11 +11,20 @@ declare(strict_types=1);
  * AcceptedRiskRegistry's backing config file (#138 PR4, Codex
  * adversarial-review recommendation, 2026-08-03).
  *
+ * SINCE #264, AN ENTRY HERE NO LONGER KEEPS CI GREEN. The workflow gate
+ * was escalated from `--fail-on-unapproved-gaps` to `--fail-on-missing`
+ * once the last real gap was closed for real, so the strict zero-gap
+ * certification became satisfiable. Registering a gap here still
+ * documents it, annotates its row and keeps it visible — but CI fails on
+ * a real gap regardless of who signed off. Treat a new entry as a record
+ * of a deliberate deferral that will break the build until resolved, not
+ * as a way to ship past the auditor.
+ *
  * An entry here changes ONLY the exit policy of
  * `php scripts/audit-company-scope.php --fail-on-unapproved-gaps`:
- *   - `--fail-on-missing` stays a strict, zero-gap certification and is
- *     entirely unaffected by this file — it still exits 1 for ANY real
- *     gap, registered here or not.
+ *   - `--fail-on-missing` is a strict, zero-gap certification and is
+ *     entirely unaffected by this file — it exits 1 for ANY real gap,
+ *     registered here or not. It is the CI gate as of #264.
  *   - a registered, non-expired entry only changes
  *     `--fail-on-unapproved-gaps`'s exit code; the row is never
  *     reclassified to `classified_exception` and is never hidden from
@@ -39,9 +48,11 @@ declare(strict_types=1);
  * review interval was found (checked AGENTS.md and docs/security/*.md
  * for precedent). Six months from the date an entry is added/renewed is
  * used as a deliberately short default, so an accepted risk cannot
- * silently coast for years next to a `--fail-on-unapproved-gaps` CI gate
- * — each renewal is meant to be a conscious re-review, never an
- * automatic extension.
+ * silently coast for years — each renewal is meant to be a conscious
+ * re-review, never an automatic extension. Under the #264 gate the
+ * pressure is stronger still: the build is already red while the entry
+ * exists, so the deferral is visible from the first push, not only at
+ * `review_by`.
  *
  * Currently EMPTY, and that is the intended steady state. Its only entry
  * ever was Webkul\Security\Models\Invitation (added 2026-08-03, #138 PR4),

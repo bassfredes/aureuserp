@@ -1590,4 +1590,25 @@ docs/security/company-scope-pr4-inventory.json (regeneracion de campos de riesgo
   mantener un gap real en el repositorio solo para poder probarlo. (9) Derivable, no ejecutado
   aqui por estar fuera de alcance: InvitationResource (Http/Resources/V1/InvitationResource.php)
   sigue confirmado sin referencias — codigo muerto candidato a borrado en su propio paquete.
+
+Gate de CI endurecido a --fail-on-missing (#264, 2026-08-07, decision del owner tras cerrar
+  el ultimo gap real): .github/workflows/pest_tests.yml deja de invocar el auditor con
+  --fail-on-unapproved-gaps y pasa a --fail-on-missing. Motivo: esa certificacion estricta de
+  cero gaps era insatisfacible mientras Invitation siguiera abierta, y por eso el workflow
+  gateaba con la variante mas laxa; al cerrarse el gap de verdad paso a exit 0 y ya es
+  sostenible. No se pasan ambas flags: --fail-on-missing subsume a --fail-on-unapproved-gaps,
+  porque todo gap no aprobado es tambien un gap real, y pasar las dos seria redundante.
+  Consecuencia semantica, que es lo que de verdad cambia: una entrada en
+  config/company-scope-accepted-risks.php ya NO mantiene el build verde. Sigue documentando el
+  gap, anotando su fila con accepted_risk_status y manteniendolo visible en tabla y JSON, pero
+  CI falla ante cualquier gap real con independencia de quien lo haya firmado. Antes existia la
+  via "registro el riesgo y sigo"; ahora registrar un riesgo es dejar constancia de un
+  aplazamiento que ya esta rompiendo el build, visible desde el primer push y no solo al llegar
+  review_by. Volver a --fail-on-unapproved-gaps queda como decision explicita de nivel owner
+  para reabrir esa valvula, no como limpieza. La flag --fail-on-unapproved-gaps no se elimina
+  del script ni de sus tests: sus ramas unregistered/expired/approved se siguen ejercitando
+  contra un gap fabricado desde un manifest fixture. Alcance: solo la linea del workflow mas los
+  docblocks de config/company-scope-accepted-risks.php y AcceptedRiskRegistry.php, que
+  declaraban cual era el gate vinculante y habian quedado desfasados. Sin cambios de codigo de
+  produccion ni del auditor.
 ```
