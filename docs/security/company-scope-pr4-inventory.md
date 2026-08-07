@@ -1535,4 +1535,59 @@ docs/security/company-scope-pr4-inventory.json (regeneracion de campos de riesgo
   (--fail-on-unapproved-gaps): sin esta regeneracion, ese step de CI habria fallado por el drift
   de shape del snapshot, no por ningun gap real nuevo. Sin dispatch de CI remoto: validacion
   100% local.
+#264 (2026-08-07, rama fix/company-scope-invitation-264 sobre 45069c3dc): Invitation aislada por
+  compañia, riesgo aceptado retirado, inventario en cero gaps reales. Cierra — no renueva ni
+  reclasifica — la unica entrada que tuvo el registro de riesgos aceptados. Las dos entradas
+  anteriores sobre Invitacion siguen siendo el registro historico correcto de por que el gap se
+  acepto en su momento; lo que sigue es su cierre, no una correccion de aquel razonamiento.
+  Aquella aceptacion se apoyaba en un argumento sobre los llamadores que existian entonces (sin
+  superficie de listado, InvitationResource codigo muerto), nunca sobre el aislamiento propio del
+  modelo: mientras Invitation::query() estuviera sin escopar, un actor autenticado de la compañia
+  A podia leer una invitacion de B con solo conocer su id, y el argumento se caia el dia que
+  alguien agregara la primera pantalla de listado. (1) `Webkul\Security\Models\Invitation` usa
+  ahora HasCompanyScope. (2) La trampa que mantuvo el gap abierto — la ruta de aceptacion es de
+  invitado, sin actor ni CompanyContext, exactamente la forma en que CompanyScope falla cerrado,
+  de modo que el scope a secas devolveria 404 a todo invitado legitimo — se resuelve con un
+  bypass explicito y acotado: AcceptInvitation resuelve su fila con
+  `withoutGlobalScope(CompanyScope::class)` en sus DOS puntos de lectura (mount() y la lectura
+  con lockForUpdate() dentro de la transaccion de create()). El bypass es seguro porque la
+  pertenencia a compañia nunca fue la autorizacion de esa ruta: lo es la URL firmada mas
+  assertTokenMatches() (hash_equals en tiempo constante, falla cerrado ante token vacio o
+  no-string, revalidado dentro de la transaccion contra la fila bloqueada — endurecido en
+  a32f381f0), y ambas lecturas resuelven exactamente una fila por PK, jamas un listado, asi que
+  no habilitan enumeracion. Intactos `#[Locked]`, el lockForUpdate() y la revalidacion del token:
+  son la autorizacion real. (3) Guards de escritura de boot() sin tocar (creating exige company_id
+  y llama assertCanWriteCompany(); updating prohibe el cambio de compañia y reautoriza cuando hay
+  actor o CompanyContext) — el gap era exclusivamente de lectura. (4) Docblock del modelo
+  reescrito: ya no afirma "Deliberately does NOT use HasCompanyScope"; documenta lectura escopada
+  para actores autenticados y el bypass acotado de la ruta guest. Se conserva integro el
+  razonamiento de por que sigue sin usar HasStrictCompanyId (ese trait reautoriza en cada save()
+  incluso sin actor, que es justo lo que hace el update de accepted_at del invitado). (5)
+  config/company-scope-accepted-risks.php queda vacio (`return []`), con su docblock explicando
+  que el vacio es el estado esperado y no una desactivacion del mecanismo; AcceptedRiskRegistry
+  tolera el registro vacio sin cambios (entries()=[], has()=false, get()=null, cero violaciones)
+  y el auditor no revienta. (6) Transicion exacta del inventario, verificada fila por fila contra
+  el JSON committeado: total 304 sin cambio, scoped 151→152, classified_exceptions 152 sin cambio,
+  real_gaps_with_company_id 1→0, real_gaps_without_company_id 0 sin cambio, table_missing 0,
+  inspection_errors 0, manifest_violations 0, accepted_risks 1→0, unapproved_gaps 0 sin cambio,
+  accepted_risk_violations 0. Exactamente UNA fila cambia (Webkul\Security\Models\Invitation:
+  uses_company_scope false→true, status missing_scope→scoped, effective_status
+  real_gap_company_column→scoped, accepted_risk_status "approved"→null); las otras 303 quedan
+  identicas campo a campo, cero filas agregadas o quitadas, lista de plugins sin cambio. (7)
+  `--fail-on-missing` pasa a exit 0 por primera vez desde que existe el auditor: la certificacion
+  estricta de cero gaps es ahora satisfacible, no solo aspiracional. `--fail-on-unapproved-gaps`
+  sigue en exit 0. Auditor fresh x2 sobre la misma base recreada: byte a byte identicos
+  (md5 aaa1a3347177a73fc8be50d450a0ae0f). (8) Tests: 6 casos nuevos en InvitationCompanyScopeTest
+  (aislamiento de lectura entre compañias incluyendo find() por id conocido, fail-closed para
+  usuario sin compañias, fail-closed sin usuario ni contexto, CompanyContext::COMPANY acotado,
+  all_companies/bootstrap ven todo, y el caso decisivo del bypass: la misma fila que la consulta
+  escopada NO puede ver como invitado se resuelve igual por la ruta con su token). Los casos
+  guest y de escritura preexistentes se conservan sin modificacion y siguen verdes: son la
+  evidencia de no-regresion. En CompanyScopeAuditorTest, los casos de CLI que dependian de que
+  Invitation fuera el unico gap real se reencuadran: el shipped ahora certifica cero gaps, y las
+  ramas unregistered/expired/approved del registro se ejercitan contra un gap fabricado desde un
+  manifest fixture (Webkul\Security\Models\Company sin su entrada alias), para no tener que
+  mantener un gap real en el repositorio solo para poder probarlo. (9) Derivable, no ejecutado
+  aqui por estar fuera de alcance: InvitationResource (Http/Resources/V1/InvitationResource.php)
+  sigue confirmado sin referencias — codigo muerto candidato a borrado en su propio paquete.
 ```

@@ -29,14 +29,14 @@
     ],
     "summary": {
         "total": 304,
-        "scoped": 151,
+        "scoped": 152,
         "classified_exceptions": 152,
-        "real_gaps_with_company_id": 1,
+        "real_gaps_with_company_id": 0,
         "real_gaps_without_company_id": 0,
         "table_missing": 0,
         "inspection_errors": 0,
         "manifest_violations": 0,
-        "accepted_risks": 1,
+        "accepted_risks": 0,
         "unapproved_gaps": 0,
         "accepted_risk_violations": 0
     },
@@ -3479,12 +3479,12 @@
             "file": "plugins/webkul/security/src/Models/Invitation.php",
             "table": "user_invitations",
             "has_company_id": true,
-            "uses_company_scope": false,
-            "status": "missing_scope",
+            "uses_company_scope": true,
+            "status": "scoped",
             "error": null,
             "classification": null,
-            "effective_status": "real_gap_company_column",
-            "accepted_risk_status": "approved"
+            "effective_status": "scoped",
+            "accepted_risk_status": null
         },
         {
             "plugin": "security",
