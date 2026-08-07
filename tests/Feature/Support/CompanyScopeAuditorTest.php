@@ -12,6 +12,7 @@ use Webkul\Account\Models\Customer as AccountCustomer;
 use Webkul\Invoice\Models\Category;
 use Webkul\Partner\Models\Partner;
 use Webkul\Purchase\Models\Category as PurchaseCategory;
+use Webkul\Security\Models\Company as SecurityCompanyAlias;
 use Webkul\Security\Models\Invitation;
 use Webkul\Support\Models\Currency;
 use Webkul\Support\Traits\HasCompanyScope;
@@ -734,13 +735,19 @@ it('accepts a well-formed accepted-risk entry with no violations', function () {
     expect($auditor->validateAcceptedRiskRegistry($registry))->toBeEmpty();
 });
 
-it('validates the real, shipped accepted-risk registry with no violations', function () {
+it('validates the real, shipped accepted-risk registry with no violations, and finds it empty', function () {
     $auditor = new Auditor;
     $registry = AcceptedRiskRegistry::default();
 
     expect($auditor->validateAcceptedRiskRegistry($registry))->toBeEmpty();
-    expect($registry->has(Invitation::class))->toBeTrue();
-    expect($registry->get(Invitation::class)['table'])->toBe('user_invitations');
+
+    // Its only entry ever was Invitation, retired by #264 once the gap was
+    // actually closed rather than renewed. An empty registry is the
+    // intended steady state — and it must stay a valid, loadable one, not
+    // a shape the auditor only tolerated because something was in it.
+    expect($registry->entries())->toBe([]);
+    expect($registry->has(Invitation::class))->toBeFalse();
+    expect($registry->get(Invitation::class))->toBeNull();
 });
 
 // --- accepted-risk registry: annotation / unapproved-gap accounting ---------
@@ -841,7 +848,7 @@ it('never annotates a non-gap row (scoped/classified_exception) with an accepted
 
 // --- accepted-risk registry: real CLI orchestration (--fail-on-unapproved-gaps) ---
 
-it('the real CLI script exits 0 for --fail-on-unapproved-gaps against the shipped manifest and registry, with Invitation as the only, approved gap', function () {
+it('the real CLI script exits 0 for --fail-on-unapproved-gaps against the shipped manifest and registry, with no gap left to approve', function () {
     $process = new Process(
         [PHP_BINARY, base_path('scripts/audit-company-scope.php'), '--plugins=security', '--format=json', '--fail-on-unapproved-gaps'],
         base_path(),
@@ -854,17 +861,24 @@ it('the real CLI script exits 0 for --fail-on-unapproved-gaps against the shippe
     $payload = json_decode($process->getOutput(), true);
     expect($payload['manifest_violations'])->toBe([]);
     expect($payload['accepted_risk_violations'])->toBe([]);
-    expect($payload['summary']['real_gaps_with_company_id'])->toBe(1);
+    expect($payload['summary']['real_gaps_with_company_id'])->toBe(0);
     expect($payload['summary']['unapproved_gaps'])->toBe(0);
-    expect($payload['summary']['accepted_risks'])->toBe(1);
+    // Zero, not one: until #264 this plugin's Invitation was the sole real
+    // gap in the whole inventory, held open by an accepted-risk entry.
+    expect($payload['summary']['accepted_risks'])->toBe(0);
 
     $invitationRow = collect($payload['rows'])->firstWhere('class', Invitation::class);
     expect($invitationRow)->not->toBeNull();
-    expect($invitationRow['effective_status'])->toBe('real_gap_company_column');
-    expect($invitationRow['accepted_risk_status'])->toBe('approved');
+    expect($invitationRow['effective_status'])->toBe('scoped');
+    expect($invitationRow['accepted_risk_status'])->toBeNull();
 });
 
-it('the real CLI script\'s --fail-on-missing stays strict (exit 1) even though the sole real gap is an approved accepted risk', function () {
+it('the real CLI script\'s --fail-on-missing now passes (exit 0) for security, the plugin that used to hold the last gap', function () {
+    // --fail-on-missing is the strict, zero-gap certification: it exits 1
+    // for ANY real gap, accepted risk or not, which is why it was never
+    // satisfiable while Invitation stood. #264 makes it pass — and this
+    // case is what stops a future gap from quietly reopening it behind an
+    // accepted-risk entry.
     $process = new Process(
         [PHP_BINARY, base_path('scripts/audit-company-scope.php'), '--plugins=security', '--format=json', '--fail-on-missing'],
         base_path(),
@@ -872,12 +886,34 @@ it('the real CLI script\'s --fail-on-missing stays strict (exit 1) even though t
     );
     $process->run();
 
-    expect($process->getExitCode())->toBe(1);
+    expect($process->getExitCode())->toBe(0);
 });
 
-it('the real CLI script exits 1 for --fail-on-unapproved-gaps when the registry has no entry for Invitation', function () {
+/**
+ * The shipped manifest minus SecurityCompanyAlias's `alias` entry, which
+ * turns that model into a real_gap_company_column (it has a company_id
+ * column and no HasCompanyScope) within `--plugins=security`.
+ *
+ * The three CLI cases below need one real gap to drive the accepted-risk
+ * registry's unregistered/expired/approved branches through the actual
+ * script. They used to borrow Invitation, the shipped inventory's last
+ * real gap — #264 closed it, and the inventory now has none at all. A gap
+ * manufactured from a fixture manifest keeps that CLI orchestration
+ * covered without a real one having to exist in the repository to test it.
+ *
+ * @return array<class-string, array<string, mixed>>
+ */
+function manifestWithFixtureGap(): array
+{
+    $entries = ExceptionManifest::default()->entries();
+    unset($entries[SecurityCompanyAlias::class]);
+
+    return $entries;
+}
+
+it('the real CLI script exits 1 for --fail-on-unapproved-gaps when the registry has no entry for the gap', function () {
     $process = runAuditScript(
-        ExceptionManifest::default()->entries(),
+        manifestWithFixtureGap(),
         ['--plugins=security', '--format=json', '--fail-on-unapproved-gaps'],
         [],
     );
@@ -888,17 +924,18 @@ it('the real CLI script exits 1 for --fail-on-unapproved-gaps when the registry 
     expect($payload['summary']['unapproved_gaps'])->toBe(1);
     expect($payload['summary']['accepted_risks'])->toBe(0);
 
-    $invitationRow = collect($payload['rows'])->firstWhere('class', Invitation::class);
-    expect($invitationRow['accepted_risk_status'])->toBe('unregistered');
+    $gapRow = collect($payload['rows'])->firstWhere('class', SecurityCompanyAlias::class);
+    expect($gapRow['effective_status'])->toBe('real_gap_company_column');
+    expect($gapRow['accepted_risk_status'])->toBe('unregistered');
 });
 
-it('the real CLI script exits 1 for --fail-on-unapproved-gaps when Invitation\'s registry entry has expired', function () {
+it('the real CLI script exits 1 for --fail-on-unapproved-gaps when the gap\'s registry entry has expired', function () {
     $process = runAuditScript(
-        ExceptionManifest::default()->entries(),
+        manifestWithFixtureGap(),
         ['--plugins=security', '--format=json', '--fail-on-unapproved-gaps'],
         [
-            Invitation::class => [
-                'table'         => 'user_invitations',
+            SecurityCompanyAlias::class => [
+                'table'         => 'companies',
                 'tracking'      => '#138',
                 'justification' => 'fixture: deliberately expired',
                 'owner'         => 'Fixture Owner',
@@ -912,17 +949,17 @@ it('the real CLI script exits 1 for --fail-on-unapproved-gaps when Invitation\'s
     $payload = json_decode($process->getOutput(), true);
     expect($payload['summary']['unapproved_gaps'])->toBe(1);
 
-    $invitationRow = collect($payload['rows'])->firstWhere('class', Invitation::class);
-    expect($invitationRow['accepted_risk_status'])->toBe('expired');
+    $gapRow = collect($payload['rows'])->firstWhere('class', SecurityCompanyAlias::class);
+    expect($gapRow['accepted_risk_status'])->toBe('expired');
 });
 
-it('the real CLI script exits 0 for --fail-on-unapproved-gaps with a fixture registry entry covering Invitation', function () {
+it('the real CLI script exits 0 for --fail-on-unapproved-gaps with a fixture registry entry covering the gap', function () {
     $process = runAuditScript(
-        ExceptionManifest::default()->entries(),
+        manifestWithFixtureGap(),
         ['--plugins=security', '--format=json', '--fail-on-unapproved-gaps'],
         [
-            Invitation::class => [
-                'table'         => 'user_invitations',
+            SecurityCompanyAlias::class => [
+                'table'         => 'companies',
                 'tracking'      => '#138',
                 'justification' => 'fixture: freshly approved',
                 'owner'         => 'Fixture Owner',
@@ -939,6 +976,10 @@ it('the real CLI script exits 0 for --fail-on-unapproved-gaps with a fixture reg
 });
 
 it('the real CLI script exits 2 on a malformed accepted-risk entry and never warns, before it ever computes a summary', function () {
+    // Deliberately keyed on Invitation, which is no longer a gap at all:
+    // shape validation is fail-fast and runs over every entry before any
+    // gap accounting, so a malformed entry is fatal whether or not the
+    // class it names has anything to accept.
     $process = runAuditScript(
         ExceptionManifest::default()->entries(),
         ['--plugins=security', '--format=json'],
